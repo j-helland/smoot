@@ -1,0 +1,32 @@
+[package]
+name = "pyo3-test"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "pyo3_test"
+crate-type = ["cdylib"]
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+debug = true
+
+# [build]
+# rustflags = ["-C", "target-cpu=native"]
+
+[dependencies]
+bitcode = { version = "0.6.5", features = ["serde"] }
+itertools = "0.14.0"
+mimalloc = "0.1.43"
+num-traits = "0.2.19"
+numpy = "0.23.0"
+peg = "0.8.5"
+pyo3 = { version = "0.23.3", features = ["extension-module"] }
+smartstring = "1.0.1"
+thiserror = "2.0.11"
+
+[dev-dependencies]
+test-case = "3.3.1"
+tempfile = "3.19.0"
