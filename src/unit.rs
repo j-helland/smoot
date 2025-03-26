@@ -6,19 +6,17 @@ use std::{
     ops::{Add, Div, DivAssign, Mul, MulAssign, Sub},
 };
 
+use bitcode::{Encode, Decode};
 use itertools::{EitherOrBoth, Itertools};
 // use smartstring::alias::String;
 
 use crate::{
-    base_unit::{BaseUnit, DimensionType, DIMENSIONLESS},
-    error::{SmootError, SmootResult},
-    types::Number,
-    utils::float_eq_rel,
+    base_unit::{BaseUnit, DimensionType, DIMENSIONLESS}, error::{SmootError, SmootResult}, parse::expression_parser, registry::Registry, types::Number, utils::float_eq_rel
 };
 
 type UnitDimensionality<N> = Vec<N>;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, Eq, PartialEq)]
 pub struct Unit<N: Number> {
     pub numerator_units: Vec<BaseUnit<N>>,
     pub numerator_dimension: DimensionType,
@@ -419,6 +417,18 @@ impl<N: Number> Unit<N> {
             .for_each(|(i, d)| {
                 dimensionality[i] += *d;
             });
+    }
+}
+
+impl Unit<f64> {
+    pub fn parse(registry: &Registry, s: &str) -> SmootResult<Self> {
+        let s = s.replace(" ", "");
+        expression_parser::unit_expression(&s, registry)
+            .map(|mut u| {
+                u.reduce();
+                u
+            })
+            .map_err(|_| SmootError::InvalidUnitExpression(0, s.into()))
     }
 }
 

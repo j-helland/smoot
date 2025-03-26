@@ -1,5 +1,6 @@
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
+use bitcode::{Encode, Decode};
 use num_traits::Float;
 use numpy::ndarray::ArrayD;
 
@@ -15,7 +16,7 @@ pub trait Storage<N: Number>: Mul<N, Output = Self> + MulAssign<N> + Clone + Siz
 impl<N: Number> Storage<N> for N {}
 impl<N: Number> Storage<N> for ArrayD<N> {}
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, Eq, PartialEq)]
 pub struct Quantity<N: Number, S: Storage<N>> {
     pub magnitude: S,
     pub unit: Unit<N>,
@@ -141,12 +142,18 @@ where
     }
 }
 /// Scalar multiplication
-impl<N: Number, S: Storage<N>> Mul<N> for Quantity<N, S> {
-    type Output = Self;
-
-    fn mul(mut self, rhs: N) -> Self {
+impl<N: Number, S: Storage<N>> MulAssign<N> for Quantity<N, S> {
+    fn mul_assign(&mut self, rhs: N) {
         self.magnitude *= rhs;
-        self
+    }
+}
+impl<N: Number, S: Storage<N>> Mul<N> for &Quantity<N, S> {
+    type Output = Quantity<N, S>;
+
+    fn mul(self, rhs: N) -> Self::Output {
+        let mut new = self.clone();
+        new *= rhs;
+        new
     }
 }
 /// Array multiplication

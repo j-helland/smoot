@@ -15,10 +15,13 @@ peg::parser! {
     pub grammar expression_parser() for str {
         /// Used for parsing exponents.
         rule sign() = ['-' | '+']
+        
         rule digits() = [c if c.is_ascii_digit()]+
+
         pub rule integer() -> i32
-            = num:$("-"?digits())
+            = num:$("-"?digits()) !['.']
             {? num.parse::<i32>().or(Err("Invalid integer number")) }
+
         pub rule decimal<N: ParsableNumber>() -> N
             = num:$(sign()?(digits()".")?digits()(['e' | 'E']sign()?digits())?)
             {? num.parse::<N>().or(Err("Invalid decimal number")) }
@@ -42,8 +45,8 @@ peg::parser! {
                 u1:(@) "*" u2:@ { u1 * u2 }
                 u1:(@) "/" u2:@ { u1 / u2 }
                 --
-                u:@ "**" n:integer() !['.'] { u.powi(n) }
-                u:@ "^" n:integer() !['.'] { u.powi(n) }
+                u:@ "**" n:integer() { u.powi(n) }
+                u:@ "^" n:integer() { u.powi(n) }
                 u:@ "**" n:decimal() { u.powf(n) }
                 u:@ "^" n:decimal() { u.powf(n) }
                 --
@@ -83,6 +86,7 @@ peg::parser! {
                 q:quantity(unit_cache) { q }
                 "-" q:expression(unit_cache) { -q }
                 "(" expr:expression(unit_cache) ")" { expr }
+                n:decimal() { Quantity::new_dimensionless(n) }
             }
     }
 }
