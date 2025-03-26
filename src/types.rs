@@ -2,7 +2,7 @@ use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 use std::hash::Hash;
 use std::fmt::Debug;
 
-use num_traits::Float;
+use num_traits::{Float, One, Pow, Zero};
 use numpy::ndarray::ScalarOperand;
 
 pub trait DataOps:

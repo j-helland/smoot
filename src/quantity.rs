@@ -110,9 +110,10 @@ where
 
 impl PartialOrd for Quantity<f64, f64> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.unit.conversion_factor(&other.unit)
+        // Convert to same units before comparison.
+        other.m_as(&self.unit)
             .ok()
-            .and_then(|factor| self.magnitude.partial_cmp(&(factor * other.magnitude)))
+            .and_then(|o| self.magnitude.partial_cmp(&o))
     }
 }
 

@@ -203,59 +203,61 @@ impl<N: Number> Unit<N> {
         Ok(numerator_conversion_factor / denominator_conversion_factor)
     }
 
+    /// Format a power as a string.
+    /// If the power is close to an integer, only display the integer part.
+    fn format_power(p: N) -> String {
+        if float_eq_rel(p.fract(), N::zero(), 1e-8.into()) {
+            format!("{}", p.to_i64().unwrap())
+        } else {
+            format!("{:?}", p)
+        }
+    }
+
     pub fn get_units_string(&self) -> Option<String> {
-        let _multiply_units = |counts: &HashMap<&str, usize>| -> String {
-            counts
-                .iter()
-                .sorted_by_key(|(&name, _)| name)
-                .map(|(name, count)| {
-                    if *count == 1 {
-                        name.to_string()
-                    } else {
-                        format!("{}**{}", name, count)
-                    }
-                })
-                .join(" * ")
-                .into()
-        };
-
-        let nums = self
-            .numerator_units
+        let nums = self.numerator_units
             .iter()
             .filter(|u| u.unit_type != DIMENSIONLESS)
-            .map(|u| u.name.as_str())
+            .sorted_by_key(|u| u.name.as_str())
             .collect_vec();
-        let denoms = self
-            .denominator_units
+        let denoms = self.denominator_units
             .iter()
             .filter(|u| u.unit_type != DIMENSIONLESS)
-            .map(|u| u.name.as_str())
+            .sorted_by_key(|u| u.name.as_str())
             .collect_vec();
 
-        let nums_empty = nums.is_empty();
-        let denoms_empty = denoms.is_empty();
-        if nums_empty && denoms_empty {
+        if nums.is_empty() && denoms.is_empty() {
             return None;
         }
 
-        let numerator_counts = nums.into_iter().counts();
-        let mut numerator = if nums_empty {
-            String::from("1")
-        } else {
-            _multiply_units(&numerator_counts)
-        };
-        if denoms_empty {
+        let mut numerator = nums
+            .iter()
+            .map(|u| {
+                u.power
+                .map(Self::format_power)
+                .map(|s| format!("{} ** {}", u.name, s))
+                .unwrap_or_else(|| u.name.clone())
+            })
+            .join(" * ");
+
+        if denoms.is_empty() {
             return Some(numerator);
         }
 
-        let denominator_counts = denoms.into_iter().counts();
-        let mut denominator = _multiply_units(&denominator_counts);
-        // Use counts to avoid cases like `(meter**2)`, which doesn't need parentheses.
-        if numerator_counts.len() > 1 && !denominator_counts.is_empty() {
-            numerator = String::from(format!("({})", numerator));
+        let mut denominator = denoms
+            .iter()
+            .map(|u| {
+                u.power
+                .map(Self::format_power)
+                .map(|s| format!("{} ** {}", u.name, s))
+                .unwrap_or_else(|| u.name.clone())
+            })
+            .join(" * ");
+
+        if nums.len() > 1 && !denoms.is_empty() {
+            numerator = format!("({})", numerator);
         }
-        if denominator_counts.len() > 1 {
-            denominator = String::from(format!("({})", denominator));
+        if denoms.len() > 1 {
+            denominator = format!("({})", denominator);
         }
 
         Some(String::from(format!("{} / {}", numerator, denominator)))
@@ -609,15 +611,31 @@ mod test_unit {
             vec![BaseUnit::clone(&UNIT_SECOND), BaseUnit::clone(&UNIT_GRAM)],
         ),
         Some("(meter * watt) / (gram * second)")
-        ; "Multiple units in the numerator and denominator are parenthesized"
+        ; "Multiple units in the numerator and denominator are parenthesized and sorted"
     )]
     #[case(
         Unit::new(
             vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_METER)],
             vec![BaseUnit::clone(&UNIT_SECOND), BaseUnit::clone(&UNIT_SECOND)],
         ),
-        Some("meter**2 / second**2")
-        ; "Repeated multiplication is reduced to powers"
+        Some("(meter * meter) / (second * second)")
+        ; "Repeated multiplication is not reduced"
+    )]
+    #[case(
+        Unit::new(
+            vec![UNIT_METER.powf(2.0)],
+            vec![UNIT_SECOND.powf(2.0)],
+        ),
+        Some("meter ** 2 / second ** 2")
+        ; "Powers"
+    )]
+    #[case(
+        Unit::new(
+            vec![UNIT_METER.powf(2.5)],
+            vec![],
+        ),
+        Some("meter ** 2.5")
+        ; "Fractional powers"
     )]
     fn test_get_units_string(u: Unit<f64>, expected: Option<&str>) {
         assert_eq!(u.get_units_string(), expected.map(String::from));
