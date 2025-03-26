@@ -1,4 +1,6 @@
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
+use std::hash::Hash;
+use std::fmt::Debug;
 
 use num_traits::Float;
 use numpy::ndarray::ScalarOperand;
@@ -19,5 +21,5 @@ pub trait DataOps:
 }
 impl DataOps for f64 {}
 
-pub trait Number: DataOps + From<f64> + From<i32> + Float + std::fmt::Debug {}
+pub trait Number: DataOps + From<f64> + From<i32> + Float + Debug {}
 impl Number for f64 {}

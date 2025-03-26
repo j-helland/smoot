@@ -1,4 +1,5 @@
 use std::ops::{Div, DivAssign, Mul, MulAssign};
+use std::hash::Hash;
 
 use bitcode::{Decode, Encode};
 // use smartstring::alias::String;
@@ -9,7 +10,7 @@ use crate::types::Number;
 pub type DimensionType = u64;
 pub const DIMENSIONLESS: DimensionType = 0;
 
-#[derive(Encode, Decode, Clone, Eq, PartialEq, Debug)]
+#[derive(Encode, Decode, Clone, Debug, Eq, PartialEq)]
 pub struct BaseUnit<N: Number> {
     pub name: String,
     pub multiplier: N,

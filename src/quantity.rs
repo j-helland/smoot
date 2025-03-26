@@ -108,6 +108,14 @@ where
     }
 }
 
+impl PartialOrd for Quantity<f64, f64> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.unit.conversion_factor(&other.unit)
+            .ok()
+            .and_then(|factor| self.magnitude.partial_cmp(&(factor * other.magnitude)))
+    }
+}
+
 /// Multiply quantities
 impl<N: Number, S: Storage<N>> MulAssign for Quantity<N, S>
 where

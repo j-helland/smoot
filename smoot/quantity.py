@@ -42,6 +42,12 @@ class Quantity(Generic[T]):
         """
         return self.__inner.m_as(self._get_units(units))
 
+    def __str__(self) -> str:
+        return str(self.__inner)
+
+    def __eq__(self, other: Quantity[T]) -> bool:
+        return self.__inner == other.__inner
+
     def __add__(self, other: Quantity[T]) -> Quantity[T]:
         return self.__inner + self._get_other(other).__inner
 
