@@ -3,7 +3,6 @@ use std::hash::Hash;
 
 use bitcode::{Decode, Encode};
 use num_traits::Float;
-// use smartstring::alias::String;
 
 use crate::error::{SmootError, SmootResult};
 use crate::types::Number;

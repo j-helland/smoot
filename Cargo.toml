@@ -24,7 +24,6 @@ num-traits = "0.2.19"
 numpy = "0.23.0"
 peg = "0.8.5"
 pyo3 = { version = "0.23.3", features = ["extension-module"] }
-smartstring = "1.0.1"
 thiserror = "2.0.11"
 
 [dev-dependencies]

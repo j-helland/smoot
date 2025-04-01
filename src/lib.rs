@@ -3,9 +3,6 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-use std::hash::DefaultHasher;
-
-use bitcode;
 use numpy::ndarray::{
     Array1, ArrayBase, ArrayD, ArrayView, ArrayView1, ArrayViewD, ArrayViewMutD, OwnedRepr,
     ScalarOperand, Zip,
@@ -24,11 +21,11 @@ use pyo3::{
 };
 use pyo3::{exceptions::{PyValueError, PyRuntimeError}, prelude::*};
 
-use registry::REGISTRY;
+use crate::registry::REGISTRY;
 
 mod base_unit;
 mod error;
-mod parse;
+mod parser;
 mod quantity;
 mod registry;
 mod types;
@@ -279,7 +276,7 @@ macro_rules! create_array_quantity_type {
         #[pymethods]
         impl $name {
             #[staticmethod]
-            fn new<'py>(arr: Bound<'py, PyArrayDyn<$base_type>>, unit: &$unit_type) -> Self {
+            fn new(arr: Bound<'_, PyArrayDyn<$base_type>>, unit: &$unit_type) -> Self {
                 Self { 
                     inner: quantity::Quantity { 
                         magnitude: arr.to_owned_array(),
@@ -336,6 +333,7 @@ macro_rules! create_array_quantity_type {
 }
 
 create_quantity_type!(F64Unit, F64Quantity, f64, f64);
+// create_quantity_type!(I64Unit, I64Quantity, i64, i64);
 create_array_quantity_type!(ArrayF64Quantity, F64Unit, f64);
 
 #[pymodule]

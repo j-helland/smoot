@@ -6,7 +6,7 @@ use numpy::ndarray::ArrayD;
 
 use crate::{
     error::{SmootError, SmootResult},
-    parse::expression_parser,
+    parser::expression_parser,
     registry::Registry,
     types::Number,
     unit::Unit,
@@ -84,7 +84,7 @@ impl Quantity<f64, f64> {
                 q.ito_reduced_units();
                 q
             })
-            .map_err(|_| SmootError::InvalidQuantityExpression(0, s.into()))
+            .map_err(|_| SmootError::InvalidQuantityExpression(0, s))
     }
 }
 

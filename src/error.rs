@@ -1,5 +1,4 @@
 use thiserror::Error;
-// use smartstring::alias::String;
 
 #[derive(Error, Debug)]
 pub enum SmootError {

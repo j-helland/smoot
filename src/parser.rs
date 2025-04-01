@@ -3,12 +3,11 @@ use std::str::FromStr;
 use num_traits::Float;
 
 use crate::base_unit::BaseUnit;
-use crate::registry::Registry;
-use crate::types::Number;
-use crate::{error::SmootError, quantity::Quantity, registry::REGISTRY, unit::Unit};
+use crate::registry::{Registry, REGISTRY};
+use crate::{error::SmootError, quantity::Quantity, unit::Unit};
 
-trait ParsableNumber: Number + FromStr + Float {}
-impl ParsableNumber for f64 {}
+trait ParsableFloat: FromStr + Float {}
+impl ParsableFloat for f64 {}
 
 // Unit and quantity expression parser.
 peg::parser! {
@@ -22,7 +21,7 @@ peg::parser! {
             = num:$("-"?digits()) !['.']
             {? num.parse::<i32>().or(Err("Invalid integer number")) }
 
-        pub rule decimal<N: ParsableNumber>() -> N
+        pub rule decimal<N: ParsableFloat>() -> N
             = num:$(sign()?(digits()".")?digits()(['e' | 'E']sign()?digits())?)
             {? num.parse::<N>().or(Err("Invalid decimal number")) }
 
@@ -99,7 +98,7 @@ impl FromStr for Unit<f64> {
         let s = s.replace(" ", "");
         // TODO(jwh): get cache from non-global scope
         expression_parser::unit_expression(&s, &REGISTRY)
-            .map_err(|_e| SmootError::InvalidUnitExpression(0, s.into()))
+            .map_err(|_e| SmootError::InvalidUnitExpression(0, s))
     }
 }
 
@@ -114,7 +113,7 @@ impl FromStr for Quantity<f64, f64> {
                 q.ito_reduced_units();
                 q
             })
-            .map_err(|_| SmootError::InvalidQuantityExpression(0, s.into()))
+            .map_err(|_| SmootError::InvalidQuantityExpression(0, s))
     }
 }
 

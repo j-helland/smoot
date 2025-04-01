@@ -1,17 +1,19 @@
 use std::{
-    collections::HashMap,
     fmt::{self},
-    iter,
     mem::swap,
     ops::{Add, Div, DivAssign, Mul, MulAssign, Sub},
 };
 
 use bitcode::{Encode, Decode};
 use itertools::{EitherOrBoth, Itertools};
-// use smartstring::alias::String;
 
 use crate::{
-    base_unit::{BaseUnit, DimensionType, DIMENSIONLESS}, error::{SmootError, SmootResult}, parse::expression_parser, registry::Registry, types::Number, utils::float_eq_rel
+    base_unit::{BaseUnit, DimensionType, DIMENSIONLESS},
+    error::{SmootError, SmootResult},
+    parser::expression_parser,
+    registry::Registry,
+    types::Number,
+    utils::float_eq_rel,
 };
 
 type UnitDimensionality<N> = Vec<N>;
@@ -260,7 +262,7 @@ impl<N: Number> Unit<N> {
             denominator = format!("({})", denominator);
         }
 
-        Some(String::from(format!("{} / {}", numerator, denominator)))
+        Some(format!("{} / {}", numerator, denominator))
     }
 
     fn update_dimensionality(&mut self) {
@@ -430,7 +432,7 @@ impl Unit<f64> {
                 u.reduce();
                 u
             })
-            .map_err(|_| SmootError::InvalidUnitExpression(0, s.into()))
+            .map_err(|_| SmootError::InvalidUnitExpression(0, s))
     }
 }
 
