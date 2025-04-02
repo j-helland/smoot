@@ -1,23 +1,13 @@
-use mimalloc::MiMalloc;
+use mimalloc::MiMalloc;                        
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-use numpy::ndarray::{
-    Array1, ArrayBase, ArrayD, ArrayView, ArrayView1, ArrayViewD, ArrayViewMutD, OwnedRepr,
-    ScalarOperand, Zip,
-};
-use numpy::PyArray;
-use numpy::{
-    datetime::{units, Timedelta},
-    Complex64, IntoPyArray, PyArray1, PyArrayDyn, PyArrayMethods, PyReadonlyArray1,
-    PyReadonlyArrayDyn, PyReadwriteArray1, PyReadwriteArrayDyn,
-};
+use numpy::{PyArray, PyArrayDyn, PyArrayMethods, ndarray::ArrayD};
 use pyo3::{
-    exceptions::PyIndexError,
     pymodule,
-    types::{PyAnyMethods, PyDict, PyDictMethods, PyModule, PyBytes},
-    Bound, FromPyObject, IntoPyObject, PyAny, PyObject, PyResult, Python,
+    types::PyModule,
+    Bound, PyResult, Python,
 };
 use pyo3::{exceptions::{PyValueError, PyRuntimeError}, prelude::*};
 
@@ -35,10 +25,8 @@ mod utils;
 #[cfg(test)]
 mod test_utils;
 
-/// Create a quantity with a given underlying type.
-/// Creates a matching Unit type.
-macro_rules! create_quantity_type {
-    ($name_unit: ident, $name_quantity: ident, $base_type: ident, $storage_type: ident) => {
+macro_rules! create_unit_type {
+    ($name_unit: ident, $base_type: ident) => {
         #[pyclass(module = "smoot.smoot")]
         struct $name_unit {
             inner: unit::Unit<$base_type>,
@@ -49,10 +37,16 @@ macro_rules! create_quantity_type {
             fn parse(expression: &str) -> PyResult<Self> {
                 let unit = unit::Unit::parse(&REGISTRY, expression)
                     .map_err(|e| PyValueError::new_err(e.to_string()))?;
-                Ok(Self { inner: unit })
+                Ok(Self { inner: unit.into() })
             }
-        }
+        }       
+    };
+}
 
+/// Create a quantity with a given underlying type.
+/// Creates a matching Unit type.
+macro_rules! create_quantity_type {
+    ($name_unit: ident, $name_quantity: ident, $base_type: ident, $storage_type: ident) => {
         #[pyclass(module = "smoot.smoot")]
         #[derive(Clone)]
         struct $name_quantity {
@@ -73,7 +67,7 @@ macro_rules! create_quantity_type {
             fn parse(expression: &str) -> PyResult<Self> {
                 let quantity = quantity::Quantity::parse(&REGISTRY, expression)
                     .map_err(|e| PyValueError::new_err(e.to_string()))?;
-                Ok(Self { inner: quantity })
+                Ok(Self { inner: quantity.into() })
             }
 
             #[getter(m)]
@@ -177,7 +171,7 @@ macro_rules! create_quantity_type {
                     .map_err(|e| PyValueError::new_err(e.to_string()))
             }
 
-            fn __radd__(&self, other: &Self) -> PyResult<Self> {
+            fn __radd__(&self, _other: &Self) -> PyResult<Self> {
                 todo!();
             }
 
@@ -187,7 +181,7 @@ macro_rules! create_quantity_type {
                     .map_err(|e| PyValueError::new_err(e.to_string()))
             }
 
-            fn __rsub__(&self, other: &Self) -> PyResult<Self> {
+            fn __rsub__(&self, _other: &Self) -> PyResult<Self> {
                 todo!();
             }
 
@@ -195,15 +189,15 @@ macro_rules! create_quantity_type {
                 Self { inner: &self.inner * &other.inner }
             }
 
-            fn __rmul__(&self, other: &Self) -> PyResult<Self> {
+            fn __rmul__(&self, _other: &Self) -> PyResult<Self> {
                 todo!();
             }
 
-            fn __matmul__(&self, other: &Self) -> PyResult<Self> {
+            fn __matmul__(&self, _other: &Self) -> PyResult<Self> {
                 todo!();
             }
 
-            fn __rmatmul__(&self, other: &Self) -> PyResult<Self> {
+            fn __rmatmul__(&self, _other: &Self) -> PyResult<Self> {
                 todo!();
             }
 
@@ -211,15 +205,15 @@ macro_rules! create_quantity_type {
                 Self { inner: &self.inner / &other.inner }
             }            
 
-            fn __rtruediv__(&self, other: &Self) -> PyResult<Self> {
+            fn __rtruediv__(&self, _other: &Self) -> PyResult<Self> {
                 todo!();
             }
 
-            fn __floordiv__(&self, other: &Self) -> Self {
+            fn __floordiv__(&self, _other: &Self) -> Self {
                 todo!();
             }
 
-            fn __rfloordiv__(&self, other: &Self) -> Self {
+            fn __rfloordiv__(&self, _other: &Self) -> Self {
                 todo!();
             }
 
@@ -277,12 +271,7 @@ macro_rules! create_array_quantity_type {
         impl $name {
             #[staticmethod]
             fn new(arr: Bound<'_, PyArrayDyn<$base_type>>, unit: &$unit_type) -> Self {
-                Self { 
-                    inner: quantity::Quantity { 
-                        magnitude: arr.to_owned_array(),
-                        unit: unit.inner.clone(), 
-                    }
-                }
+                Self { inner: quantity::Quantity::new(arr.to_owned_array(), unit.inner.clone()) }
             }
 
             #[getter(m)]
@@ -332,15 +321,26 @@ macro_rules! create_array_quantity_type {
     };
 }
 
+create_unit_type!(F64Unit, f64);
+
 create_quantity_type!(F64Unit, F64Quantity, f64, f64);
-// create_quantity_type!(I64Unit, I64Quantity, i64, i64);
 create_array_quantity_type!(ArrayF64Quantity, F64Unit, f64);
+
+create_quantity_type!(F64Unit, I64Quantity, i64, i64);
+create_array_quantity_type!(ArrayI64Quantity, F64Unit, i64);
 
 #[pymodule]
 fn smoot(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Core unit type
     m.add_class::<F64Unit>()?;
+
+    // float-backed types
     m.add_class::<F64Quantity>()?;
     m.add_class::<ArrayF64Quantity>()?;
-    // m.add_function(wrap_pyfunction!(parse_unit_f64, m)?)?;
+
+    // int backed types
+    m.add_class::<I64Quantity>()?;
+    m.add_class::<ArrayI64Quantity>()?;
+
     Ok(())
 }

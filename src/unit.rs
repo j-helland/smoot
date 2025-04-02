@@ -6,6 +6,7 @@ use std::{
 
 use bitcode::{Encode, Decode};
 use itertools::{EitherOrBoth, Itertools};
+use num_traits::ToPrimitive;
 
 use crate::{
     base_unit::{BaseUnit, DimensionType, DIMENSIONLESS},
@@ -18,15 +19,15 @@ use crate::{
 
 type UnitDimensionality<N> = Vec<N>;
 
-#[derive(Encode, Decode, Clone, Debug, Eq, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct Unit<N: Number> {
     pub numerator_units: Vec<BaseUnit<N>>,
     pub numerator_dimension: DimensionType,
-    pub numerator_dimensionality: UnitDimensionality<N>,
+    pub numerator_dimensionality: UnitDimensionality<f64>,
 
     pub denominator_units: Vec<BaseUnit<N>>,
     pub denominator_dimension: DimensionType,
-    pub denominator_dimensionality: UnitDimensionality<N>,
+    pub denominator_dimensionality: UnitDimensionality<f64>,
 }
 
 impl<N: Number> Unit<N> {
@@ -82,7 +83,7 @@ impl<N: Number> Unit<N> {
     }
 
     /// Floating power operation that creates a new unit.
-    pub fn powf(&self, n: N) -> Self {
+    pub fn powf(&self, n: f64) -> Self {
         let nabs = n.abs();
         let mut numerator = self
             .numerator_units
@@ -90,7 +91,7 @@ impl<N: Number> Unit<N> {
             .into_iter()
             .map(|mut u| {
                 u.mul_dimensionality(nabs);
-                u.power = u.power.or(Some(N::one())).map(|p| p * nabs);
+                u.power = u.power.or(Some(1.0)).map(|p| p * nabs);
                 u
             })
             .collect();
@@ -100,13 +101,13 @@ impl<N: Number> Unit<N> {
             .into_iter()
             .map(|mut u| {
                 u.mul_dimensionality(nabs);
-                u.power = u.power.or(Some(N::one())).map(|p| p * nabs);
+                u.power = u.power.or(Some(1.0)).map(|p| p * nabs);
                 u
             })
             .collect();
 
         // Flip if power sign is negative.
-        if n < N::zero() {
+        if n < 0.0 {
             swap(&mut numerator, &mut denominator);
         }
 
@@ -114,19 +115,19 @@ impl<N: Number> Unit<N> {
     }
 
     /// In-place floating power operation.
-    pub fn ipowf(&mut self, n: N) {
+    pub fn ipowf(&mut self, n: f64) {
         let nabs = n.abs();
         self.numerator_units.iter_mut().for_each(|u| {
             u.mul_dimensionality(nabs);
-            u.power = u.power.or(Some(N::one())).map(|p| p * nabs);
+            u.power = u.power.or(Some(1.0)).map(|p| p * nabs);
         });
         self.denominator_units.iter_mut().for_each(|u| {
             u.mul_dimensionality(nabs);
-            u.power = u.power.or(Some(N::one())).map(|p| p * nabs);
+            u.power = u.power.or(Some(1.0)).map(|p| p * nabs);
         });
 
         // Flip if power sign is negative.
-        if n < N::zero() {
+        if n < 0.0 {
             swap(&mut self.numerator_units, &mut self.denominator_units);
         }
     }
@@ -154,7 +155,7 @@ impl<N: Number> Unit<N> {
             result &= float_eq_rel(
                 self.numerator_dimensionality[idx as usize],
                 other.numerator_dimensionality[idx as usize],
-                <N as From<f64>>::from(1e-6),
+                1e-6,
             );
         }
 
@@ -166,7 +167,7 @@ impl<N: Number> Unit<N> {
             result &= float_eq_rel(
                 self.denominator_dimensionality[idx as usize],
                 other.denominator_dimensionality[idx as usize],
-                <N as From<f64>>::from(1e-6),
+                1e-6,
             );
         }
 
@@ -207,8 +208,8 @@ impl<N: Number> Unit<N> {
 
     /// Format a power as a string.
     /// If the power is close to an integer, only display the integer part.
-    fn format_power(p: N) -> String {
-        if float_eq_rel(p.fract(), N::zero(), 1e-8.into()) {
+    fn format_power(p: f64) -> String {
+        if float_eq_rel(p.fract(), 0.0, 1e-8) {
             format!("{}", p.to_i64().unwrap())
         } else {
             format!("{:?}", p)
@@ -292,8 +293,8 @@ impl<N: Number> Unit<N> {
                         // Powers must update.
                         last.power = last
                             .power
-                            .map(|p| p + u.power.unwrap_or(N::one()))
-                            .or(Some(N::one() + N::one()));
+                            .map(|p| p + u.power.unwrap_or(1.0))
+                            .or(Some(2.0));
                         last.dimensionality = last
                             .dimensionality
                             .drain(..)
@@ -357,7 +358,7 @@ impl<N: Number> Unit<N> {
             }
 
             if let Ok(factor) = u1.conversion_factor(u2) {
-                if no_reduction && !float_eq_rel(factor, N::one(), 1e-6.into()) {
+                if no_reduction && !factor.approx_eq(N::one()) {
                     // Make sure we don't reduce units with disparate scales.
                     inum += 1;
                     iden += 1;
@@ -366,8 +367,8 @@ impl<N: Number> Unit<N> {
                 result_conversion_factor *= factor;
             }
 
-            let u1_power = u1.power.unwrap_or(N::one());
-            let u2_power = u2.power.unwrap_or(N::one());
+            let u1_power = u1.power.unwrap_or(1.0);
+            let u2_power = u2.power.unwrap_or(1.0);
             if u1_power == u2_power {
                 numerator_retain[inum] = false;
                 denominator_retain[iden] = false;
@@ -405,15 +406,15 @@ impl<N: Number> Unit<N> {
         units.iter().fold(0, |d, u| d | u.unit_type)
     }
 
-    fn get_dimensionality(dimensionality: &mut Vec<N>, units: &[BaseUnit<N>]) {
-        dimensionality.fill(N::zero());
+    fn get_dimensionality(dimensionality: &mut UnitDimensionality<f64>, units: &[BaseUnit<N>]) {
+        dimensionality.fill(0.0);
         dimensionality.resize(
             units
                 .iter()
                 .map(|u| u.dimensionality.len())
                 .max()
                 .unwrap_or(0),
-            N::zero(),
+            0.0,
         );
         units
             .iter()
@@ -426,13 +427,12 @@ impl<N: Number> Unit<N> {
 
 impl Unit<f64> {
     pub fn parse(registry: &Registry, s: &str) -> SmootResult<Self> {
-        let s = s.replace(" ", "");
-        expression_parser::unit_expression(&s, registry)
+        expression_parser::unit_expression(s, registry)
             .map(|mut u| {
                 u.reduce();
                 u
             })
-            .map_err(|_| SmootError::InvalidUnitExpression(0, s))
+            .map_err(|_| SmootError::InvalidUnitExpression(0, s.into()))
     }
 }
 
@@ -522,6 +522,19 @@ impl<N: Number> Sub for Unit<N> {
             ));
         }
         Ok(self)
+    }
+}
+
+impl From<Unit<f64>> for Unit<i64> {
+    fn from(value: Unit<f64>) -> Self {
+        Self {
+            numerator_units: value.numerator_units.iter().cloned().map(|u| u.into()).collect(),
+            numerator_dimension: value.numerator_dimension,
+            numerator_dimensionality: value.numerator_dimensionality,
+            denominator_units: value.denominator_units.iter().cloned().map(|u| u.into()).collect(),
+            denominator_dimension: value.denominator_dimension,
+            denominator_dimensionality: value.denominator_dimensionality,
+        }
     }
 }
 

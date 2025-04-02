@@ -1,8 +1,6 @@
 use std::ops::{Div, DivAssign, Mul, MulAssign};
-use std::hash::Hash;
 
 use bitcode::{Decode, Encode};
-use num_traits::Float;
 
 use crate::error::{SmootError, SmootResult};
 use crate::types::Number;
@@ -10,26 +8,25 @@ use crate::types::Number;
 pub type DimensionType = u64;
 pub const DIMENSIONLESS: DimensionType = 0;
 
-#[derive(Encode, Decode, Clone, Debug, Eq, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct BaseUnit<N: Number> {
     pub name: String,
     pub multiplier: N,
-    // TODO(jwh): remove
-    pub power: Option<N>,
+    pub power: Option<f64>,
     pub unit_type: DimensionType,
-    pub dimensionality: Vec<N>,
+    pub dimensionality: Vec<f64>,
 }
 
-fn get_dimensionality<N: Number>(unit_type: DimensionType) -> Vec<N> {
+fn get_dimensionality(unit_type: DimensionType) -> Vec<f64> {
     let mut dimensionality = Vec::new();
     let mut bits = unit_type;
     while bits > 0 {
         let idx = bits.trailing_zeros();
         let diff = idx as usize - dimensionality.len();
         if diff > 0 {
-            dimensionality.extend((0..diff).map(|_| N::zero()));
+            dimensionality.extend((0..diff).map(|_| 0.0));
         }
-        dimensionality.push(N::one());
+        dimensionality.push(1.0);
         bits &= !(1 << idx);
     }
     dimensionality
@@ -60,19 +57,19 @@ impl<N: Number> BaseUnit<N> {
         while unit_type > 0 {
             let idx = unit_type.trailing_zeros() as usize;
             if idx < self.dimensionality.len() {
-                self.dimensionality[idx] = N::one();
+                self.dimensionality[idx] = 1.0;
             } else {
                 if idx - self.dimensionality.len() > 0 {
                     self.dimensionality
-                        .extend((0..idx - self.dimensionality.len()).map(|_| N::zero()));
+                        .extend((0..idx - self.dimensionality.len()).map(|_| 0.0));
                 }
-                self.dimensionality.push(N::one());
+                self.dimensionality.push(1.0);
             }
             unit_type &= !(1 << idx);
         }
     }
 
-    pub fn mul_dimensionality(&mut self, n: N) {
+    pub fn mul_dimensionality(&mut self, n: f64) {
         self.dimensionality.iter_mut().for_each(|d| *d *= n);
     }
 
@@ -94,12 +91,12 @@ impl<N: Number> BaseUnit<N> {
         Ok(self.get_multiplier() / target.get_multiplier())
     }
 
-    pub fn ipowf(&mut self, n: N) {
-        self.power = self.power.or(Some(N::one())).map(|p| p * n);
+    pub fn ipowf(&mut self, n: f64) {
+        self.power = self.power.or(Some(1.0)).map(|p| p * n);
         self.mul_dimensionality(n);
     }
 
-    pub fn powf(&self, n: N) -> Self {
+    pub fn powf(&self, n: f64) -> Self {
         let mut new = self.clone();
         new.ipowf(n);
         new
@@ -132,10 +129,10 @@ impl<N: Number> MulAssign for BaseUnit<N> {
                 .dimensionality
                 .len()
                 .saturating_sub(self.dimensionality.len()))
-                .map(|_| N::zero()),
+                .map(|_| 0.0),
         );
         for i in 0..self.dimensionality.len().min(rhs.dimensionality.len()) {
-            if self.dimensionality[i] > N::zero() || rhs.dimensionality[i] > N::zero() {
+            if self.dimensionality[i] > 0.0 || rhs.dimensionality[i] > 0.0 {
                 self.dimensionality[i] += rhs.dimensionality[i];
             }
         }
@@ -168,12 +165,24 @@ impl<N: Number> DivAssign for BaseUnit<N> {
                 .dimensionality
                 .len()
                 .saturating_sub(self.dimensionality.len()))
-                .map(|_| N::zero()),
+                .map(|_| 0.0),
         );
         for i in 0..self.dimensionality.len().min(rhs.dimensionality.len()) {
-            if self.dimensionality[i] > N::zero() || rhs.dimensionality[i] > N::zero() {
+            if self.dimensionality[i] > 0.0 || rhs.dimensionality[i] > 0.0 {
                 self.dimensionality[i] -= rhs.dimensionality[i];
             }
+        }
+    }
+}
+
+impl From<BaseUnit<f64>> for BaseUnit<i64> {
+    fn from(value: BaseUnit<f64>) -> Self {
+        Self {
+            name: value.name,
+            multiplier: value.multiplier as i64,
+            power: value.power,
+            unit_type: value.unit_type,
+            dimensionality: value.dimensionality,
         }
     }
 }

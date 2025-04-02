@@ -1,9 +1,10 @@
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
-use std::hash::Hash;
 use std::fmt::Debug;
 
-use num_traits::{Float, One, Pow, Zero};
+use num_traits::{FromPrimitive, One, Zero};
 use numpy::ndarray::ScalarOperand;
+
+use crate::utils::{ApproxEq, Powf};
 
 pub trait DataOps:
     Add<Output = Self>
@@ -20,6 +21,17 @@ pub trait DataOps:
 {
 }
 impl DataOps for f64 {}
+impl DataOps for i64 {}
 
-pub trait Number: DataOps + From<f64> + From<i32> + Float + Debug {}
+pub trait Number:
+    DataOps 
+    + FromPrimitive
+    + Zero
+    + One
+    + ApproxEq
+    + Powf
+    + Debug 
+{
+}
 impl Number for f64 {}
+impl Number for i64 {}

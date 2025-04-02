@@ -1,4 +1,4 @@
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use std::{marker::PhantomData, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign}};
 
 use bitcode::{Encode, Decode};
 use num_traits::Float;
@@ -16,39 +16,43 @@ pub trait Storage<N: Number>: Mul<N, Output = Self> + MulAssign<N> + Clone + Siz
 impl<N: Number> Storage<N> for N {}
 impl<N: Number> Storage<N> for ArrayD<N> {}
 
-#[derive(Encode, Decode, Clone, Debug, Eq, PartialEq)]
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct Quantity<N: Number, S: Storage<N>> {
     pub magnitude: S,
-    pub unit: Unit<N>,
+    pub unit: Unit<f64>,
+
+    _marker: PhantomData<N>,
 }
 
 impl<N: Number, S: Storage<N>> Quantity<N, S> {
-    pub fn new(magnitude: S, unit: Unit<N>) -> Self {
-        Self { magnitude, unit }
+    pub fn new(magnitude: S, unit: Unit<f64>) -> Self {
+        Self { magnitude, unit, _marker: PhantomData }
     }
 
     pub fn new_dimensionless(magnitude: S) -> Self {
         Self {
             magnitude,
             unit: Unit::new(vec![], vec![]),
+            _marker: PhantomData,
         }
     }
 
-    pub fn m_as(&self, unit: &Unit<N>) -> SmootResult<S> {
+    pub fn m_as(&self, unit: &Unit<f64>) -> SmootResult<S> {
         if self.unit.eq(unit) {
             Ok(self.magnitude.clone())
         } else {
-            Ok(self.magnitude.clone() * self.unit.conversion_factor(unit)?)
+            let factor = self.unit.conversion_factor(unit)?;
+            Ok(self.magnitude.clone() * N::from_f64(factor).unwrap())
         }
     }
 
-    pub fn to(&self, unit: &Unit<N>) -> SmootResult<Quantity<N, S>> {
+    pub fn to(&self, unit: &Unit<f64>) -> SmootResult<Quantity<N, S>> {
         let mut q = self.clone();
         q.ito(unit)?;
         Ok(q)
     }
 
-    pub fn ito(&mut self, unit: &Unit<N>) -> SmootResult<()> {
+    pub fn ito(&mut self, unit: &Unit<f64>) -> SmootResult<()> {
         if self.unit.eq(unit) {
             return Ok(());
         }
@@ -66,11 +70,13 @@ impl<N: Number, S: Storage<N>> Quantity<N, S> {
     }
 
     pub fn ito_reduced_units(&mut self) {
-        self.magnitude *= self.unit.reduce();
+        let factor = self.unit.reduce();
+        self.magnitude *= N::from_f64(factor).unwrap();
     }
 
-    fn convert_to(&mut self, unit: &Unit<N>) -> SmootResult<()> {
-        self.magnitude *= self.unit.conversion_factor(unit)?;
+    fn convert_to(&mut self, unit: &Unit<f64>) -> SmootResult<()> {
+        let factor = self.unit.conversion_factor(unit)?;
+        self.magnitude *= N::from_f64(factor).unwrap();
         self.unit = unit.clone();
         Ok(())
     }
@@ -97,18 +103,20 @@ where
         Quantity {
             magnitude: self.magnitude.powi(n),
             unit: self.unit.powi(n),
+            _marker: PhantomData,
         }
     }
 
-    pub fn powf(&self, n: N) -> Quantity<N, S> {
+    pub fn powf(&self, n: f64) -> Quantity<N, S> {
         Quantity {
             magnitude: self.magnitude.powf(S::from(n).unwrap()),
             unit: self.unit.powf(n),
+            _marker: PhantomData,
         }
     }
 }
 
-impl PartialOrd for Quantity<f64, f64> {
+impl<N: Number, S: Storage<N> + PartialOrd> PartialOrd for Quantity<N, S> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         // Convert to same units before comparison.
         other.m_as(&self.unit)
@@ -125,7 +133,7 @@ where
     fn mul_assign(&mut self, rhs: Self) {
         self.unit.mul_assign(&rhs.unit);
         let factor = self.unit.simplify(true);
-        self.magnitude *= rhs.magnitude * factor;
+        self.magnitude *= rhs.magnitude * N::from_f64(factor).unwrap();
     }
 }
 impl<N: Number, S: Storage<N>> MulAssign<&Quantity<N, S>> for Quantity<N, S>
@@ -135,7 +143,7 @@ where
     fn mul_assign(&mut self, rhs: &Self) {
         self.unit.mul_assign(&rhs.unit);
         let factor = self.unit.simplify(true);
-        self.magnitude *= rhs.magnitude.clone() * factor;
+        self.magnitude *= rhs.magnitude.clone() * N::from_f64(factor).unwrap();
     }
 }
 impl<N: Number, S: Storage<N>> Mul<&Quantity<N, S>> for &Quantity<N, S>
@@ -180,6 +188,7 @@ impl<N: Number> Mul<Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
     fn mul(mut self, rhs: Quantity<N, ArrayD<N>>) -> Self::Output {
         self.unit.mul_assign(&rhs.unit);
         let factor = self.unit.simplify(true);
+        let factor = N::from_f64(factor).unwrap();
         self.magnitude = self.magnitude * rhs.magnitude * factor;
         self
     }
@@ -195,6 +204,7 @@ where
             .unit
             .conversion_factor(&rhs.unit)
             .expect("Incompatible units used in add_assign");
+        let conversion_factor = N::from_f64(conversion_factor).unwrap();
         self.magnitude += rhs.magnitude * conversion_factor;
     }
 }
@@ -207,6 +217,7 @@ where
             .unit
             .conversion_factor(&rhs.unit)
             .expect("Incompatible units used in add_assign");
+        let conversion_factor = N::from_f64(conversion_factor).unwrap();
         self.magnitude += rhs.magnitude.clone() * conversion_factor;
     }
 }
@@ -219,6 +230,7 @@ where
     fn add(self, rhs: &Quantity<N, S>) -> Self::Output {
         let mut new = self.clone();
         let conversion_factor = new.unit.conversion_factor(&rhs.unit)?;
+        let conversion_factor = N::from_f64(conversion_factor).unwrap();
         new.magnitude += rhs.magnitude.clone() * conversion_factor;
         Ok(new)
     }
@@ -296,30 +308,32 @@ where
 }
 
 /// Subtract quantities
-// impl<N: Number, S: Storage<N>> SubAssign for Quantity<N, S>
-// where
-//     S: SubAssign,
-// {
-//     fn sub_assign(&mut self, rhs: Self) {
-//         let conversion_factor = self
-//             .unit
-//             .conversion_factor(&rhs.unit)
-//             .expect("Incompatible units used in sub_assign");
-//         self.magnitude -= rhs.magnitude * conversion_factor;
-//     }
-// }
-// impl<N: Number, S: Storage<N>> SubAssign<&Quantity<N, S>> for Quantity<N, S>
-// where
-//     S: SubAssign,
-// {
-//     fn sub_assign(&mut self, rhs: &Self) -> SmootResult<()> {
-//         let conversion_factor = self
-//             .unit
-//             .conversion_factor(&rhs.unit)?;
-//         self.magnitude -= rhs.magnitude.clone() * conversion_factor;
-//         Ok(())
-//     }
-// }
+impl<N: Number, S: Storage<N>> SubAssign for Quantity<N, S>
+where
+    S: SubAssign,
+{
+    fn sub_assign(&mut self, rhs: Self) {
+        let conversion_factor = self
+            .unit
+            .conversion_factor(&rhs.unit)
+            .expect("Incompatible units used in sub_assign");
+        let conversion_factor = N::from_f64(conversion_factor).unwrap();
+        self.magnitude -= rhs.magnitude * conversion_factor;
+    }
+}
+impl<N: Number, S: Storage<N>> SubAssign<&Quantity<N, S>> for Quantity<N, S>
+where
+    S: SubAssign,
+{
+    fn sub_assign(&mut self, rhs: &Self) {
+        let conversion_factor = self
+            .unit
+            .conversion_factor(&rhs.unit)
+            .expect("Incompatible units used in sub_assign");
+        let conversion_factor = N::from_f64(conversion_factor).unwrap();
+        self.magnitude -= rhs.magnitude.clone() * conversion_factor;
+    }
+}
 impl<N: Number, S: Storage<N>> Sub<&Quantity<N, S>> for &Quantity<N, S>
 where
     S: SubAssign,
@@ -328,6 +342,7 @@ where
 
     fn sub(self, rhs: &Quantity<N, S>) -> Self::Output {
         let conversion_factor = self.unit.conversion_factor(&rhs.unit)?;
+        let conversion_factor = N::from_f64(conversion_factor).unwrap();
         let mut new = self.clone();
         new.magnitude -= rhs.magnitude.clone() * conversion_factor;
         Ok(new)
@@ -413,6 +428,7 @@ where
         self.magnitude /= rhs.magnitude;
         self.unit.div_assign(&rhs.unit);
         let factor = self.unit.simplify(true);
+        let factor = N::from_f64(factor).unwrap();
         self.magnitude *= factor;
     }
 }
@@ -424,6 +440,7 @@ where
         self.magnitude /= rhs.magnitude.clone();
         self.unit.div_assign(&rhs.unit);
         let factor = self.unit.simplify(true);
+        let factor = N::from_f64(factor).unwrap();
         self.magnitude *= factor;
     }
 }
@@ -455,6 +472,16 @@ impl<N: Number> Div<Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
     fn div(mut self, rhs: Quantity<N, ArrayD<N>>) -> Self::Output {
         self.magnitude = self.magnitude / rhs.magnitude;
         self
+    }
+}
+
+impl From<Quantity<f64, f64>> for Quantity<i64, i64> {
+    fn from(value: Quantity<f64, f64>) -> Self {
+        Self {
+            magnitude: value.magnitude as i64,
+            unit: value.unit,
+            _marker: PhantomData,
+        }
     }
 }
 

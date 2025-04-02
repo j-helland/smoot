@@ -11,10 +11,13 @@ impl ParsableFloat for f64 {}
 
 // Unit and quantity expression parser.
 peg::parser! {
-    pub grammar expression_parser() for str {
-        /// Used for parsing exponents.
+    pub(crate) grammar expression_parser() for str {
+        /// Matches whitespace.
+        rule __()
+            = [' ' | '\n' | '\t']*
+            {}
+
         rule sign() = ['-' | '+']
-        
         rule digits() = [c if c.is_ascii_digit()]+
 
         pub rule integer() -> i32
@@ -41,30 +44,30 @@ peg::parser! {
         pub rule unit_expression(unit_cache: &Registry) -> Unit<f64>
             = precedence!
             {
-                u1:(@) "*" u2:@ { u1 * u2 }
-                u1:(@) "/" u2:@ { u1 / u2 }
+                u1:(@) __ "*" __ u2:@ { u1 * u2 }
+                u1:(@) __ "/" __ u2:@ { u1 / u2 }
                 --
-                u:@ "**" n:integer() { u.powi(n) }
-                u:@ "^" n:integer() { u.powi(n) }
-                u:@ "**" n:decimal() { u.powf(n) }
-                u:@ "^" n:decimal() { u.powf(n) }
+                u:@ __ "**" __ n:integer() { u.powi(n) }
+                u:@ __ "^" __ n:integer() { u.powi(n) }
+                u:@ __ "**" __ n:decimal() { u.powf(n) }
+                u:@ __ "^" __ n:decimal() { u.powf(n) }
                 --
                 u:unit(unit_cache) { u }
-                "(" expr:unit_expression(unit_cache) ")" { expr }
+                "(" __ expr:unit_expression(unit_cache) __ ")" { expr }
             }
 
         rule quantity(unit_cache: &Registry) -> Quantity<f64, f64>
-            = n:decimal() u:unit_expression(unit_cache)
-            { Quantity{ magnitude: n, unit: u } }
+            = n:decimal() __ u:unit_expression(unit_cache)
+            { Quantity::new(n, u) }
 
         /// Add operator requires conditional parsing to handle incompatible units.
         rule quantity_add(unit_cache: &Registry) -> Quantity<f64, f64>
-            = q1:quantity(unit_cache) "+" q2:expression(unit_cache)
+            = q1:quantity(unit_cache) __ "+" __ q2:expression(unit_cache)
             {? (&q1 + &q2).or(Err("Incompatible units")) }
 
         /// Subtract operator requires conditional parsing to handle incompatible units.
         rule quantity_sub(unit_cache: &Registry) -> Quantity<f64, f64>
-            = q1:quantity(unit_cache) "-" q2:expression(unit_cache)
+            = q1:quantity(unit_cache) __ "-" __ q2:expression(unit_cache)
             {? (&q1 - &q2).or(Err("Incompatible units")) }
 
         pub rule expression(unit_cache: &Registry) -> Quantity<f64, f64>
@@ -74,17 +77,17 @@ peg::parser! {
                 q:quantity_sub(unit_cache) { q }
                 --
                 // TODO(jwh): implement owning operators to reduce copies
-                q1:(@) "*" q2:@ { &q1 * &q2 }
-                q1:(@) "/" q2:@ { &q1 / &q2 }
+                q1:(@) __ "*" __ q2:@ { &q1 * &q2 }
+                q1:(@) __ "/" __ q2:@ { &q1 / &q2 }
                 --
-                q1:@ "**" n:integer() !['.'] { q1.powi(n) }
-                q1:@ "^" n:integer() !['.'] { q1.powi(n) }
-                q1:@ "**" n:decimal() { q1.powf(n) }
-                q1:@ "^" n:decimal() { q1.powf(n) }
+                q1:@ __ "**" __ n:integer() !['.'] { q1.powi(n) }
+                q1:@ __ "^" __ n:integer() !['.'] { q1.powi(n) }
+                q1:@ __ "**" __ n:decimal() { q1.powf(n) }
+                q1:@ __ "^" __ n:decimal() { q1.powf(n) }
                 --
                 q:quantity(unit_cache) { q }
                 "-" q:expression(unit_cache) { -q }
-                "(" expr:expression(unit_cache) ")" { expr }
+                "(" __ expr:expression(unit_cache) __ ")" { expr }
                 n:decimal() { Quantity::new_dimensionless(n) }
             }
     }
@@ -95,10 +98,9 @@ impl FromStr for Unit<f64> {
     type Err = SmootError;
 
     fn from_str(s: &str) -> Result<Unit<f64>, Self::Err> {
-        let s = s.replace(" ", "");
         // TODO(jwh): get cache from non-global scope
-        expression_parser::unit_expression(&s, &REGISTRY)
-            .map_err(|_e| SmootError::InvalidUnitExpression(0, s))
+        expression_parser::unit_expression(s, &REGISTRY)
+            .map_err(|_e| SmootError::InvalidUnitExpression(0, s.into()))
     }
 }
 
@@ -107,13 +109,12 @@ impl FromStr for Quantity<f64, f64> {
     type Err = SmootError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let s = s.replace(" ", "");
-        expression_parser::expression(&s, &REGISTRY)
+        expression_parser::expression(s, &REGISTRY)
             .map(|mut q| {
                 q.ito_reduced_units();
                 q
             })
-            .map_err(|_| SmootError::InvalidQuantityExpression(0, s))
+            .map_err(|_| SmootError::InvalidQuantityExpression(0, s.into()))
     }
 }
 
@@ -243,27 +244,27 @@ mod test_expression_parser {
 
     #[case(
         "1 meter",
-        Some(Quantity { magnitude: 1.0, unit: Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])})
+        Some(Quantity::new(1.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
         ; "Basic"
     )]
     #[case(
         "1meter",
-        Some(Quantity { magnitude: 1.0, unit: Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])})
+        Some(Quantity::new(1.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
         ; "Spaces should not matter"
     )]
     #[case(
         "1.0 meter",
-        Some(Quantity { magnitude: 1.0, unit: Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])})
+        Some(Quantity::new(1.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
         ; "Decimal point"
     )]
     #[case(
         "1 meter + 1 meter",
-        Some(Quantity { magnitude: 2.0, unit: Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])})
+        Some(Quantity::new(2.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
         ; "Addition"
     )]
     #[case(
         "1 meter + 1 kilometer",
-        Some(Quantity { magnitude: 1.0 + 1e-3, unit: Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])})
+        Some(Quantity::new(1.0 + 1e-3, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
         ; "Addition with conversion"
     )]
     #[case(
@@ -273,12 +274,12 @@ mod test_expression_parser {
     )]
     #[case(
         "1 meter - 1 meter",
-        Some(Quantity { magnitude: 0.0, unit: Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])})
+        Some(Quantity::new(0.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
         ; "Subtraction"
     )]
     #[case(
         "1 meter - 1 kilometer",
-        Some(Quantity { magnitude: 1.0 - 1e-3, unit: Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])})
+        Some(Quantity::new(1.0 - 1e-3, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
         ; "Subtraction with conversion"
     )]
     #[case(
@@ -288,117 +289,117 @@ mod test_expression_parser {
     )]
     #[case(
         "1 meter * 2 second",
-        Some(Quantity {
-            magnitude: 2.0,
-            unit: Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![]),
-        })
+        Some(Quantity::new(
+            2.0,
+            Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![]),
+        ))
         ; "Multiplication"
     )]
     #[case(
         "1 meter * 1 kilometer",
-        Some(Quantity {
-            magnitude: 1e-3,
-            unit: Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]).powf(2.0),
-        })
+        Some(Quantity::new(
+            1e-3,
+            Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]).powf(2.0),
+        ))
         ; "Multiplication with conversion"
     )]
     #[case(
         "1 kilometer * 1 meter",
-        Some(Quantity {
-            magnitude: 1e3,
-            unit: Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]).powf(2.0),
-        })
+        Some(Quantity::new(
+            1e3,
+            Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]).powf(2.0),
+        ))
         ; "Multiplication with conversion flipped"
     )]
     #[case(
         "1 meter * 1 second * 1 kilometer",
-        Some(Quantity {
-            magnitude: 1e-3,
-            unit: Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]).powf(2.0)
+        Some(Quantity::new(
+            1e-3,
+            Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]).powf(2.0)
                 * Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]),
-        })
+        ))
         ; "Multiplication with other unit in the middle"
     )]
     #[case(
         "1 meter / 2 second",
-        Some(Quantity {
-            magnitude: 0.5,
-            unit: Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![BaseUnit::clone(&UNIT_SECOND)]),
-        })
+        Some(Quantity::new(
+            0.5,
+            Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![BaseUnit::clone(&UNIT_SECOND)]),
+        ))
         ; "Division"
     )]
     #[case(
         "1 meter / 1 kilometer",
-        Some(Quantity {
-            magnitude: 1e-3,
-            unit: Unit::new(vec![], vec![]),
-        })
+        Some(Quantity::new(
+            1e-3,
+            Unit::new(vec![], vec![]),
+        ))
         ; "Division with conversion"
     )]
     #[case(
         "1 kilometer / 1 meter",
-        Some(Quantity {
-            magnitude: 1e3,
-            unit: Unit::new(vec![], vec![]),
-        })
+        Some(Quantity::new(
+            1e3,
+            Unit::new(vec![], vec![]),
+        ))
         ; "Division with conversion flipped"
     )]
     #[case(
         "1 meter ** 2",
-        Some(Quantity {
-            magnitude: 1.0,
-            unit: Unit::new(
+        Some(Quantity::new(
+            1.0,
+            Unit::new(
                 vec![BaseUnit::clone(&UNIT_METER).powf(2.0)],
                 vec![]
             ),
-        })
+        ))
         ; "Exponentiation"
     )]
     #[case(
         "1 meter ** 0.5",
-        Some(Quantity {
-            magnitude: 1.0,
-            unit: Unit::new(
+        Some(Quantity::new(
+            1.0,
+            Unit::new(
                 vec![BaseUnit::clone(&UNIT_METER).powf(0.5)],
                 vec![]
             ),
-        })
+        ))
         ; "Fractional powers"
     )]
     #[case(
         "1 meter ** -1",
-        Some(Quantity {
-            magnitude: 1.0,
-            unit: Unit::new(
+        Some(Quantity::new(
+            1.0,
+            Unit::new(
                 vec![],
                 vec![BaseUnit::clone(&UNIT_METER)],
             ),
-        })
+        ))
         ; "Negative powers"
     )]
     #[case(
         "(1 meter * 2 second)^2",
-        Some(Quantity {
-            magnitude: 4.0,
-            unit: Unit::new(
+        Some(Quantity::new(
+            4.0,
+            Unit::new(
                 vec![
                     BaseUnit::clone(&UNIT_METER).powf(2.0),
                     BaseUnit::clone(&UNIT_SECOND).powf(2.0),
                 ],
                 vec![]
             ),
-        })
+        ))
         ; "Exponentiation with parentheses"
     )]
     #[case(
         "1 (meter ** 2) * (meter ** 0.5)",
-        Some(Quantity {
-            magnitude: 1.0,
-            unit: Unit::new(
+        Some(Quantity::new(
+            1.0,
+            Unit::new(
                 vec![BaseUnit::clone(&UNIT_METER).powf(2.5)],
                 vec![]
             ),
-        })
+        ))
         ; "Exponents add"
     )]
     fn test_expression_parsing(s: &str, expected: Option<Quantity<f64, f64>>) -> SmootResult<()> {

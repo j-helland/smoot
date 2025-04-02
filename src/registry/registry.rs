@@ -13,7 +13,7 @@ use crate::error::{SmootError, SmootResult};
 use super::registry_parser::{registry_parser, NodeData, Operator, ParseTree, PrefixDefinition, UnitDefinition};
 
 pub static REGISTRY: LazyLock<Registry> =
-    LazyLock::new(|| Registry::new_default().expect("Failed to load default registry"));
+    LazyLock::new(|| Registry::default().expect("Failed to load default registry"));
 
 #[derive(Encode, Decode)]
 pub struct Registry {
@@ -29,7 +29,7 @@ impl Registry {
         }
     }
 
-    pub fn new_default() -> SmootResult<Self> {
+    pub fn default() -> SmootResult<Self> {
         std::fs::read(Self::REGISTRY_CACHE_FILE).map_or_else(
             |_| {
                 let mut new = Self::new();
@@ -300,7 +300,7 @@ impl Registry {
     }
 
     #[inline(always)]
-    fn insert_or_warn<K, V>(lineno: usize, map: &mut HashMap<K, V>, key: K, val: V)
+    fn insert_or_warn<K, V>(_lineno: usize, map: &mut HashMap<K, V>, key: K, val: V)
     where
         K: Eq + Hash + Debug,
         V: Debug,
@@ -309,7 +309,7 @@ impl Registry {
             Entry::Vacant(entry) => {
                 entry.insert(val);
             }
-            Entry::Occupied(entry) => {
+            Entry::Occupied(_entry) => {
                 // // TODO: actual logging
                 // println!("line:{} Attempted to overwrite value {:?}\nwith {:?}:{:?}", lineno, entry.get(), entry.key(), val);
             }
@@ -491,11 +491,11 @@ mod test_registry {
         Registry::clear_cache();
 
         let start = Instant::now();
-        Registry::new_default();
+        let _ = Registry::default();
         println!("First load {:?} ms", start.elapsed().as_millis());
 
         let start = Instant::now();
-        Registry::new_default();
+        let _ = Registry::default();
         println!("Second load {:?} ms", start.elapsed().as_millis());
 
         assert!(false);

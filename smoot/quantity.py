@@ -3,7 +3,7 @@ from __future__ import annotations
 import functools
 from typing import Generic, TypeAlias, TypeVar, Union
 
-from .smoot import F64Unit, F64Quantity
+from .smoot import F64Unit, F64Quantity, I64Quantity
 
 T = TypeVar("T")
 UnitsLike: TypeAlias = Union[str, F64Unit]
@@ -19,9 +19,12 @@ class Quantity(Generic[T]):
                 msg = f"Cannot pass a string to parse with separate units {units}"
                 raise ValueError(msg)
             quantity = F64Quantity.parse(value)
-        elif t in (int, float):
+        elif t is float:
             _units = self._get_units(units) if units is not None else None
             quantity = F64Quantity(value=value, units=_units)
+        elif t is int:
+            _units = self._get_units(units) if units is not None else None
+            quantity = I64Quantity(value=value, units=_units)
         else:
             msg = f"Unsupported type {t}"
             raise NotImplementedError(msg)
