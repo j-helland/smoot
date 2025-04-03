@@ -4,7 +4,7 @@ use std::{
     ops::{Add, Div, DivAssign, Mul, MulAssign, Sub},
 };
 
-use bitcode::{Encode, Decode};
+use bitcode::{Decode, Encode};
 use itertools::{EitherOrBoth, Itertools};
 use num_traits::ToPrimitive;
 
@@ -177,11 +177,8 @@ impl<N: Number> Unit<N> {
     pub fn conversion_factor(&self, other: &Self) -> SmootResult<N> {
         if !self.is_compatible_with(other) {
             return Err(SmootError::IncompatibleUnitTypes(
-                self.get_units_string()
-                    .unwrap_or("dimensionless".into()),
-                other
-                    .get_units_string()
-                    .unwrap_or("dimensionless".into()),
+                self.get_units_string().unwrap_or("dimensionless".into()),
+                other.get_units_string().unwrap_or("dimensionless".into()),
             ));
         }
 
@@ -217,12 +214,14 @@ impl<N: Number> Unit<N> {
     }
 
     pub fn get_units_string(&self) -> Option<String> {
-        let nums = self.numerator_units
+        let nums = self
+            .numerator_units
             .iter()
             .filter(|u| u.unit_type != DIMENSIONLESS)
             .sorted_by_key(|u| u.name.as_str())
             .collect_vec();
-        let denoms = self.denominator_units
+        let denoms = self
+            .denominator_units
             .iter()
             .filter(|u| u.unit_type != DIMENSIONLESS)
             .sorted_by_key(|u| u.name.as_str())
@@ -236,9 +235,9 @@ impl<N: Number> Unit<N> {
             .iter()
             .map(|u| {
                 u.power
-                .map(Self::format_power)
-                .map(|s| format!("{} ** {}", u.name, s))
-                .unwrap_or_else(|| u.name.clone())
+                    .map(Self::format_power)
+                    .map(|s| format!("{} ** {}", u.name, s))
+                    .unwrap_or_else(|| u.name.clone())
             })
             .join(" * ");
 
@@ -250,9 +249,9 @@ impl<N: Number> Unit<N> {
             .iter()
             .map(|u| {
                 u.power
-                .map(Self::format_power)
-                .map(|s| format!("{} ** {}", u.name, s))
-                .unwrap_or_else(|| u.name.clone())
+                    .map(Self::format_power)
+                    .map(|s| format!("{} ** {}", u.name, s))
+                    .unwrap_or_else(|| u.name.clone())
             })
             .join(" * ");
 
@@ -291,10 +290,7 @@ impl<N: Number> Unit<N> {
                         last.name = u.name;
                         last.multiplier = u.multiplier;
                         // Powers must update.
-                        last.power = last
-                            .power
-                            .map(|p| p + u.power.unwrap_or(1.0))
-                            .or(Some(2.0));
+                        last.power = last.power.map(|p| p + u.power.unwrap_or(1.0)).or(Some(2.0));
                         last.dimensionality = last
                             .dimensionality
                             .drain(..)
@@ -441,8 +437,7 @@ impl<N: Number> fmt::Display for Unit<N> {
         write!(
             f,
             "{}",
-            self.get_units_string()
-                .unwrap_or("dimensionless".into())
+            self.get_units_string().unwrap_or("dimensionless".into())
         )
     }
 }
@@ -498,10 +493,8 @@ impl<N: Number> Add for Unit<N> {
         if !self.is_compatible_with(&rhs) {
             return Err(SmootError::InvalidOperation(
                 "+",
-                self.get_units_string()
-                    .unwrap_or("dimensionless".into()),
-                rhs.get_units_string()
-                    .unwrap_or("dimensionless".into()),
+                self.get_units_string().unwrap_or("dimensionless".into()),
+                rhs.get_units_string().unwrap_or("dimensionless".into()),
             ));
         }
         Ok(self)
@@ -515,10 +508,8 @@ impl<N: Number> Sub for Unit<N> {
         if !self.is_compatible_with(&rhs) {
             return Err(SmootError::InvalidOperation(
                 "-",
-                self.get_units_string()
-                    .unwrap_or("dimensionless".into()),
-                rhs.get_units_string()
-                    .unwrap_or("dimensionless".into()),
+                self.get_units_string().unwrap_or("dimensionless".into()),
+                rhs.get_units_string().unwrap_or("dimensionless".into()),
             ));
         }
         Ok(self)
@@ -528,10 +519,20 @@ impl<N: Number> Sub for Unit<N> {
 impl From<Unit<f64>> for Unit<i64> {
     fn from(value: Unit<f64>) -> Self {
         Self {
-            numerator_units: value.numerator_units.iter().cloned().map(|u| u.into()).collect(),
+            numerator_units: value
+                .numerator_units
+                .iter()
+                .cloned()
+                .map(|u| u.into())
+                .collect(),
             numerator_dimension: value.numerator_dimension,
             numerator_dimensionality: value.numerator_dimensionality,
-            denominator_units: value.denominator_units.iter().cloned().map(|u| u.into()).collect(),
+            denominator_units: value
+                .denominator_units
+                .iter()
+                .cloned()
+                .map(|u| u.into())
+                .collect(),
             denominator_dimension: value.denominator_dimension,
             denominator_dimensionality: value.denominator_dimensionality,
         }

@@ -1,15 +1,20 @@
-use mimalloc::MiMalloc;                        
+use bitcode::{Decode, Encode};
+use mimalloc::MiMalloc;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-use numpy::{PyArray, PyArrayDyn, PyArrayMethods, ndarray::ArrayD};
+use numpy::{ndarray::ArrayD, PyArray, PyArrayDyn, PyArrayMethods};
+use pyo3::{
+    exceptions::{PyRuntimeError, PyValueError},
+    prelude::*,
+};
 use pyo3::{
     pymodule,
     types::PyModule,
-    Bound, PyResult, Python,
+    Bound,
 };
-use pyo3::{exceptions::{PyValueError, PyRuntimeError}, prelude::*};
+use unit::Unit;
 
 use crate::registry::REGISTRY;
 
@@ -29,22 +34,21 @@ macro_rules! create_unit_type {
     ($name_unit: ident, $base_type: ident) => {
         #[pyclass(module = "smoot.smoot")]
         struct $name_unit {
-            inner: unit::Unit<$base_type>,
+            inner: Unit<$base_type>,
         }
         #[pymethods]
         impl $name_unit {
             #[staticmethod]
             fn parse(expression: &str) -> PyResult<Self> {
-                let unit = unit::Unit::parse(&REGISTRY, expression)
+                let unit = Unit::parse(&REGISTRY, expression)
                     .map_err(|e| PyValueError::new_err(e.to_string()))?;
                 Ok(Self { inner: unit.into() })
             }
-        }       
+        }
     };
 }
 
 /// Create a quantity with a given underlying type.
-/// Creates a matching Unit type.
 macro_rules! create_quantity_type {
     ($name_unit: ident, $name_quantity: ident, $base_type: ident, $storage_type: ident) => {
         #[pyclass(module = "smoot.smoot")]
@@ -67,7 +71,9 @@ macro_rules! create_quantity_type {
             fn parse(expression: &str) -> PyResult<Self> {
                 let quantity = quantity::Quantity::parse(&REGISTRY, expression)
                     .map_err(|e| PyValueError::new_err(e.to_string()))?;
-                Ok(Self { inner: quantity.into() })
+                Ok(Self {
+                    inner: quantity.into(),
+                })
             }
 
             #[getter(m)]
@@ -114,12 +120,21 @@ macro_rules! create_quantity_type {
             }
 
             fn mul_scalar(&self, scalar: $base_type) -> Self {
-                Self { inner: &self.inner * scalar }
+                Self {
+                    inner: &self.inner * scalar,
+                }
             }
 
             // standard dunder methods
             fn __str__(&self) -> String {
-                format!("{} {}", self.inner.magnitude, self.inner.unit.get_units_string().unwrap_or("dimensionless".into()))
+                format!(
+                    "{} {}",
+                    self.inner.magnitude,
+                    self.inner
+                        .unit
+                        .get_units_string()
+                        .unwrap_or("dimensionless".into())
+                )
             }
 
             fn __hash__(&self) -> u64 {
@@ -186,7 +201,9 @@ macro_rules! create_quantity_type {
             }
 
             fn __mul__(&self, other: &Self) -> Self {
-                Self { inner: &self.inner * &other.inner }
+                Self {
+                    inner: &self.inner * &other.inner,
+                }
             }
 
             fn __rmul__(&self, _other: &Self) -> PyResult<Self> {
@@ -202,8 +219,10 @@ macro_rules! create_quantity_type {
             }
 
             fn __truediv__(&self, other: &Self) -> Self {
-                Self { inner: &self.inner / &other.inner }
-            }            
+                Self {
+                    inner: &self.inner / &other.inner,
+                }
+            }
 
             fn __rtruediv__(&self, _other: &Self) -> PyResult<Self> {
                 todo!();
@@ -218,7 +237,9 @@ macro_rules! create_quantity_type {
             }
 
             fn __neg__(&self) -> Self {
-                Self { inner: -self.inner.clone() }
+                Self {
+                    inner: -self.inner.clone(),
+                }
             }
 
             fn __round__(&self) -> Self {
@@ -243,8 +264,8 @@ macro_rules! create_quantity_type {
 
             // pickle support
             fn __setstate__(&mut self, state: &[u8]) -> PyResult<()> {
-                self.inner = bitcode::decode(state)
-                    .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+                self.inner =
+                    bitcode::decode(state).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
                 Ok(())
             }
 
@@ -253,10 +274,20 @@ macro_rules! create_quantity_type {
             }
 
             fn __getnewargs__(&self) -> ($storage_type,) {
-                (self.inner.magnitude,)
-            }            
+                (self.m(),)
+            }
         }
     };
+}
+
+#[derive(Encode, Decode)]
+struct ArrayQuantityStorage<N> {
+    dims: Vec<usize>,
+    data: Vec<N>,
+    // strides: Vec<isize>,
+    // dtype: String,
+    // bytes_le: Vec<u8>,
+    unit: Unit<f64>,
 }
 
 /// Create a numpy array version of a unitary quantity type.
@@ -269,9 +300,25 @@ macro_rules! create_array_quantity_type {
         }
         #[pymethods]
         impl $name {
+            #[new]
+            #[pyo3(signature = (value, units=None))]
+            fn py_new(
+                value: Bound<'_, PyArrayDyn<$base_type>>,
+                units: Option<&$unit_type>,
+            ) -> PyResult<Self> {
+                let inner = units
+                    .map(|u| quantity::Quantity::new(value.to_owned_array(), u.inner.clone()))
+                    .unwrap_or_else(|| {
+                        quantity::Quantity::new_dimensionless(value.to_owned_array())
+                    });
+                Ok(Self { inner })
+            }
+
             #[staticmethod]
             fn new(arr: Bound<'_, PyArrayDyn<$base_type>>, unit: &$unit_type) -> Self {
-                Self { inner: quantity::Quantity::new(arr.to_owned_array(), unit.inner.clone()) }
+                Self {
+                    inner: quantity::Quantity::new(arr.to_owned_array(), unit.inner.clone()),
+                }
             }
 
             #[getter(m)]
@@ -280,7 +327,10 @@ macro_rules! create_array_quantity_type {
             }
 
             #[getter(magnitude)]
-            fn magnitude<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyArrayDyn<$base_type>>> {
+            fn magnitude<'py>(
+                &self,
+                py: Python<'py>,
+            ) -> PyResult<Bound<'py, PyArrayDyn<$base_type>>> {
                 self.m(py)
             }
 
@@ -311,11 +361,42 @@ macro_rules! create_array_quantity_type {
                     .map_err(|e| PyValueError::new_err(e.to_string()))
             }
 
-            fn m_as<'py>(&self, py: Python<'py>, unit: &$unit_type) -> PyResult<Bound<'py, PyArrayDyn<$base_type>>> {
+            fn m_as<'py>(
+                &self,
+                py: Python<'py>,
+                unit: &$unit_type,
+            ) -> PyResult<Bound<'py, PyArrayDyn<$base_type>>> {
                 self.inner
                     .m_as(&unit.inner)
                     .map(|arr| PyArray::from_array(py, &arr))
                     .map_err(|e| PyValueError::new_err(e.to_string()))
+            }
+
+            // pickle support
+            fn __setstate__<'py>(&mut self, state: &[u8]) -> PyResult<()> {
+                let s: ArrayQuantityStorage<$base_type> =
+                    bitcode::decode(state).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+                self.inner.magnitude = ArrayD::from_shape_vec(s.dims, s.data)
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                self.inner.unit = s.unit;
+                Ok(())
+            }
+
+            fn __getstate__(&self) -> Vec<u8> {
+                let s = ArrayQuantityStorage {
+                    dims: self.inner.magnitude.shape().to_vec(),
+                    data: self.inner.magnitude.as_slice().unwrap().into(),
+                    unit: self.inner.unit.clone(),
+                };
+                self.inner.magnitude.as_slice();
+                bitcode::encode(&s)
+            }
+
+            fn __getnewargs__<'py>(
+                &self,
+                py: Python<'py>,
+            ) -> (Bound<'py, PyArrayDyn<$base_type>>,) {
+                (PyArray::from_array(py, &self.inner.magnitude),)
             }
         }
     };

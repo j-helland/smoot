@@ -3,7 +3,15 @@ from __future__ import annotations
 import functools
 from typing import Generic, TypeAlias, TypeVar, Union
 
-from .smoot import F64Unit, F64Quantity, I64Quantity
+import numpy as np
+
+from .smoot import (
+    F64Unit,
+    F64Quantity,
+    I64Quantity,
+    ArrayF64Quantity,
+    ArrayI64Quantity,
+)
 
 T = TypeVar("T")
 UnitsLike: TypeAlias = Union[str, F64Unit]
@@ -25,6 +33,11 @@ class Quantity(Generic[T]):
         elif t is int:
             _units = self._get_units(units) if units is not None else None
             quantity = I64Quantity(value=value, units=_units)
+        elif t in (list, tuple, np.ndarray):
+            _units = self._get_units(units) if units is not None else None
+            arr = np.array(value)
+            QType = ArrayI64Quantity if (arr.dtype == np.int64) else ArrayF64Quantity
+            quantity = QType(value=arr, units=_units)
         else:
             msg = f"Unsupported type {t}"
             raise NotImplementedError(msg)

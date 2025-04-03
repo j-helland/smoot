@@ -1,6 +1,9 @@
-use std::{marker::PhantomData, ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign}};
+use std::{
+    marker::PhantomData,
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+};
 
-use bitcode::{Encode, Decode};
+use bitcode::{Decode, Encode};
 use num_traits::Float;
 use numpy::ndarray::ArrayD;
 
@@ -26,7 +29,11 @@ pub struct Quantity<N: Number, S: Storage<N>> {
 
 impl<N: Number, S: Storage<N>> Quantity<N, S> {
     pub fn new(magnitude: S, unit: Unit<f64>) -> Self {
-        Self { magnitude, unit, _marker: PhantomData }
+        Self {
+            magnitude,
+            unit,
+            _marker: PhantomData,
+        }
     }
 
     pub fn new_dimensionless(magnitude: S) -> Self {
@@ -62,8 +69,7 @@ impl<N: Number, S: Storage<N>> Quantity<N, S> {
                 self.unit
                     .get_units_string()
                     .unwrap_or("dimensionless".into()),
-                unit.get_units_string()
-                    .unwrap_or("dimensionless".into()),
+                unit.get_units_string().unwrap_or("dimensionless".into()),
             ));
         }
         self.convert_to(unit)
@@ -119,7 +125,8 @@ where
 impl<N: Number, S: Storage<N> + PartialOrd> PartialOrd for Quantity<N, S> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         // Convert to same units before comparison.
-        other.m_as(&self.unit)
+        other
+            .m_as(&self.unit)
             .ok()
             .and_then(|o| self.magnitude.partial_cmp(&o))
     }

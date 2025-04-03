@@ -10,7 +10,9 @@ use bitcode::{Decode, Encode};
 use crate::base_unit::{BaseUnit, DIMENSIONLESS};
 use crate::error::{SmootError, SmootResult};
 
-use super::registry_parser::{registry_parser, NodeData, Operator, ParseTree, PrefixDefinition, UnitDefinition};
+use super::registry_parser::{
+    registry_parser, NodeData, Operator, ParseTree, PrefixDefinition, UnitDefinition,
+};
 
 pub static REGISTRY: LazyLock<Registry> =
     LazyLock::new(|| Registry::default().expect("Failed to load default registry"));

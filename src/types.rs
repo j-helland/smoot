@@ -1,5 +1,5 @@
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 use std::fmt::Debug;
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 use num_traits::{FromPrimitive, One, Zero};
 use numpy::ndarray::ScalarOperand;
@@ -23,15 +23,6 @@ pub trait DataOps:
 impl DataOps for f64 {}
 impl DataOps for i64 {}
 
-pub trait Number:
-    DataOps 
-    + FromPrimitive
-    + Zero
-    + One
-    + ApproxEq
-    + Powf
-    + Debug 
-{
-}
+pub trait Number: DataOps + FromPrimitive + Zero + One + ApproxEq + Powf + Debug {}
 impl Number for f64 {}
 impl Number for i64 {}
