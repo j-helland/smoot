@@ -9,7 +9,7 @@ use pyo3::{
     exceptions::{PyRuntimeError, PyValueError},
     prelude::*,
 };
-use pyo3::{pymodule, types::PyModule, Bound};
+use pyo3::{pymodule, pyfunction, types::PyModule, Bound};
 use unit::Unit;
 
 use crate::registry::REGISTRY;
@@ -26,6 +26,16 @@ mod utils;
 #[cfg(test)]
 mod test_utils;
 
+#[pyfunction]
+fn get_registry_size() -> usize {
+    REGISTRY.len()
+}
+
+#[pyfunction]
+fn get_all_registry_keys() -> Vec<String> {
+    REGISTRY.all_keys()
+}
+
 macro_rules! create_unit_type {
     ($name_unit: ident, $base_type: ident) => {
         #[pyclass(module = "smoot.smoot")]
@@ -36,9 +46,60 @@ macro_rules! create_unit_type {
         impl $name_unit {
             #[staticmethod]
             fn parse(expression: &str) -> PyResult<Self> {
-                let unit = Unit::parse(&REGISTRY, expression)
+                let inner = Unit::parse(&REGISTRY, expression)
                     .map_err(|e| PyValueError::new_err(e.to_string()))?;
-                Ok(Self { inner: unit.into() })
+                Ok(Self { inner })
+            }
+
+            fn __str__(&self) -> String {
+                println!("{:#?}", self.inner);
+                self.inner
+                    .get_units_string()
+                    .unwrap_or_else(|| "dimensionless".into())
+            }
+
+            fn __eq__(&self, other: &Self) -> bool {
+                self.inner == other.inner
+            }
+
+            fn __mul__(&self, other: &Self) -> Self {
+                let mut new = Self {
+                    inner: self.inner.clone(),
+                };
+                new.inner *= &other.inner;
+                let _ = new.inner.reduce();
+                new
+            }
+
+            fn __imul__(&mut self, other: &Self) {
+                self.inner *= &other.inner;
+                let _ = self.inner.reduce();
+            }
+
+            fn __truediv__(&self, other: &Self) -> Self {
+                let mut new = Self {
+                    inner: self.inner.clone(),
+                };
+                new.inner /= &other.inner;
+                let _ = new.inner.reduce();
+                new
+            }
+
+            fn __itruediv__(&mut self, other: &Self) {
+                self.inner /= &other.inner;
+                let _ = self.inner.reduce();
+            }
+
+            fn __pow__(&self, p: f64, _modulo: Option<i64>) -> Self {
+                let mut new = Self { inner: self.inner.clone() };
+                new.inner.ipowf(p);
+                let _ = new.inner.reduce();
+                new
+            }
+
+            fn __ipow__(&mut self, p: f64, _modulo: Option<i64>) {
+                self.inner.ipowf(p);
+                let _ = self.inner.reduce();
             }
         }
     };
@@ -418,6 +479,9 @@ fn smoot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // int backed types
     m.add_class::<I64Quantity>()?;
     m.add_class::<ArrayI64Quantity>()?;
+
+    let _ = m.add_function(wrap_pyfunction!(get_registry_size, m)?);
+    let _ = m.add_function(wrap_pyfunction!(get_all_registry_keys, m)?);
 
     Ok(())
 }

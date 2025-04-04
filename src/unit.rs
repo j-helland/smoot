@@ -423,6 +423,11 @@ impl<N: Number> Unit<N> {
 
 impl Unit<f64> {
     pub fn parse(registry: &Registry, s: &str) -> SmootResult<Self> {
+        if s == "dimensionless" {
+            // Make sure to return an empty unit container.
+            return Ok(Self::new(vec![], vec![]));
+        }
+
         expression_parser::unit_expression(s, registry)
             .map(|mut u| {
                 u.reduce();

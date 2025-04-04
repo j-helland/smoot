@@ -19,7 +19,7 @@ pub static REGISTRY: LazyLock<Registry> =
 
 #[derive(Encode, Decode)]
 pub struct Registry {
-    pub units: HashMap<String, Arc<BaseUnit<f64>>>,
+    pub(crate) units: HashMap<String, Arc<BaseUnit<f64>>>,
 }
 impl Registry {
     const DEFAULT_UNITS_FILE: &str = "default_en.txt";
@@ -56,6 +56,14 @@ impl Registry {
 
     pub fn get_unit(&self, key: &str) -> Option<&Arc<BaseUnit<f64>>> {
         self.units.get(key)
+    }
+
+    pub fn len(&self) -> usize {
+        self.units.len()
+    }
+
+    pub fn all_keys(&self) -> Vec<String> {
+        self.units.keys().cloned().collect()
     }
 
     pub fn load_from_file(&mut self, path: &str) -> SmootResult<()> {
