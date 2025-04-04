@@ -180,6 +180,15 @@ impl<N: Number, S: Storage<N>> Mul<N> for &Quantity<N, S> {
         new
     }
 }
+impl<N: Number, S: Storage<N>> Mul<N> for Quantity<N, S> {
+    type Output = Quantity<N, S>;
+
+    fn mul(self, rhs: N) -> Self::Output {
+        let mut new = self.clone();
+        new *= rhs;
+        new
+    }
+}
 /// Array multiplication
 impl<N: Number> Mul<ArrayD<N>> for Quantity<N, ArrayD<N>> {
     type Output = Self;
@@ -494,415 +503,403 @@ impl From<Quantity<f64, f64>> for Quantity<i64, i64> {
 
 #[cfg(test)]
 mod test_quantity {
-    use std::sync::Arc;
+    use std::sync::{Arc, LazyLock};
 
     use numpy::ndarray::Array;
 
-    use crate::{assert_is_close, base_unit::BaseUnit};
+    use crate::{assert_is_close, base_unit::BaseUnit, registry::REGISTRY};
 
     use super::*;
 
-    // const UNIT_METER: BaseUnit<f64> = BaseUnit {
-    //     name: "meter",
-    //     multiplier: 1.0,
-    //     power: None,
-    //     unit_type: Dimension::LENGTH,
-    // };
-    // const UNIT_KILOMETER: BaseUnit<f64> = BaseUnit {
-    //     name: "kilometer",
-    //     multiplier: 1000.0,
-    //     power: None,
-    //     unit_type: Dimension::LENGTH,
-    // };
-    // const UNIT_SECOND: BaseUnit<f64> = BaseUnit {
-    //     name: "second",
-    //     multiplier: 1.0,
-    //     power: None,
-    //     unit_type: Dimension::TIME,
-    // };
-
-    // #[test]
-    // fn test_quantity_ito_fractional_power() -> SmootResult<()> {
-    //     let km_sqrt = Unit::new(vec![UNIT_KILOMETER], vec![]).powf(0.5);
-    //     let m_sqrt = Unit::new(vec![UNIT_METER], vec![]).powf(0.5);
-
-    //     let mut q = Quantity::new(1.0, km_sqrt);
-
-    //     q.ito(&m_sqrt)?;
-
-    //     assert_is_close!(q.magnitude, UNIT_KILOMETER.multiplier.sqrt());
-    //     assert_eq!(q.unit, m_sqrt);
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // fn test_quantity_ito() -> SmootResult<()> {
-    //     let meter = Unit::new(vec![UNIT_METER], vec![]);
-    //     let kilometer = Unit::new(vec![UNIT_KILOMETER], vec![]);
-
-    //     let mut q = Quantity::new(1.0, meter);
-
-    //     q.ito(&kilometer)?;
-
-    //     assert_is_close!(q.magnitude, 1.0 / 1000.0);
-    //     assert_eq!(q.unit, kilometer);
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // fn test_quantity_ito_incompatible_units() {
-    //     let meter = Unit::new(vec![UNIT_METER], vec![]);
-    //     let second = Unit::new(vec![UNIT_SECOND], vec![]);
-    //     let mut q = Quantity::new(1.0, meter);
-
-    //     assert!(q.ito(&second).is_err());
-    // }
-
-    // #[test]
-    // fn test_quantity_to() -> SmootResult<()> {
-    //     let meter = Unit::new(vec![UNIT_METER], vec![]);
-    //     let kilometer = Unit::new(vec![UNIT_KILOMETER], vec![]);
-
-    //     let q = Quantity::new(1.0, meter);
-
-    //     let q_converted = q.to(&kilometer)?;
-
-    //     assert_is_close!(q_converted.magnitude, 1.0 / 1000.0);
-    //     assert_eq!(q_converted.unit, kilometer);
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // fn test_quantity_to_incompatible_units() {
-    //     let meter = Unit::new(vec![UNIT_METER)], vec![]);
-    //     let second = Unit::new(vec![UNIT_SECOND)], vec![])));
-    //     let q = Quantity::new(1.0, meter);
-
-    //     assert!(q.to(&second).is_err());
-    // }
-
-    // #[test]
-    // fn test_quantity_m_as() -> SmootResult<()> {
-    //     let meter = Unit::new(vec![UNIT_METER)], vec![]);
-    //     let kilometer = Unit::new(vec![UNIT_KILOMETER)], vec![])));
-    //     let q = Quantity::new(1.0, meter);
-
-    //     let magnitude = q.m_as(&kilometer)?;
-
-    //     assert_is_close!(magnitude, 1.0 / 1000.0);
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // fn test_quantity_m_as_incompatible_units() {
-    //     let meter = Unit::new(vec![UNIT_METER)], vec![]);
-    //     let second = Unit::new(vec![UNIT_SECOND)], vec![])));
-    //     let q = Quantity::new(1.0, meter);
-
-    //     assert!(q.m_as(&second).is_err());
-    // }
-
-    // #[test]
-    // fn test_quantity_quantity_mul() {
-    //     let q1 = Quantity::new_dimensionless(1.0);
-    //     let q2 = Quantity::new_dimensionless(2.0);
-    //     let q = &q1 * &q2;
-    //     assert_is_close!(q.magnitude, 2.0);
-    // }
-
-    // #[test]
-    // fn test_quantity_scalar_mul() {
-    //     let q = Quantity::new_dimensionless(1.0);
-    //     let q_scaled = q * 2.0;
-    //     assert_is_close!(q_scaled.magnitude, 2.0);
-    // }
-
-    // #[test]
-    // /// Can element-wise multiple array quantity by scalar
-    // fn test_quantity_array_scalar_mul() {
-    //     let arr = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
-    //     let q = Quantity::new_dimensionless(arr);
-
-    //     let q_scaled = q * 2.0;
-
-    //     q_scaled.magnitude.for_each(|x| {
-    //         assert_is_close!(*x, 2.0);
-    //     });
-    // }
-
-    // #[test]
-    // /// Can element-wise multiple array quantity by naked array
-    // fn test_quantity_array_array_mul() {
-    //     let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
-    //     let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
-    //     let q = Quantity::new_dimensionless(arr1);
-
-    //     let q_scaled = q * arr2;
-
-    //     q_scaled.magnitude.for_each(|x| {
-    //         assert_is_close!(*x, 2.0);
-    //     });
-    // }
-
-    // #[test]
-    // /// Can element-wise multiply array quantities
-    // fn test_quantity_array_quantity_array_mul() {
-    //     let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
-    //     let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
-    //     let q1 = Quantity::new_dimensionless(arr1);
-    //     let q2 = Quantity::new_dimensionless(arr2);
-
-    //     let q_scaled = q1 * q2;
-
-    //     q_scaled.magnitude.for_each(|x| {
-    //         assert_is_close!(*x, 2.0);
-    //     });
-    // }
-
-    // #[test]
-    // /// Can add quantities with compatible units
-    // fn test_quantity_add() -> SmootResult<()> {
-    //     let q1 = Quantity::new_dimensionless(1.0);
-    //     let q2 = Quantity::new_dimensionless(2.0);
-
-    //     let q = (&q1 + &q2)?;
-    //     assert_is_close!(q.magnitude, 3.0);
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // /// Cannot add quantities with incompatible units
-    // fn test_quantity_add_incompatible_units() {
-    //     let meter = Unit::new(vec![UNIT_METER)], vec![]);
-    //     let second = Unit::new(vec![UNIT_SECOND)], vec![]);
-    //     let q1 = Quantity::new(1.0, meter);
-    //     let q2 = Quantity::new(2.0, second);
-
-    //     let result = &q1 + &q2;
-    //     assert!(result.is_err());
-    // }
-
-    // #[test]
-    // /// Can add dimensionless scalar to a dimensionless quantity
-    // fn test_quantity_add_scalar() -> SmootResult<()> {
-    //     let q = Quantity::new_dimensionless(1.0);
-
-    //     let q_scaled = (q + 2.0)?;
-    //     assert!(q_scaled.unit.is_dimensionless());
-    //     assert_is_close!(q_scaled.magnitude, 3.0);
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // /// Cannot add dimensionless scalar to a non-dimensionless quantity
-    // fn test_quantity_add_scalar_incompatible_units() {
-    //     let meter = Unit::new(vec![UNIT_METER)], vec![]);
-    //     let q = Quantity::new(1.0, meter);
-    //     let result = q + 2.0;
-    //     assert!(result.is_err());
-    // }
-
-    // #[test]
-    // /// Can add scalar to an array quantity
-    // fn test_quantity_array_scalar_add() -> SmootResult<()> {
-    //     let arr = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
-    //     let q = Quantity::new_dimensionless(arr);
-
-    //     let q_scaled = (q + 2.0)?;
-    //     q_scaled.magnitude.for_each(|x| {
-    //         assert_is_close!(*x, 3.0);
-    //     });
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // /// Can add an array to an array quantity
-    // fn test_quantity_array_array_add() -> SmootResult<()> {
-    //     let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
-    //     let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
-    //     let q1 = Quantity::new_dimensionless(arr1);
-
-    //     let q_scaled = (q1 + arr2)?;
-
-    //     q_scaled.magnitude.for_each(|x| {
-    //         assert_is_close!(*x, 3.0);
-    //     });
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // /// Can add an array quantity to an array quantity
-    // fn test_quantity_array_quantity_array_add() -> SmootResult<()> {
-    //     let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
-    //     let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
-    //     let q1 = Quantity::new_dimensionless(arr1);
-    //     let q2 = Quantity::new_dimensionless(arr2);
-
-    //     let q_scaled = (q1 + q2)?;
-
-    //     q_scaled.magnitude.for_each(|x| {
-    //         assert_is_close!(*x, 3.0);
-    //     });
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // /// Can negate a quantity
-    // fn test_quantity_neg() {
-    //     let q = Quantity::new_dimensionless(1.0);
-    //     let neg_q = -q;
-    //     assert_eq!(neg_q.magnitude, -1.0);
-    // }
-
-    // #[test]
-    // /// Can negate an array quantity
-    // fn test_quantity_neg_array() {
-    //     let arr = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
-    //     let q = Quantity::new_dimensionless(arr);
-
-    //     let neg_q = -q;
-
-    //     neg_q.magnitude.for_each(|x| {
-    //         assert_eq!(*x, -1.0);
-    //     });
-    // }
-
-    // #[test]
-    // /// Can subtract quantities with compatible units
-    // fn test_quantity_sub() -> SmootResult<()> {
-    //     let q1 = Quantity::new_dimensionless(1.0);
-    //     let q2 = Quantity::new_dimensionless(2.0);
-
-    //     let q = (&q1 - &q2)?;
-    //     assert_is_close!(q.magnitude, -1.0);
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // /// Cannot subtract quantities with incompatible units
-    // fn test_quantity_sub_incompatible_units() {
-    //     let meter = Unit::new(vec![UNIT_METER)], vec![]);
-    //     let second = Unit::new(vec![UNIT_SECOND)], vec![]);
-    //     let q1 = Quantity::new(1.0, meter);
-    //     let q2 = Quantity::new(2.0, second);
-
-    //     let result = &q1 - &q2;
-    //     assert!(result.is_err());
-    // }
-
-    // #[test]
-    // /// Can subtract dimensionless scalar from a dimensionless quantity
-    // fn test_quantity_sub_scalar() -> SmootResult<()> {
-    //     let q = Quantity::new_dimensionless(1.0);
-
-    //     let q_scaled = (q - 2.0)?;
-    //     assert!(q_scaled.unit.is_dimensionless());
-    //     assert_is_close!(q_scaled.magnitude, -1.0);
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // /// Can subtract an array from an array quantity
-    // fn test_quantity_array_array_sub() -> SmootResult<()> {
-    //     let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
-    //     let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
-    //     let q1 = Quantity::new_dimensionless(arr1);
-
-    //     let q = (q1 - arr2)?;
-
-    //     q.magnitude.for_each(|x| {
-    //         assert_is_close!(*x, -1.0);
-    //     });
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // /// Can subtract an array quantity from an array quantity
-    // fn test_quantity_array_quantity_array_sub() -> SmootResult<()> {
-    //     let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
-    //     let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
-    //     let q1 = Quantity::new_dimensionless(arr1);
-    //     let q2 = Quantity::new_dimensionless(arr2);
-
-    //     let q = (q1 - q2)?;
-
-    //     q.magnitude.for_each(|x| {
-    //         assert_is_close!(*x, -1.0);
-    //     });
-
-    //     Ok(())
-    // }
-
-    // #[test]
-    // /// Can divide quantity by quantity
-    // fn test_quantity_div_quantity() {
-    //     let q1 = Quantity::new_dimensionless(1.0);
-    //     let q2 = Quantity::new_dimensionless(2.0);
-
-    //     let q = &q1 / &q2;
-
-    //     assert_is_close!(q.magnitude, 0.5);
-    // }
-
-    // #[test]
-    // /// Can divide quantity by scalar
-    // fn test_quantity_scalar_div() {
-    //     let q = Quantity::new_dimensionless(1.0);
-    //     let q_scaled = q / 2.0;
-    //     assert_is_close!(q_scaled.magnitude, 0.5);
-    // }
-
-    // #[test]
-    // /// Can divide array quantity by scalar
-    // fn test_quantity_array_quantity_scalar_div() {
-    //     let arr = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
-    //     let q = Quantity::new_dimensionless(arr);
-
-    //     let q_scaled = q / 2.0;
-
-    //     q_scaled.magnitude.for_each(|x| {
-    //         assert_is_close!(*x, 0.5);
-    //     });
-    // }
-
-    // #[test]
-    // /// Can divide array quantity by array
-    // fn test_quantity_array_quantity_array_div() {
-    //     let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
-    //     let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
-    //     let q = Quantity::new_dimensionless(arr1);
-
-    //     let q_scaled = q / arr2;
-
-    //     q_scaled.magnitude.for_each(|x| {
-    //         assert_is_close!(*x, 0.5);
-    //     });
-    // }
-
-    // #[test]
-    // /// Can divide array quantity by array quantity
-    // fn test_quantity_array_quantity_array_quantity_div() {
-    //     let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
-    //     let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
-    //     let q1 = Quantity::new_dimensionless(arr1);
-    //     let q2 = Quantity::new_dimensionless(arr2);
-
-    //     let q = q1 / q2;
-
-    //     q.magnitude.for_each(|x| {
-    //         assert_is_close!(*x, 0.5);
-    //     });
-    // }
+    static UNIT_METER: LazyLock<&Arc<BaseUnit<f64>>> =
+        LazyLock::new(|| REGISTRY.get_unit("meter").expect("No unit 'meter'"));
+    static UNIT_KILOMETER: LazyLock<&Arc<BaseUnit<f64>>> =
+        LazyLock::new(|| REGISTRY.get_unit("kilometer").expect("No unit 'kilometer'"));
+    static UNIT_SECOND: LazyLock<&Arc<BaseUnit<f64>>> =
+        LazyLock::new(|| REGISTRY.get_unit("second").expect("No unit 'second`'"));
+
+    #[test]
+    fn test_quantity_ito_fractional_power() -> SmootResult<()> {
+        let km_sqrt = Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]).powf(0.5);
+        let m_sqrt = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]).powf(0.5);
+
+        let mut q = Quantity::new(1.0, km_sqrt);
+
+        q.ito(&m_sqrt)?;
+
+        assert_is_close!(q.magnitude, UNIT_KILOMETER.multiplier.sqrt());
+        assert_eq!(q.unit, m_sqrt);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_quantity_ito() -> SmootResult<()> {
+        let meter = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let kilometer = Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]);
+
+        let mut q = Quantity::new(1.0, meter);
+
+        q.ito(&kilometer)?;
+
+        assert_is_close!(q.magnitude, 1.0 / 1000.0);
+        assert_eq!(q.unit, kilometer);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_quantity_ito_incompatible_units() {
+        let meter = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let second = Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]);
+        let mut q = Quantity::new(1.0, meter);
+
+        assert!(q.ito(&second).is_err());
+    }
+
+    #[test]
+    fn test_quantity_to() -> SmootResult<()> {
+        let meter = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let kilometer = Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]);
+
+        let q = Quantity::new(1.0, meter);
+
+        let q_converted = q.to(&kilometer)?;
+
+        assert_is_close!(q_converted.magnitude, 1.0 / 1000.0);
+        assert_eq!(q_converted.unit, kilometer);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_quantity_to_incompatible_units() {
+        let meter = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let second = Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]);
+        let q = Quantity::new(1.0, meter);
+
+        assert!(q.to(&second).is_err());
+    }
+
+    #[test]
+    fn test_quantity_m_as() -> SmootResult<()> {
+        let meter = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let kilometer = Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]);
+        let q = Quantity::new(1.0, meter);
+
+        let magnitude = q.m_as(&kilometer)?;
+
+        assert_is_close!(magnitude, 1.0 / 1000.0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_quantity_m_as_incompatible_units() {
+        let meter = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let second = Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]);
+        let q = Quantity::new(1.0, meter);
+
+        assert!(q.m_as(&second).is_err());
+    }
+
+    #[test]
+    fn test_quantity_quantity_mul() {
+        let q1 = Quantity::new_dimensionless(1.0);
+        let q2 = Quantity::new_dimensionless(2.0);
+        let q = &q1 * &q2;
+        assert_is_close!(q.magnitude, 2.0);
+    }
+
+    #[test]
+    fn test_quantity_scalar_mul() {
+        let q = Quantity::new_dimensionless(1.0);
+        let q_scaled = q * 2.0;
+        assert_is_close!(q_scaled.magnitude, 2.0);
+    }
+
+    #[test]
+    /// Can element-wise multiple array quantity by scalar
+    fn test_quantity_array_scalar_mul() {
+        let arr = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
+        let q = Quantity::new_dimensionless(arr);
+
+        let q_scaled = q * 2.0;
+
+        q_scaled.magnitude.for_each(|x| {
+            assert_is_close!(*x, 2.0);
+        });
+    }
+
+    #[test]
+    /// Can element-wise multiple array quantity by naked array
+    fn test_quantity_array_array_mul() {
+        let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
+        let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
+        let q = Quantity::new_dimensionless(arr1);
+
+        let q_scaled = q * arr2;
+
+        q_scaled.magnitude.for_each(|x| {
+            assert_is_close!(*x, 2.0);
+        });
+    }
+
+    #[test]
+    /// Can element-wise multiply array quantities
+    fn test_quantity_array_quantity_array_mul() {
+        let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
+        let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
+        let q1 = Quantity::new_dimensionless(arr1);
+        let q2 = Quantity::new_dimensionless(arr2);
+
+        let q_scaled = q1 * q2;
+
+        q_scaled.magnitude.for_each(|x| {
+            assert_is_close!(*x, 2.0);
+        });
+    }
+
+    #[test]
+    /// Can add quantities with compatible units
+    fn test_quantity_add() -> SmootResult<()> {
+        let q1 = Quantity::new_dimensionless(1.0);
+        let q2 = Quantity::new_dimensionless(2.0);
+
+        let q = (&q1 + &q2)?;
+        assert_is_close!(q.magnitude, 3.0);
+
+        Ok(())
+    }
+
+    #[test]
+    /// Cannot add quantities with incompatible units
+    fn test_quantity_add_incompatible_units() {
+        let meter = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let second = Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]);
+        let q1 = Quantity::new(1.0, meter);
+        let q2 = Quantity::new(2.0, second);
+
+        let result = &q1 + &q2;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    /// Can add dimensionless scalar to a dimensionless quantity
+    fn test_quantity_add_scalar() -> SmootResult<()> {
+        let q = Quantity::new_dimensionless(1.0);
+
+        let q_scaled = (q + 2.0)?;
+        assert!(q_scaled.unit.is_dimensionless());
+        assert_is_close!(q_scaled.magnitude, 3.0);
+
+        Ok(())
+    }
+
+    #[test]
+    /// Cannot add dimensionless scalar to a non-dimensionless quantity
+    fn test_quantity_add_scalar_incompatible_units() {
+        let meter = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let q = Quantity::new(1.0, meter);
+        let result = q + 2.0;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    /// Can add scalar to an array quantity
+    fn test_quantity_array_scalar_add() -> SmootResult<()> {
+        let arr = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
+        let q = Quantity::new_dimensionless(arr);
+
+        let q_scaled = (q + 2.0)?;
+        q_scaled.magnitude.for_each(|x| {
+            assert_is_close!(*x, 3.0);
+        });
+
+        Ok(())
+    }
+
+    #[test]
+    /// Can add an array to an array quantity
+    fn test_quantity_array_array_add() -> SmootResult<()> {
+        let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
+        let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
+        let q1 = Quantity::new_dimensionless(arr1);
+
+        let q_scaled = (q1 + arr2)?;
+
+        q_scaled.magnitude.for_each(|x| {
+            assert_is_close!(*x, 3.0);
+        });
+
+        Ok(())
+    }
+
+    #[test]
+    /// Can add an array quantity to an array quantity
+    fn test_quantity_array_quantity_array_add() -> SmootResult<()> {
+        let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
+        let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
+        let q1 = Quantity::new_dimensionless(arr1);
+        let q2 = Quantity::new_dimensionless(arr2);
+
+        let q_scaled = (q1 + q2)?;
+
+        q_scaled.magnitude.for_each(|x| {
+            assert_is_close!(*x, 3.0);
+        });
+
+        Ok(())
+    }
+
+    #[test]
+    /// Can negate a quantity
+    fn test_quantity_neg() {
+        let q = Quantity::new_dimensionless(1.0);
+        let neg_q = -q;
+        assert_eq!(neg_q.magnitude, -1.0);
+    }
+
+    #[test]
+    /// Can negate an array quantity
+    fn test_quantity_neg_array() {
+        let arr = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
+        let q = Quantity::new_dimensionless(arr);
+
+        let neg_q = -q;
+
+        neg_q.magnitude.for_each(|x| {
+            assert_eq!(*x, -1.0);
+        });
+    }
+
+    #[test]
+    /// Can subtract quantities with compatible units
+    fn test_quantity_sub() -> SmootResult<()> {
+        let q1 = Quantity::new_dimensionless(1.0);
+        let q2 = Quantity::new_dimensionless(2.0);
+
+        let q = (&q1 - &q2)?;
+        assert_is_close!(q.magnitude, -1.0);
+
+        Ok(())
+    }
+
+    #[test]
+    /// Cannot subtract quantities with incompatible units
+    fn test_quantity_sub_incompatible_units() {
+        let meter = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let second = Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]);
+        let q1 = Quantity::new(1.0, meter);
+        let q2 = Quantity::new(2.0, second);
+
+        let result = &q1 - &q2;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    /// Can subtract dimensionless scalar from a dimensionless quantity
+    fn test_quantity_sub_scalar() -> SmootResult<()> {
+        let q = Quantity::new_dimensionless(1.0);
+
+        let q_scaled = (q - 2.0)?;
+        assert!(q_scaled.unit.is_dimensionless());
+        assert_is_close!(q_scaled.magnitude, -1.0);
+
+        Ok(())
+    }
+
+    #[test]
+    /// Can subtract an array from an array quantity
+    fn test_quantity_array_array_sub() -> SmootResult<()> {
+        let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
+        let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
+        let q1 = Quantity::new_dimensionless(arr1);
+
+        let q = (q1 - arr2)?;
+
+        q.magnitude.for_each(|x| {
+            assert_is_close!(*x, -1.0);
+        });
+
+        Ok(())
+    }
+
+    #[test]
+    /// Can subtract an array quantity from an array quantity
+    fn test_quantity_array_quantity_array_sub() -> SmootResult<()> {
+        let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
+        let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
+        let q1 = Quantity::new_dimensionless(arr1);
+        let q2 = Quantity::new_dimensionless(arr2);
+
+        let q = (q1 - q2)?;
+
+        q.magnitude.for_each(|x| {
+            assert_is_close!(*x, -1.0);
+        });
+
+        Ok(())
+    }
+
+    #[test]
+    /// Can divide quantity by quantity
+    fn test_quantity_div_quantity() {
+        let q1 = Quantity::new_dimensionless(1.0);
+        let q2 = Quantity::new_dimensionless(2.0);
+
+        let q = &q1 / &q2;
+
+        assert_is_close!(q.magnitude, 0.5);
+    }
+
+    #[test]
+    /// Can divide quantity by scalar
+    fn test_quantity_scalar_div() {
+        let q = Quantity::new_dimensionless(1.0);
+        let q_scaled = q / 2.0;
+        assert_is_close!(q_scaled.magnitude, 0.5);
+    }
+
+    #[test]
+    /// Can divide array quantity by scalar
+    fn test_quantity_array_quantity_scalar_div() {
+        let arr = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
+        let q = Quantity::new_dimensionless(arr);
+
+        let q_scaled = q / 2.0;
+
+        q_scaled.magnitude.for_each(|x| {
+            assert_is_close!(*x, 0.5);
+        });
+    }
+
+    #[test]
+    /// Can divide array quantity by array
+    fn test_quantity_array_quantity_array_div() {
+        let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
+        let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
+        let q = Quantity::new_dimensionless(arr1);
+
+        let q_scaled = q / arr2;
+
+        q_scaled.magnitude.for_each(|x| {
+            assert_is_close!(*x, 0.5);
+        });
+    }
+
+    #[test]
+    /// Can divide array quantity by array quantity
+    fn test_quantity_array_quantity_array_quantity_div() {
+        let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
+        let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
+        let q1 = Quantity::new_dimensionless(arr1);
+        let q2 = Quantity::new_dimensionless(arr2);
+
+        let q = q1 / q2;
+
+        q.magnitude.for_each(|x| {
+            assert_is_close!(*x, 0.5);
+        });
+    }
 }

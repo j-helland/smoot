@@ -205,60 +205,32 @@ mod test_base_unit {
         assert_eq!(left * right, expected);
     }
 
-    // #[test]
-    // fn test() {
-    //     let u1 = BaseUnit::new("1".to_string(), 1.0, 1);
-    //     let u2 = BaseUnit::new("2".to_string(), 1.0, 3);
-    //     println!("{:?}", u1 * u2);
-    //     assert!(false);
-    // }
+    #[test]
+    /// The conversion factor between compatible units is computed correctly.
+    fn test_conversion_factor() -> SmootResult<()> {
+        // Given two units with the same type
+        let u1 = BaseUnit::new("u1".into(), 1.0, 0);
+        let u2 = BaseUnit::new("u2".into(), 2.0, 0);
 
-    // #[test]
-    // /// The conversion factor between compatible units is computed correctly.
-    // fn test_conversion_factor() -> SmootResult<()> {
-    //     // Given two units with the same type
-    //     let u1 = BaseUnit {
-    //         name: "u1".to_string(),
-    //         multiplier: 1.0,
-    //         power: None,
-    //         unit_type: 0,
-    //     };
-    //     let u2 = BaseUnit {
-    //         name: "u2".to_string(),
-    //         multiplier: 2.0,
-    //         power: None,
-    //         unit_type: 0,
-    //     };
+        // Then a self conversion factor is 1.0
+        assert_eq!(u1.conversion_factor(&u1)?, 1.0);
 
-    //     // Then a self conversion factor is 1.0
-    //     assert_eq!(u1.conversion_factor(&u1)?, 1.0);
+        // The conversion factor and reciprocal match.
+        assert_is_close!(u1.conversion_factor(&u2)?, 0.5);
+        assert_is_close!(u2.conversion_factor(&u1)?, 2.0);
 
-    //     // The conversion factor and reciprocal match.
-    //     assert_is_close!(u1.conversion_factor(&u2)?, 0.5);
-    //     assert_is_close!(u2.conversion_factor(&u1)?, 2.0);
+        Ok(())
+    }
 
-    //     Ok(())
-    // }
+    #[test]
+    /// Trying to convert between incompatible units is an error.
+    fn test_conversion_factor_incompatible_types() {
+        // Given two units with disparate types
+        let u1 = BaseUnit::new("u1".into(), 1.0, 0);
+        let u2 = BaseUnit::new("u2".into(), 2.0, 1);
 
-    // #[test]
-    // /// Trying to convert between incompatible units is an error.
-    // fn test_conversion_factor_incompatible_types() {
-    //     // Given two units with disparate types
-    //     let u1 = BaseUnit {
-    //         name: "u1".to_string(),
-    //         multiplier: 1.0,
-    //         power: None,
-    //         unit_type: 0,
-    //     };
-    //     let u2 = BaseUnit {
-    //         name: "u2".to_string(),
-    //         multiplier: 1.0,
-    //         power: None,
-    //         unit_type: 0,
-    //     };
-
-    //     // Then the result is an error
-    //     let result = u1.conversion_factor(&u2);
-    //     assert!(result.is_err());
-    // }
+        // Then the result is an error
+        let result = u1.conversion_factor(&u2);
+        assert!(result.is_err());
+    }
 }

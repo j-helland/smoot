@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import functools
 from typing import Generic, TypeAlias, TypeVar, Union
 
 import numpy as np
@@ -16,6 +15,7 @@ from .smoot import (
 T = TypeVar("T")
 UnitsLike: TypeAlias = Union[str, F64Unit]
 ValueLike: TypeAlias = Union[str, T]
+
 
 class Quantity(Generic[T]):
     __slots__ = ("__inner",)
@@ -50,7 +50,7 @@ class Quantity(Generic[T]):
 
     def m_as(self, units: UnitsLike) -> T:
         """Convert the quantity to the specified units and return its magnitude.
-        
+
         Parameters
         ----------
         units : UnitsLike

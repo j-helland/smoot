@@ -9,11 +9,7 @@ use pyo3::{
     exceptions::{PyRuntimeError, PyValueError},
     prelude::*,
 };
-use pyo3::{
-    pymodule,
-    types::PyModule,
-    Bound,
-};
+use pyo3::{pymodule, types::PyModule, Bound};
 use unit::Unit;
 
 use crate::registry::REGISTRY;
@@ -373,7 +369,7 @@ macro_rules! create_array_quantity_type {
             }
 
             // pickle support
-            fn __setstate__<'py>(&mut self, state: &[u8]) -> PyResult<()> {
+            fn __setstate__(&mut self, state: &[u8]) -> PyResult<()> {
                 let s: ArrayQuantityStorage<$base_type> =
                     bitcode::decode(state).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
                 self.inner.magnitude = ArrayD::from_shape_vec(s.dims, s.data)

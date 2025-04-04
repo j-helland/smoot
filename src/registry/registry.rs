@@ -25,6 +25,7 @@ impl Registry {
     const DEFAULT_UNITS_FILE: &str = "default_en.txt";
     const REGISTRY_CACHE_FILE: &str = ".registry_cache.smoot";
 
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             units: HashMap::new(),
@@ -467,40 +468,11 @@ impl Registry {
 
 #[cfg(test)]
 mod test_registry {
-    use std::time::Instant;
-
     use super::*;
 
     #[test]
-    fn test() -> Result<(), SmootError> {
-        // let mut registry = Registry::new();
-
-        // let start = Instant::now();
-        // registry.load_from_file("default_en.txt")?;
-        // println!("File load {:?} ms", start.elapsed().as_millis());
-
-        // let encoded = bitcode::encode(&registry);
-        // let mut tmp = NamedTempFile::new().unwrap();
-        // let _ = tmp.write(&encoded).unwrap();
-        // let _ = tmp.seek(std::io::SeekFrom::Start(0)).unwrap();
-
-        // let start = Instant::now();
-        // let mut buf = Vec::new();
-        // let _ = tmp.read_to_end(&mut buf).unwrap();
-        // let decoded: Registry = bitcode::decode(&buf).unwrap();
-        // println!("Bitcode load {:?} ms", start.elapsed().as_millis());
-
-        Registry::clear_cache();
-
-        let start = Instant::now();
-        let _ = Registry::default();
-        println!("First load {:?} ms", start.elapsed().as_millis());
-
-        let start = Instant::now();
-        let _ = Registry::default();
-        println!("Second load {:?} ms", start.elapsed().as_millis());
-
-        assert!(false);
+    fn test_registry_loads_default() -> SmootResult<()> {
+        let _ = Registry::default()?;
         Ok(())
     }
 }
