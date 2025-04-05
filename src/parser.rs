@@ -4,6 +4,7 @@ use num_traits::Float;
 
 use crate::base_unit::BaseUnit;
 use crate::registry::{Registry, REGISTRY};
+use crate::utils::{Powf, Powi};
 use crate::{error::SmootError, quantity::Quantity, unit::Unit};
 
 trait ParsableFloat: FromStr + Float {}

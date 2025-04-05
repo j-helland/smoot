@@ -1,4 +1,4 @@
-use num_traits::Float;
+use num_traits::{Float, PrimInt};
 
 pub fn float_eq_rel<N: Float>(a: N, b: N, max_diff: N) -> bool {
     let largest = a.abs().max(b.abs());
@@ -30,5 +30,35 @@ impl Powf for f64 {
 impl Powf for i64 {
     fn powf(self, p: f64) -> Self {
         (self as f64).powf(p) as i64
+    }
+}
+
+pub trait Powi {
+    fn powi(self, p: i32) -> Self;
+}
+impl Powi for f64 {
+    fn powi(self, p: i32) -> Self {
+        self.powi(p)
+    }
+}
+impl Powi for i64 {
+    fn powi(self, p: i32) -> Self {
+        // Any negative power is an integer reciprocal, which must be zero.
+        // Mask these cases out.
+        let neg_mask = !(p as i64).signed_shr(63);
+        neg_mask & self.pow(p as u32)
+    }
+}
+
+#[cfg(test)]
+mod test_utils {
+    use super::*;
+
+    #[test]
+    fn test_powi_i64() {
+        assert_eq!(0, 1.powi(-1));
+        assert_eq!(1, 1.powi(0));
+        assert_eq!(1, 1.powi(1));
+        assert_eq!(4, 2.powi(2));
     }
 }

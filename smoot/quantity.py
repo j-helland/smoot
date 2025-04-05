@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from typing import Generic, TypeAlias, TypeVar, Union
 
 import numpy as np
@@ -45,7 +46,13 @@ class Quantity(Generic[T]):
         self.__inner = quantity
 
     @property
+    def magnitude(self) -> T:
+        """Return the unitless value of this quantity."""
+        return self.__inner.m
+
+    @property
     def m(self) -> T:
+        """Return the unitless value of this quantity."""
         return self.__inner.m
 
     def m_as(self, units: UnitsLike) -> T:
@@ -61,16 +68,74 @@ class Quantity(Generic[T]):
     def __str__(self) -> str:
         return str(self.__inner)
 
+    # ==================================================
+    # Operators
+    # ==================================================
     def __eq__(self, other: Quantity[T]) -> bool:
         return self.__inner == other.__inner
 
+    def __neg__(self) -> Quantity[T]:
+        new = object.__new__(Quantity)
+        new.__inner = -new.__inner
+        return new
+
     def __add__(self, other: Quantity[T]) -> Quantity[T]:
-        return self.__inner + self._get_other(other).__inner
+        new = object.__new__(Quantity)
+        new.__inner = self.__inner + self._get_inner(other)
+        return new
+
+    def __iadd__(self, other: Quantity[T]) -> Quantity[T]:
+        self.__inner += self._get_inner(other)
+        return self
+
+    def __sub__(self, other: Quantity[T]) -> Quantity[T]:
+        new = object.__new__(Quantity)
+        new.__inner = self.__inner - self._get_inner(other)
+        return new
+
+    def __isub__(self, other: Quantity[T]) -> Quantity[T]:
+        self.__inner -= self._get_inner(other)
+        return self
+
+    def __mul__(self, other: Quantity[T]) -> Quantity[T]:
+        new = object.__new__(Quantity)
+        new.__inner = self.__inner * self._get_inner(other)
+        return new
+
+    def __imul__(self, other: Quantity[T]) -> Quantity[T]:
+        self.__inner *= self._get_inner(other)
+        return self
+
+    def __truediv__(self, other: Quantity[T]) -> Quantity[T]:
+        new = object.__new__(Quantity)
+        new.__inner = self.__inner / self._get_inner(other)
+        return new
+
+    def __itruediv__(self, other: Quantity[T]) -> Quantity[T]:
+        self.__inner /= other.__inner
+        return self
+
+    def __pow__(self, other: Quantity[T] | T) -> Quantity[T]:
+        new = object.__new__(Quantity)
+        new.__inner = self.__inner.__pow__(self._get_magnitude(other))
+        return new
 
     @staticmethod
-    def _get_other(other) -> Quantity[T]:
-        return other if isinstance(other, Quantity) else Quantity[T](other)
+    def _get_inner(other):
+        return (
+            Quantity(other).__inner
+            if not isinstance(other, Quantity)
+            else other.__inner
+        )
 
     @staticmethod
     def _get_units(units: UnitsLike) -> F64Unit:
         return F64Unit.parse(units) if type(units) is str else units
+
+    @staticmethod
+    def _get_magnitude(other):
+        return (
+            other
+            if not isinstance(other, Quantity)
+            else other.magnitude
+        )

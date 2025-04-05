@@ -4,7 +4,6 @@ use std::{
 };
 
 use bitcode::{Decode, Encode};
-use num_traits::Float;
 use numpy::ndarray::ArrayD;
 
 use crate::{
@@ -13,6 +12,7 @@ use crate::{
     registry::Registry,
     types::Number,
     unit::Unit,
+    utils::{Powf, Powi},
 };
 
 pub trait Storage<N: Number>: Mul<N, Output = Self> + MulAssign<N> + Clone + Sized {}
@@ -42,6 +42,10 @@ impl<N: Number, S: Storage<N>> Quantity<N, S> {
             unit: Unit::new(vec![], vec![]),
             _marker: PhantomData,
         }
+    }
+
+    pub fn is_dimensionless(&self) -> bool {
+        self.unit.is_dimensionless()
     }
 
     pub fn m_as(&self, unit: &Unit<f64>) -> SmootResult<S> {
@@ -100,25 +104,22 @@ impl Quantity<f64, f64> {
     }
 }
 
-impl<N: Number, S: Storage<N>> Quantity<N, S>
+impl<N, S> Powf for Quantity<N, S>
 where
-    N: Float,
-    S: Float,
+    N: Number,
+    S: Storage<N> + Powf,
 {
-    pub fn powi(&self, n: i32) -> Quantity<N, S> {
-        Quantity {
-            magnitude: self.magnitude.powi(n),
-            unit: self.unit.powi(n),
-            _marker: PhantomData,
-        }
+    fn powf(self, p: f64) -> Self {
+        Quantity::new(self.magnitude.powf(p), self.unit.powf(p))
     }
-
-    pub fn powf(&self, n: f64) -> Quantity<N, S> {
-        Quantity {
-            magnitude: self.magnitude.powf(S::from(n).unwrap()),
-            unit: self.unit.powf(n),
-            _marker: PhantomData,
-        }
+}
+impl<N, S> Powi for Quantity<N, S>
+where
+    N: Number,
+    S: Storage<N> + Powi,
+{
+    fn powi(self, p: i32) -> Self {
+        Quantity::new(self.magnitude.powi(p), self.unit.powi(p))
     }
 }
 

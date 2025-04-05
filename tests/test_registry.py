@@ -2,6 +2,7 @@
 
 import smoot
 
+
 def test_registry() -> None:
     units = smoot.UnitRegistry()
     assert len(units) > 0
@@ -31,10 +32,9 @@ def test_units_divide() -> None:
 
 def test_units_pow() -> None:
     units = smoot.UnitRegistry()
-    assert (units.meter ** 2) == units["m ** 2"]
+    assert (units.meter**2) == units["m ** 2"]
 
     # inplace
     u = units.meter
     u **= 2
     assert u == units["m ** 2"]
-

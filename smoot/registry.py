@@ -14,7 +14,7 @@ class UnitRegistry:
         return get_registry_size()
 
     def __dir__(self) -> list[str]:
-        return get_all_registry_keys() 
+        return get_all_registry_keys()
 
     def __getitem__(self, expression: str) -> F64Unit:
         if (res := self._cache.get(expression)) is not None:

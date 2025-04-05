@@ -9,10 +9,11 @@ use pyo3::{
     exceptions::{PyRuntimeError, PyValueError},
     prelude::*,
 };
-use pyo3::{pymodule, pyfunction, types::PyModule, Bound};
-use unit::Unit;
+use pyo3::{pyfunction, pymodule, types::PyModule, Bound};
 
 use crate::registry::REGISTRY;
+use crate::unit::Unit;
+use crate::utils::Powf;
 
 mod base_unit;
 mod error;
@@ -91,7 +92,9 @@ macro_rules! create_unit_type {
             }
 
             fn __pow__(&self, p: f64, _modulo: Option<i64>) -> Self {
-                let mut new = Self { inner: self.inner.clone() };
+                let mut new = Self {
+                    inner: self.inner.clone(),
+                };
                 new.inner.ipowf(p);
                 let _ = new.inner.reduce();
                 new
@@ -291,6 +294,12 @@ macro_rules! create_quantity_type {
 
             fn __rfloordiv__(&self, _other: &Self) -> Self {
                 todo!();
+            }
+
+            fn __pow__(&self, other: f64, _modulo: Option<i64>) -> Self {
+                Self {
+                    inner: self.inner.clone().powf(other),
+                }
             }
 
             fn __neg__(&self) -> Self {
