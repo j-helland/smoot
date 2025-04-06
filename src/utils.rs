@@ -1,4 +1,5 @@
 use num_traits::{Float, PrimInt};
+use numpy::ndarray::ArrayD;
 
 pub fn float_eq_rel<N: Float>(a: N, b: N, max_diff: N) -> bool {
     let largest = a.abs().max(b.abs());
@@ -32,6 +33,16 @@ impl Powf for i64 {
         (self as f64).powf(p) as i64
     }
 }
+impl Powf for ArrayD<f64> {
+    fn powf(self, p: f64) -> Self {
+        self.mapv(|f| f.powf(p))
+    }
+}
+impl Powf for ArrayD<i64> {
+    fn powf(self, p: f64) -> Self {
+        self.mapv(|i| i.powf(p))
+    }
+}
 
 pub trait Powi {
     fn powi(self, p: i32) -> Self;
@@ -49,6 +60,16 @@ impl Powi for i64 {
         neg_mask & self.pow(p as u32)
     }
 }
+impl Powi for ArrayD<f64> {
+    fn powi(self, p: i32) -> Self {
+        self.mapv(|f| f.powi(p))
+    }
+}
+impl Powi for ArrayD<i64> {
+    fn powi(self, p: i32) -> Self {
+        self.mapv(|i| i.powi(p))
+    }
+}
 
 pub trait Floor {
     fn floor(self) -> Self;
@@ -59,6 +80,16 @@ impl Floor for f64 {
     }
 }
 impl Floor for i64 {
+    fn floor(self) -> Self {
+        self
+    }
+}
+impl Floor for ArrayD<f64> {
+    fn floor(self) -> Self {
+        self.mapv(f64::floor)
+    }
+}
+impl Floor for ArrayD<i64> {
     fn floor(self) -> Self {
         self
     }
@@ -77,6 +108,16 @@ impl Ceil for i64 {
         self
     }
 }
+impl Ceil for ArrayD<f64> {
+    fn ceil(self) -> Self {
+        self.mapv(f64::ceil)
+    }
+}
+impl Ceil for ArrayD<i64> {
+    fn ceil(self) -> Self {
+        self
+    }
+}
 
 pub trait RoundDigits {
     fn round_digits(self, ndigits: i32) -> Self;
@@ -84,11 +125,22 @@ pub trait RoundDigits {
 impl RoundDigits for f64 {
     fn round_digits(self, ndigits: i32) -> Self {
         // Rescale to round with expected precision and then scale back.
-        let factor = Powi::powi(10.0, ndigits);
+        let factor = num_traits::Float::powi(10.0, ndigits);
         (self * factor).round() / factor
     }
 }
 impl RoundDigits for i64 {
+    fn round_digits(self, _ndigits: i32) -> Self {
+        self
+    }
+}
+impl RoundDigits for ArrayD<f64> {
+    fn round_digits(self, ndigits: i32) -> Self {
+        let factor = num_traits::Float::powi(10.0, ndigits);
+        (self * factor).round() / factor
+    }
+}
+impl RoundDigits for ArrayD<i64> {
     fn round_digits(self, _ndigits: i32) -> Self {
         self
     }
@@ -103,6 +155,16 @@ impl Truncate for f64 {
     }
 }
 impl Truncate for i64 {
+    fn trunc(self) -> Self {
+        self
+    }
+}
+impl Truncate for ArrayD<f64> {
+    fn trunc(self) -> Self {
+        self.mapv(f64::trunc)
+    }
+}
+impl Truncate for ArrayD<i64> {
     fn trunc(self) -> Self {
         self
     }

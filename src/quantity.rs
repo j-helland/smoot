@@ -4,7 +4,10 @@ use std::{
 };
 
 use bitcode::{Decode, Encode};
-use numpy::ndarray::ArrayD;
+use numpy::{
+    ndarray::{Array, ArrayD},
+    Ix1, Ix2,
+};
 
 use crate::{
     error::{SmootError, SmootResult},
@@ -91,7 +94,6 @@ impl<N: Number, S: Storage<N>> Quantity<N, S> {
         Ok(())
     }
 }
-
 impl Quantity<f64, f64> {
     pub fn parse(registry: &Registry, s: &str) -> SmootResult<Self> {
         let s = s.replace(" ", "");
@@ -101,6 +103,59 @@ impl Quantity<f64, f64> {
                 q
             })
             .map_err(|_| SmootError::InvalidQuantityExpression(0, s))
+    }
+}
+/// Array operators
+impl<N: Number> Quantity<N, ArrayD<N>> {
+    pub fn dot(self, other: &Self) -> SmootResult<Self> {
+        // Because we work with dynamically dimensioned arrays, we need to explicitly handle each combination of dimensions
+        // explicitly. This is because numpy arrays passed from numpy are fully dynamic, whereas ndarray encodes dimensionality
+        // into the rust type system.
+        let shape1 = self.magnitude.shape();
+        let shape2 = other.magnitude.shape();
+        let mut magnitude = if shape1.len() == 1 && shape2.len() == 1 {
+            // For vector-vector multiplication, we compute a scalar result. We have to wrap it in a dynamic array
+            // for consistency.
+            let m1 = self.magnitude.into_dimensionality::<Ix1>().unwrap();
+            let m2 = other
+                .magnitude
+                .clone()
+                .into_dimensionality::<Ix1>()
+                .unwrap();
+            let magnitude = m1.dot(&m2);
+            Array::from_shape_vec(vec![1], vec![magnitude]).unwrap()
+        } else if shape1.len() == 2 && shape2.len() == 1 {
+            let m1 = self.magnitude.into_dimensionality::<Ix2>().unwrap();
+            let m2 = other
+                .magnitude
+                .clone()
+                .into_dimensionality::<Ix1>()
+                .unwrap();
+            let magnitude = m1.dot(&m2);
+            magnitude.into_dyn()
+        } else if shape1.len() == 2 && shape2.len() == 2 {
+            let m1 = self.magnitude.into_dimensionality::<Ix2>().unwrap();
+            let m2 = other
+                .magnitude
+                .clone()
+                .into_dimensionality::<Ix2>()
+                .unwrap();
+            let magnitude = m1.dot(&m2);
+            magnitude.into_dyn()
+        } else {
+            return Err(SmootError::InvalidArrayDimensionality(format!(
+                "Matrix multiplication not supported between dimensions {:?} and {:?}",
+                shape1, shape2
+            )));
+        };
+
+        // Rescale the result to simplified units.
+        let mut unit = self.unit * other.unit.clone();
+        let factor = unit.simplify(true);
+        let factor = N::from_f64(factor).unwrap();
+        magnitude *= factor;
+
+        Ok(Self::new(magnitude, unit))
     }
 }
 
@@ -199,14 +254,14 @@ impl<N: Number> Mul<ArrayD<N>> for Quantity<N, ArrayD<N>> {
         self
     }
 }
-impl<N: Number> Mul<Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
+impl<N: Number> Mul<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
     type Output = Self;
 
-    fn mul(mut self, rhs: Quantity<N, ArrayD<N>>) -> Self::Output {
+    fn mul(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
         self.unit.mul_assign(&rhs.unit);
         let factor = self.unit.simplify(true);
         let factor = N::from_f64(factor).unwrap();
-        self.magnitude = self.magnitude * rhs.magnitude * factor;
+        self.magnitude = self.magnitude * rhs.magnitude.clone() * factor;
         self
     }
 }
@@ -245,9 +300,9 @@ where
     type Output = SmootResult<Quantity<N, S>>;
 
     fn add(self, rhs: &Quantity<N, S>) -> Self::Output {
-        let mut new = self.clone();
-        let conversion_factor = new.unit.conversion_factor(&rhs.unit)?;
+        let conversion_factor = self.unit.conversion_factor(&rhs.unit)?;
         let conversion_factor = N::from_f64(conversion_factor).unwrap();
+        let mut new = self.clone();
         new.magnitude += rhs.magnitude.clone() * conversion_factor;
         Ok(new)
     }
@@ -291,22 +346,13 @@ impl<N: Number> Add<ArrayD<N>> for Quantity<N, ArrayD<N>> {
         Ok(self)
     }
 }
-impl<N: Number> Add<Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
-    type Output = SmootResult<Self>;
+impl<N: Number> Add<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
+    type Output = SmootResult<Quantity<N, ArrayD<N>>>;
 
-    fn add(mut self, rhs: Quantity<N, ArrayD<N>>) -> Self::Output {
-        if !self.unit.is_compatible_with(&rhs.unit) {
-            return Err(SmootError::InvalidOperation(
-                "+",
-                self.unit
-                    .get_units_string()
-                    .unwrap_or("dimensionless".into()),
-                rhs.unit
-                    .get_units_string()
-                    .unwrap_or("dimensionless".into()),
-            ));
-        }
-        self.magnitude = self.magnitude + rhs.magnitude;
+    fn add(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
+        let factor = self.unit.conversion_factor(&rhs.unit)?;
+        let factor = N::from_f64(factor).unwrap();
+        self.magnitude = self.magnitude + rhs.magnitude.clone() * factor;
         Ok(self)
     }
 }
@@ -404,22 +450,13 @@ impl<N: Number> Sub<ArrayD<N>> for Quantity<N, ArrayD<N>> {
         Ok(self)
     }
 }
-impl<N: Number> Sub<Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
+impl<N: Number> Sub<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
     type Output = SmootResult<Self>;
 
-    fn sub(mut self, rhs: Quantity<N, ArrayD<N>>) -> Self::Output {
-        if !self.unit.is_compatible_with(&rhs.unit) {
-            return Err(SmootError::InvalidOperation(
-                "-",
-                self.unit
-                    .get_units_string()
-                    .unwrap_or("dimensionless".into()),
-                rhs.unit
-                    .get_units_string()
-                    .unwrap_or("dimensionless".into()),
-            ));
-        }
-        self.magnitude = self.magnitude - rhs.magnitude;
+    fn sub(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
+        let factor = self.unit.conversion_factor(&rhs.unit)?;
+        let factor = N::from_f64(factor).unwrap();
+        self.magnitude = self.magnitude - rhs.magnitude.clone() * factor;
         Ok(self)
     }
 }
@@ -483,11 +520,15 @@ impl<N: Number> Div<ArrayD<N>> for Quantity<N, ArrayD<N>> {
         self
     }
 }
-impl<N: Number> Div<Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
+impl<N: Number> Div<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
     type Output = Self;
 
-    fn div(mut self, rhs: Quantity<N, ArrayD<N>>) -> Self::Output {
-        self.magnitude = self.magnitude / rhs.magnitude;
+    fn div(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
+        self.magnitude = self.magnitude / rhs.magnitude.clone();
+        self.unit.div_assign(&rhs.unit);
+        let factor = self.unit.simplify(true);
+        let factor = N::from_f64(factor).unwrap();
+        self.magnitude *= factor;
         self
     }
 }
@@ -654,7 +695,7 @@ mod test_quantity {
         let q1 = Quantity::new_dimensionless(arr1);
         let q2 = Quantity::new_dimensionless(arr2);
 
-        let q_scaled = q1 * q2;
+        let q_scaled = q1 * &q2;
 
         q_scaled.magnitude.for_each(|x| {
             assert_is_close!(*x, 2.0);
@@ -744,7 +785,7 @@ mod test_quantity {
         let q1 = Quantity::new_dimensionless(arr1);
         let q2 = Quantity::new_dimensionless(arr2);
 
-        let q_scaled = (q1 + q2)?;
+        let q_scaled = (q1 + &q2)?;
 
         q_scaled.magnitude.for_each(|x| {
             assert_is_close!(*x, 3.0);
@@ -834,7 +875,7 @@ mod test_quantity {
         let q1 = Quantity::new_dimensionless(arr1);
         let q2 = Quantity::new_dimensionless(arr2);
 
-        let q = (q1 - q2)?;
+        let q = (q1 - &q2)?;
 
         q.magnitude.for_each(|x| {
             assert_is_close!(*x, -1.0);
@@ -897,7 +938,7 @@ mod test_quantity {
         let q1 = Quantity::new_dimensionless(arr1);
         let q2 = Quantity::new_dimensionless(arr2);
 
-        let q = q1 / q2;
+        let q = q1 / &q2;
 
         q.magnitude.for_each(|x| {
             assert_is_close!(*x, 0.5);

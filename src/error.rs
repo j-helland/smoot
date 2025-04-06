@@ -37,6 +37,12 @@ pub enum SmootError {
 
     #[error("Failed to write cache file {0}")]
     FailedToWriteCache(&'static str),
+
+    //==================================================
+    // Array errors
+    //==================================================
+    #[error("Invalid array dimensionality {0}")]
+    InvalidArrayDimensionality(String),
 }
 
 pub type SmootResult<T> = Result<T, SmootError>;

@@ -11,6 +11,7 @@ use pyo3::{
 };
 use pyo3::{pyfunction, pymodule, types::PyModule, Bound};
 
+use crate::quantity::Quantity;
 use crate::registry::REGISTRY;
 use crate::unit::Unit;
 use crate::utils::{Ceil, Floor, Powf, RoundDigits, Truncate};
@@ -207,7 +208,9 @@ macro_rules! create_quantity_type {
                 self.clone()
             }
 
+            //==================================================
             // operators
+            //==================================================
             fn __eq__(&self, other: &Self) -> bool {
                 self.inner.partial_cmp(&other.inner) == Some(std::cmp::Ordering::Equal)
             }
@@ -220,15 +223,15 @@ macro_rules! create_quantity_type {
                 self.inner.partial_cmp(&other.inner) == Some(std::cmp::Ordering::Less)
             }
 
-            fn __gt__(&self, other: &Self) -> bool {
-                self.inner.partial_cmp(&other.inner) == Some(std::cmp::Ordering::Greater)
-            }
-
             fn __le__(&self, other: &Self) -> bool {
                 match self.inner.partial_cmp(&other.inner) {
                     Some(std::cmp::Ordering::Equal | std::cmp::Ordering::Less) => true,
                     _ => false,
                 }
+            }
+
+            fn __gt__(&self, other: &Self) -> bool {
+                self.inner.partial_cmp(&other.inner) == Some(std::cmp::Ordering::Greater)
             }
 
             fn __ge__(&self, other: &Self) -> bool {
@@ -321,7 +324,9 @@ macro_rules! create_quantity_type {
                 self.inner.magnitude as f64
             }
 
+            //==================================================
             // pickle support
+            //==================================================
             fn __setstate__(&mut self, state: &[u8]) -> PyResult<()> {
                 self.inner =
                     bitcode::decode(state).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -339,6 +344,7 @@ macro_rules! create_quantity_type {
     };
 }
 
+/// Used for pickling numpy arrays.
 #[derive(Encode, Decode)]
 struct ArrayQuantityStorage<N> {
     dims: Vec<usize>,
@@ -392,7 +398,6 @@ macro_rules! create_array_quantity_type {
 
             #[getter(u)]
             fn u(&self) -> $unit_type {
-                // TODO(jwh): find a way to not copy every call
                 $unit_type {
                     inner: self.inner.unit.clone(),
                 }
@@ -428,7 +433,69 @@ macro_rules! create_array_quantity_type {
                     .map_err(|e| PyValueError::new_err(e.to_string()))
             }
 
+            //==================================================
+            // operators
+            //==================================================
+            fn __add__(&self, other: &Self) -> PyResult<Self> {
+                (self.inner.clone() + &other.inner)
+                    .map(|inner| Self { inner })
+                    .map_err(|e| PyValueError::new_err(e.to_string()))
+            }
+
+            fn __sub__(&self, other: &Self) -> PyResult<Self> {
+                (self.inner.clone() - &other.inner)
+                    .map(|inner| Self { inner })
+                    .map_err(|e| PyValueError::new_err(e.to_string()))
+            }
+
+            fn __mul__(&self, other: &Self) -> Self {
+                Self {
+                    inner: self.inner.clone() * &other.inner,
+                }
+            }
+
+            fn __truediv__(&self, other: &Self) -> Self {
+                Self {
+                    inner: self.inner.clone() / &other.inner,
+                }
+            }
+
+            fn __floordiv__(&self, other: &Self) -> Self {
+                let mut new = self.__truediv__(other);
+                new.inner.magnitude = new.inner.magnitude.floor();
+                new
+            }
+
+            fn __pow__(&self, other: f64, _modulo: Option<i64>) -> Self {
+                Self {
+                    inner: self.inner.clone().powf(other),
+                }
+            }
+
+            fn __matmul__(&self, other: &Self) -> PyResult<Self> {
+                self.inner
+                    .clone()
+                    .dot(&other.inner)
+                    .map(|inner| Self { inner })
+                    .map_err(|e| PyValueError::new_err(e.to_string()))
+            }
+
+            fn __neg__(&self) -> Self {
+                Self {
+                    inner: -self.inner.clone(),
+                }
+            }
+
+            fn __abs__(&self) -> Self {
+                let magnitude = self.inner.magnitude.mapv(|f| f.abs());
+                Self {
+                    inner: Quantity::new(magnitude, self.inner.unit.clone()),
+                }
+            }
+
+            //==================================================
             // pickle support
+            //==================================================
             fn __setstate__(&mut self, state: &[u8]) -> PyResult<()> {
                 let s: ArrayQuantityStorage<$base_type> =
                     bitcode::decode(state).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -453,10 +520,6 @@ macro_rules! create_array_quantity_type {
                 py: Python<'py>,
             ) -> (Bound<'py, PyArrayDyn<$base_type>>,) {
                 (PyArray::from_array(py, &self.inner.magnitude),)
-            }
-
-            fn __matmul__(&self, _other: &Self) -> PyResult<Self> {
-                todo!();
             }
         }
     };

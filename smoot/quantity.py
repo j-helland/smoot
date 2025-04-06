@@ -75,7 +75,7 @@ class Quantity(Generic[T]):
 
     def __neg__(self) -> Quantity[T]:
         new = object.__new__(Quantity)
-        new.__inner = -new.__inner
+        new.__inner = self.__inner.__neg__()
         return new
 
     def __add__(self, other: Quantity[T]) -> Quantity[T]:
@@ -104,6 +104,11 @@ class Quantity(Generic[T]):
     def __imul__(self, other: Quantity[T]) -> Quantity[T]:
         self.__inner *= self._get_inner(other)
         return self
+
+    def __matmul__(self, other: Quantity[T]) -> Quantity[T]:
+        new = object.__new__(Quantity)
+        new.__inner = self.__inner @ self._get_inner(other)
+        return new
 
     def __truediv__(self, other: Quantity[T]) -> Quantity[T]:
         new = object.__new__(Quantity)
