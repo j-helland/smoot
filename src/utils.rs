@@ -50,8 +50,68 @@ impl Powi for i64 {
     }
 }
 
+pub trait Floor {
+    fn floor(self) -> Self;
+}
+impl Floor for f64 {
+    fn floor(self) -> Self {
+        self.floor()
+    }
+}
+impl Floor for i64 {
+    fn floor(self) -> Self {
+        self
+    }
+}
+
+pub trait Ceil {
+    fn ceil(self) -> Self;
+}
+impl Ceil for f64 {
+    fn ceil(self) -> Self {
+        self.ceil()
+    }
+}
+impl Ceil for i64 {
+    fn ceil(self) -> Self {
+        self
+    }
+}
+
+pub trait RoundDigits {
+    fn round_digits(self, ndigits: i32) -> Self;
+}
+impl RoundDigits for f64 {
+    fn round_digits(self, ndigits: i32) -> Self {
+        // Rescale to round with expected precision and then scale back.
+        let factor = Powi::powi(10.0, ndigits);
+        (self * factor).round() / factor
+    }
+}
+impl RoundDigits for i64 {
+    fn round_digits(self, _ndigits: i32) -> Self {
+        self
+    }
+}
+
+pub trait Truncate {
+    fn trunc(self) -> Self;
+}
+impl Truncate for f64 {
+    fn trunc(self) -> Self {
+        self.trunc()
+    }
+}
+impl Truncate for i64 {
+    fn trunc(self) -> Self {
+        self
+    }
+}
+
 #[cfg(test)]
 mod test_utils {
+    use test_case::case;
+
     use super::*;
 
     #[test]
@@ -60,5 +120,15 @@ mod test_utils {
         assert_eq!(1, 1.powi(0));
         assert_eq!(1, 1.powi(1));
         assert_eq!(4, 2.powi(2));
+    }
+
+    #[case(1.1, 0, 1.0; "round down")]
+    #[case(1.11, 1, 1.1; "round down 1 decimal")]
+    #[case(1.5, 0, 2.0; "round up")]
+    #[case(1.49, 0, 1.0)]
+    #[case(1.49, 1, 1.5; "round up 1 decimal")]
+    #[case(-1.1, 0, -1.0; "negative")]
+    fn test_round_digits_f64(value: f64, ndigits: i32, expected: f64) {
+        assert_eq!(expected, value.round_digits(ndigits));
     }
 }

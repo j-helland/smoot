@@ -13,7 +13,7 @@ use pyo3::{pyfunction, pymodule, types::PyModule, Bound};
 
 use crate::registry::REGISTRY;
 use crate::unit::Unit;
-use crate::utils::Powf;
+use crate::utils::{Ceil, Floor, Powf, RoundDigits, Truncate};
 
 mod base_unit;
 mod error;
@@ -53,7 +53,6 @@ macro_rules! create_unit_type {
             }
 
             fn __str__(&self) -> String {
-                println!("{:#?}", self.inner);
                 self.inner
                     .get_units_string()
                     .unwrap_or_else(|| "dimensionless".into())
@@ -148,7 +147,6 @@ macro_rules! create_quantity_type {
 
             #[getter(u)]
             fn u(&self) -> $name_unit {
-                // TODO(jwh): find a way to not copy every call
                 $name_unit {
                     inner: self.inner.unit.clone(),
                 }
@@ -246,18 +244,10 @@ macro_rules! create_quantity_type {
                     .map_err(|e| PyValueError::new_err(e.to_string()))
             }
 
-            fn __radd__(&self, _other: &Self) -> PyResult<Self> {
-                todo!();
-            }
-
             fn __sub__(&self, other: &Self) -> PyResult<Self> {
                 (&self.inner - &other.inner)
                     .map(|inner| Self { inner })
                     .map_err(|e| PyValueError::new_err(e.to_string()))
-            }
-
-            fn __rsub__(&self, _other: &Self) -> PyResult<Self> {
-                todo!();
             }
 
             fn __mul__(&self, other: &Self) -> Self {
@@ -266,34 +256,16 @@ macro_rules! create_quantity_type {
                 }
             }
 
-            fn __rmul__(&self, _other: &Self) -> PyResult<Self> {
-                todo!();
-            }
-
-            fn __matmul__(&self, _other: &Self) -> PyResult<Self> {
-                todo!();
-            }
-
-            fn __rmatmul__(&self, _other: &Self) -> PyResult<Self> {
-                todo!();
-            }
-
             fn __truediv__(&self, other: &Self) -> Self {
                 Self {
                     inner: &self.inner / &other.inner,
                 }
             }
 
-            fn __rtruediv__(&self, _other: &Self) -> PyResult<Self> {
-                todo!();
-            }
-
-            fn __floordiv__(&self, _other: &Self) -> Self {
-                todo!();
-            }
-
-            fn __rfloordiv__(&self, _other: &Self) -> Self {
-                todo!();
+            fn __floordiv__(&self, other: &Self) -> Self {
+                let mut new = self.__truediv__(other);
+                new.inner.magnitude = new.inner.magnitude.floor();
+                new
             }
 
             fn __pow__(&self, other: f64, _modulo: Option<i64>) -> Self {
@@ -308,24 +280,45 @@ macro_rules! create_quantity_type {
                 }
             }
 
-            fn __round__(&self) -> Self {
-                todo!();
+            #[pyo3(signature = (ndigits=None))]
+            fn __round__(&self, ndigits: Option<i32>) -> Self {
+                let mut new = Self {
+                    inner: self.inner.clone(),
+                };
+                new.inner.magnitude = new.inner.magnitude.round_digits(ndigits.unwrap_or(0));
+                new
             }
 
-            fn __trunc__(&self) -> Self {
-                todo!();
+            fn __trunc__(&self) -> i64 {
+                self.inner.magnitude.trunc() as i64
             }
 
             fn __floor__(&self) -> Self {
-                todo!();
+                let mut new = Self {
+                    inner: self.inner.clone(),
+                };
+                new.inner.magnitude = new.inner.magnitude.floor();
+                new
             }
 
             fn __ceil__(&self) -> Self {
-                todo!();
+                let mut new = Self {
+                    inner: self.inner.clone(),
+                };
+                new.inner.magnitude = new.inner.magnitude.ceil();
+                new
             }
 
             fn __abs__(&self) -> Self {
-                todo!();
+                let mut new = Self {
+                    inner: self.inner.clone(),
+                };
+                new.inner.magnitude = new.inner.magnitude.abs();
+                new
+            }
+
+            fn __float__(&self) -> f64 {
+                self.inner.magnitude as f64
             }
 
             // pickle support
@@ -350,9 +343,6 @@ macro_rules! create_quantity_type {
 struct ArrayQuantityStorage<N> {
     dims: Vec<usize>,
     data: Vec<N>,
-    // strides: Vec<isize>,
-    // dtype: String,
-    // bytes_le: Vec<u8>,
     unit: Unit<f64>,
 }
 
@@ -463,6 +453,10 @@ macro_rules! create_array_quantity_type {
                 py: Python<'py>,
             ) -> (Bound<'py, PyArrayDyn<$base_type>>,) {
                 (PyArray::from_array(py, &self.inner.magnitude),)
+            }
+
+            fn __matmul__(&self, _other: &Self) -> PyResult<Self> {
+                todo!();
             }
         }
     };

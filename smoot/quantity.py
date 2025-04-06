@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import functools
-from typing import Generic, TypeAlias, TypeVar, Union
+from typing import Generic, TypeVar, Union
 
 import numpy as np
 
@@ -14,8 +13,8 @@ from .smoot import (
 )
 
 T = TypeVar("T")
-UnitsLike: TypeAlias = Union[str, F64Unit]
-ValueLike: TypeAlias = Union[str, T]
+UnitsLike = Union[str, F64Unit]
+ValueLike = Union[str, T]
 
 
 class Quantity(Generic[T]):
@@ -115,10 +114,45 @@ class Quantity(Generic[T]):
         self.__inner /= other.__inner
         return self
 
+    def __floordiv__(self, other: Quantity[T]) -> Quantity[T]:
+        new = object.__new__(Quantity)
+        new.__inner = self.__inner // self._get_inner(other)
+        return new
+
+    def __ifloordiv__(self, other: Quantity[T]) -> Quantity[T]:
+        self.__inner //= other.__inner
+        return self
+
     def __pow__(self, other: Quantity[T] | T) -> Quantity[T]:
         new = object.__new__(Quantity)
         new.__inner = self.__inner.__pow__(self._get_magnitude(other))
         return new
+
+    def __floor__(self) -> Quantity[T]:
+        new = object.__new__(Quantity)
+        new.__inner = self.__inner.__floor__()
+        return new
+
+    def __ceil__(self) -> Quantity[T]:
+        new = object.__new__(Quantity)
+        new.__inner = self.__inner.__ceil__()
+        return new
+
+    def __round__(self, ndigits: int | None = None) -> Quantity[T]:
+        new = object.__new__(Quantity)
+        new.__inner = round(self.__inner, ndigits=ndigits)
+        return new
+
+    def __abs__(self) -> Quantity[T]:
+        new = object.__new__(Quantity)
+        new.__inner = abs(self.__inner)
+        return new
+
+    def __trunc__(self) -> int:
+        return self.__inner.__trunc__()
+
+    def __float__(self) -> float:
+        return float(self.__inner)
 
     @staticmethod
     def _get_inner(other):
@@ -134,8 +168,4 @@ class Quantity(Generic[T]):
 
     @staticmethod
     def _get_magnitude(other):
-        return (
-            other
-            if not isinstance(other, Quantity)
-            else other.magnitude
-        )
+        return other if not isinstance(other, Quantity) else other.magnitude
