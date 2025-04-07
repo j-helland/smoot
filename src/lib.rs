@@ -410,8 +410,8 @@ macro_rules! create_array_quantity_type {
                 }
             }
 
-            #[getter(unit)]
-            fn unit(&self) -> $unit_type {
+            #[getter(units)]
+            fn units(&self) -> $unit_type {
                 self.u()
             }
 

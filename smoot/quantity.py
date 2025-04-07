@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from numbers import Real
-from typing import Any, Generic, SupportsFloat, TypeVar, Union
+from types import NotImplementedType
+from typing import Any, Generic, TypeVar, Union
+from typing_extensions import Self
 
 import numpy as np
 from numpy.typing import NDArray
@@ -91,6 +93,9 @@ class Quantity(Generic[T, R]):
         self.__inner.ito(self._get_units(units))
         return self
 
+    # ==================================================
+    # Standard dunder methods
+    # ==================================================
     def __str__(self) -> str:
         return str(self.__inner)
 
@@ -178,10 +183,10 @@ class Quantity(Generic[T, R]):
         return self
 
     def __pow__(
-        self, other: SupportsFloat, modulo: Real | None = None
+        self, other: Quantity[T, R] | T, modulo: Real | None = None
     ) -> Quantity[T, R]:
         new = object.__new__(Quantity)
-        new.__inner = self.__inner.__pow__(float(other), modulo)
+        new.__inner = self.__inner.__pow__(self._get_magnitude(other), modulo)  # type: ignore[arg-type, operator]
         return new
 
     def __rpow__(
@@ -190,9 +195,9 @@ class Quantity(Generic[T, R]):
         return self._get_quantity(other).__pow__(self, modulo)
 
     def __ipow__(
-        self, other: SupportsFloat, modulo: Real | None = None
+        self, other: Quantity[T, R] | T, modulo: Real | None = None
     ) -> Quantity[T, R]:
-        self.__inner = self.__inner.__pow__(float(other), modulo)
+        self.__inner = self.__inner.__pow__(self._get_magnitude(other), modulo)  # type: ignore[arg-type, operator]
         return self
 
     def __floor__(self) -> Quantity[T, R]:
@@ -224,6 +229,31 @@ class Quantity(Generic[T, R]):
     def __int__(self) -> int:
         return int(self.__inner)
 
+    # ==================================================
+    # numpy ufunc support
+    # ==================================================
+    def __array_ufunc__(
+        self,
+        ufunc: np.ufunc,
+        method: str,
+        *inputs: Self,
+        **kwargs: Any,
+    ) -> None | NotImplementedType | Quantity[T, R]:
+        if method != "__call__":
+            return NotImplemented
+
+        # Extract the numpy array and invoke the ufunc on the Python side. This results in 
+        # two "unnecessary" copies of the underlying array, not suitable for large arrays.
+        # 
+        # One benefit is that this handles type conversion (e.g. int -> float) seamlessly.
+        return Quantity(
+            value=ufunc(*(q.magnitude for q in inputs), **kwargs),
+            units=self.__inner.units,
+        )
+
+    # ==================================================
+    # utils
+    # ==================================================
     @staticmethod
     def _get_quantity(other: Any) -> Quantity[T, R]:
         return other if isinstance(other, Quantity) else Quantity(other)

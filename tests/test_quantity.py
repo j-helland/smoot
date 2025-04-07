@@ -2,6 +2,7 @@ import math
 import operator
 from typing import Any, Callable
 
+import numpy as np
 import pytest
 
 from smoot import Quantity as Q
@@ -117,3 +118,10 @@ def test_inplace_operators(
 ) -> None:
     op(x, y)
     assert x == expected
+
+
+def test_ufunc() -> None:
+    """Arbitrary numpy ufuncs can be invoked with expected results."""
+    expected = np.sqrt(np.array([1, 2, 3]))
+    actual = np.sqrt(Q([1, 2, 3])).magnitude
+    assert np.allclose(expected, actual)
