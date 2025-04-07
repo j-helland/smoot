@@ -184,7 +184,9 @@ macro_rules! create_quantity_type {
                 }
             }
 
+            //==================================================
             // standard dunder methods
+            //==================================================
             fn __str__(&self) -> String {
                 format!(
                     "{} {}",
@@ -361,6 +363,7 @@ struct ArrayQuantityStorage<N> {
 macro_rules! create_array_quantity_type {
     ($name: ident, $unit_type: ident, $base_type: ident) => {
         #[pyclass(module = "smoot.smoot")]
+        #[derive(Clone)]
         struct $name {
             inner: quantity::Quantity<$base_type, ArrayD<$base_type>>,
         }
@@ -435,6 +438,32 @@ macro_rules! create_array_quantity_type {
                     .m_as(&unit.inner)
                     .map(|arr| PyArray::from_array(py, &arr))
                     .map_err(|e| PyValueError::new_err(e.to_string()))
+            }
+
+            //==================================================
+            // standard dunder methods
+            //==================================================
+            fn __str__(&self) -> String {
+                format!(
+                    "{} {}",
+                    self.inner.magnitude,
+                    self.inner
+                        .unit
+                        .get_units_string()
+                        .unwrap_or("dimensionless".into())
+                )
+            }
+
+            fn __hash__(&self) -> u64 {
+                todo!();
+            }
+
+            fn __copy__(&self) -> Self {
+                self.clone()
+            }
+
+            fn __deepcopy__(&self) -> Self {
+                self.clone()
             }
 
             //==================================================
