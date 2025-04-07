@@ -324,6 +324,10 @@ macro_rules! create_quantity_type {
                 self.inner.magnitude as f64
             }
 
+            fn __int__(&self) -> i64 {
+                self.inner.magnitude as i64
+            }
+
             //==================================================
             // pickle support
             //==================================================

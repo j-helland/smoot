@@ -7,6 +7,7 @@ name = "smoot"
 requires-python = ">=3.8"
 dependencies = [
     "numpy>=1.24.4",
+    "typing_extensions>=4.12.2",
 ]
 classifiers = [
     "Programming Language :: Rust",
