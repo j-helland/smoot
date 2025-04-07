@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from numbers import Real
-from types import NotImplementedType
-from typing import Any, Generic, TypeVar, Union
+from typing import Any, Generic, List, Tuple, TypeVar, Union
 from typing_extensions import Self
 
 import numpy as np
@@ -20,10 +19,10 @@ T = TypeVar(
     "T",
     int,
     float,
-    list[int],
-    list[float],
-    tuple[int, ...],
-    tuple[float, ...],
+    List[int],
+    List[float],
+    Tuple[int, ...],
+    Tuple[float, ...],
     NDArray[np.float64],
     NDArray[np.int64],
 )
@@ -238,13 +237,13 @@ class Quantity(Generic[T, R]):
         method: str,
         *inputs: Self,
         **kwargs: Any,
-    ) -> None | NotImplementedType | Quantity[T, R]:
+    ) -> None | type(NotImplemented) | Quantity[T, R]:
         if method != "__call__":
             return NotImplemented
 
-        # Extract the numpy array and invoke the ufunc on the Python side. This results in 
+        # Extract the numpy array and invoke the ufunc on the Python side. This results in
         # two "unnecessary" copies of the underlying array, not suitable for large arrays.
-        # 
+        #
         # One benefit is that this handles type conversion (e.g. int -> float) seamlessly.
         return Quantity(
             value=ufunc(*(q.magnitude for q in inputs), **kwargs),
