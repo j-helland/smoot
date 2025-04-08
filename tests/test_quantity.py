@@ -3,6 +3,7 @@ import operator
 from typing import Any, Callable
 
 import numpy as np
+from numpy.typing import NDArray
 import pytest
 
 from smoot import Quantity as Q
@@ -60,11 +61,14 @@ def test_eq() -> None:
         (Q(4), operator.floordiv, Q(2), Q(2)),
         (Q(4), operator.floordiv, 2, Q(2)),
         (4, operator.floordiv, Q(2), Q(2)),
+        (Q(4), operator.mod, Q(2), Q(0)),
+        (4, operator.mod, Q(2), Q(0)),
+        (Q(4), operator.mod, 2, Q(0)),
     ),
 )
 def test_binary_operators(
     x: Q | int,
-    op: Callable[[Q | int, Q | int], Q[int, int]],
+    op: Callable[[Q | int, Q | int], Q],
     y: Q | int,
     expected: Q,
 ) -> None:
@@ -108,16 +112,120 @@ def test_unary_operators(
         (Q(2), operator.ipow, 3, Q(8)),
         (Q(4), operator.itruediv, Q(2), Q(2)),
         (Q(4), operator.itruediv, 2, Q(2)),
+        (Q(4), operator.imod, 2, Q(0)),
     ),
 )
-def test_inplace_operators(
+def test_binary_inplace_operators(
     x: Q,
     op: Callable[[Q, Q | int], Q],
     y: Q | int,
     expected: Q,
 ) -> None:
+    """In-place binary operators produce expected values."""
     op(x, y)
     assert x == expected
+
+
+@pytest.mark.parametrize(
+    argnames=("x", "op", "y", "expected"),
+    argvalues=(
+        (Q([1, 2, 3]), operator.eq, Q([1, 0, 3]), np.array([True, False, True])),
+        ([1, 2, 3], operator.eq, Q([1, 0, 3]), np.array([True, False, True])),
+        (Q([1, 2, 3]), operator.eq, [1, 0, 3], np.array([True, False, True])),
+        # compatible units
+        (
+            Q([1000, 2000, 3000], "meter"),
+            operator.eq,
+            Q([1, 2, 3], "km"),
+            np.array([True, True, True]),
+        ),
+        # incompatible units
+        (
+            Q([1, 2, 3], "meter"),
+            operator.eq,
+            Q([1, 2, 3], "gram"),
+            np.array([False, False, False]),
+        ),
+        (Q([1, 2, 3]), operator.add, Q([3, 2, 1]), Q([4, 4, 4])),
+        ([1, 2, 3], operator.add, Q([3, 2, 1]), Q([4, 4, 4])),
+        (Q([1, 2, 3]), operator.add, [3, 2, 1], Q([4, 4, 4])),
+        # scalar addition
+        (Q([1, 2, 3]), operator.add, 1, Q([2, 3, 4])),
+        (1, operator.add, Q([1, 2, 3]), Q([2, 3, 4])),
+        # compatible units
+        (
+            Q([1000, 2000, 3000], "meter"),
+            operator.add,
+            Q([3, 2, 1], "km"),
+            Q([4000, 4000, 4000], "meter"),
+        ),
+        (
+            Q([1, 2, 3], "km"),
+            operator.add,
+            Q([3000, 2000, 1000], "meter"),
+            Q([4, 4, 4], "km"),
+        ),
+        (Q([1, 2, 3]), operator.sub, Q([3, 2, 1]), Q([-2, 0, 2])),
+        ([1, 2, 3], operator.sub, Q([3, 2, 1]), Q([-2, 0, 2])),
+        (Q([1, 2, 3]), operator.sub, [3, 2, 1], Q([-2, 0, 2])),
+        (Q([1, 2, 3]), operator.mul, Q([3, 2, 1]), Q([3, 4, 3])),
+        ([1, 2, 3], operator.mul, Q([3, 2, 1]), Q([3, 4, 3])),
+        (Q([1, 2, 3]), operator.mul, [3, 2, 1], Q([3, 4, 3])),
+        (Q([1, 2, 3]), operator.pow, Q([3, 2, 1]), Q([1, 4, 3])),
+        ([1, 2, 3], operator.pow, Q([3, 2, 1]), Q([1, 4, 3])),
+        (Q([1, 2, 3]), operator.pow, [3, 2, 1], Q([1, 4, 3])),
+        (
+            Q([[1], [2], [3]]),
+            operator.matmul,
+            Q([[3, 2, 1]]),
+            Q([[3, 2, 1], [6, 4, 2], [9, 6, 3]]),
+        ),
+        (
+            [[1], [2], [3]],
+            operator.matmul,
+            Q([[3, 2, 1]]),
+            Q([[3, 2, 1], [6, 4, 2], [9, 6, 3]]),
+        ),
+        (
+            Q([[1], [2], [3]]),
+            operator.matmul,
+            [[3, 2, 1]],
+            Q([[3, 2, 1], [6, 4, 2], [9, 6, 3]]),
+        ),
+    ),
+)
+def test_binary_array_operators(
+    x: Q | NDArray[np.int64],
+    op: Callable[[Q | NDArray[np.int64], Q | NDArray[np.int64]], Q],
+    y: Q | NDArray[np.int64],
+    expected: Q,
+) -> None:
+    """Binary array operators produce expected values."""
+    print(op(x, y))
+    assert (op(x, y) == expected).all()
+
+
+@pytest.mark.parametrize(
+    argnames=("x", "op", "expected"),
+    argvalues=(
+        (Q([-1, -2, -3]), abs, Q([1, 2, 3])),
+        (Q([-1, -2, -3]), operator.neg, Q([1, 2, 3])),
+        # ufuncs
+        (Q([1, 2, 3]), np.sqrt, Q(np.sqrt(np.array([1, 2, 3])))),
+    ),
+)
+def test_unary_array_operators(
+    x: Q | NDArray[np.int64],
+    op: Callable[[Q | NDArray[np.int64]], Q],
+    expected: Q,
+) -> None:
+    """Unary array operators produce expected values."""
+    assert (op(x) == expected).all()
+
+
+def test_matmul_produces_scalar() -> None:
+    """vector/vector matmul should produce a scalar quantity"""
+    assert (Q([1, 2, 3]) @ Q([3, 2, 1])) == Q(10)
 
 
 def test_ufunc() -> None:

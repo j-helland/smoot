@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from numbers import Real
-from typing import Any, Generic, List, Tuple, TypeVar, Union
+from typing import Any, Generic, Iterable, TypeVar, Union
+import typing
 from typing_extensions import Self
 
 import numpy as np
@@ -15,14 +16,20 @@ from .smoot import (
     ArrayI64Quantity,
 )
 
+E = TypeVar("E", int, float, np.float64, np.float32, np.int64, np.int32)
+_BaseArrayLike = Union[E, Iterable[E]]
+ArrayLike = Union[_BaseArrayLike[E], Iterable[_BaseArrayLike[E]]]
+
 T = TypeVar(
     "T",
     int,
     float,
-    List[int],
-    List[float],
-    Tuple[int, ...],
-    Tuple[float, ...],
+    ArrayLike[int],
+    ArrayLike[float],
+    ArrayLike[np.float64],
+    ArrayLike[np.float32],
+    ArrayLike[np.int64],
+    ArrayLike[np.int32],
     NDArray[np.float64],
     NDArray[np.int64],
 )
@@ -43,10 +50,10 @@ class Quantity(Generic[T, R]):
                 msg = f"Cannot pass a string to parse with separate units {units}"
                 raise ValueError(msg)
             quantity = F64Quantity.parse(value)  # type: ignore[arg-type]
-        elif t is float:
+        elif t in (float, np.float64, np.float32):
             _units = self._get_units(units) if units is not None else None
             quantity = F64Quantity(value=value, units=_units)  # type: ignore[arg-type]
-        elif t is int:
+        elif t in (int, np.int64, np.int32):
             _units = self._get_units(units) if units is not None else None
             quantity = I64Quantity(value=value, units=_units)  # type: ignore[arg-type]
         elif t in (list, tuple, np.ndarray):
@@ -98,10 +105,13 @@ class Quantity(Generic[T, R]):
     def __str__(self) -> str:
         return str(self.__inner)
 
+    def __repr__(self) -> str:
+        return str(self.__inner)
+
     # ==================================================
     # Operators
     # ==================================================
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other: Any) -> Any:
         return self.__inner == self._get_inner(other)
 
     def __neg__(self) -> Quantity[T, R]:
@@ -146,8 +156,15 @@ class Quantity(Generic[T, R]):
         return self
 
     def __matmul__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
+        inner = self.__inner @ self._get_inner(other)  # type: ignore[operator]
+
+        # matmul may have produced a scalar
+        magnitude = typing.cast(np.ndarray, inner.magnitude)
+        if magnitude.shape == (1,):
+            return Quantity(magnitude[0], inner.units)
+
         new = object.__new__(Quantity)
-        new.__inner = self.__inner @ self._get_inner(other)  # type: ignore[operator]
+        new.__inner = inner
         return new
 
     def __rmatmul__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -181,11 +198,26 @@ class Quantity(Generic[T, R]):
         self.__inner //= self._get_inner(other)  # type: ignore[operator]
         return self
 
+    def __mod__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
+        new = object.__new__(Quantity)
+        new.__inner = self.__inner % self._get_inner(other)  # type: ignore[operator]
+        return new
+
+    def __rmod__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
+        return self._get_quantity(other) % self
+
+    def __imod__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
+        self.__inner %= self._get_inner(other)  # type: ignore[operator]
+        return self
+
     def __pow__(
         self, other: Quantity[T, R] | T, modulo: Real | None = None
     ) -> Quantity[T, R]:
         new = object.__new__(Quantity)
-        new.__inner = self.__inner.__pow__(self._get_magnitude(other), modulo)  # type: ignore[arg-type, operator]
+        if type(self.__inner) in (ArrayF64Quantity, ArrayI64Quantity):
+            new.__inner = self.__inner.arr_pow(self._get_inner(other))  # type: ignore[union-attr]
+        else:
+            new.__inner = self.__inner.__pow__(self._get_magnitude(other), modulo)  # type: ignore[arg-type, operator]
         return new
 
     def __rpow__(
@@ -253,20 +285,32 @@ class Quantity(Generic[T, R]):
     # ==================================================
     # utils
     # ==================================================
-    @staticmethod
-    def _get_quantity(other: Any) -> Quantity[T, R]:
-        return other if isinstance(other, Quantity) else Quantity(other)
+    def _get_quantity(self, other: Any) -> Quantity:
+        if isinstance(other, Quantity):
+            return other
 
-    @staticmethod
+        # We might be an array type, in which case other needs to be wrapped as an array
+        # for compatible operators.
+        is_array = type(self.__inner) in (ArrayF64Quantity, ArrayI64Quantity)
+        if is_array and type(other) not in (list, tuple, np.ndarray):
+            return Quantity([other])
+
+        return Quantity(other)
+
     def _get_inner(
+        self,
         other: Any,
     ) -> F64Quantity | I64Quantity | ArrayF64Quantity | ArrayI64Quantity:
-        return Quantity._get_quantity(other).__inner
+        return self._get_quantity(other).__inner
 
     @staticmethod
     def _get_units(units: UnitsLike) -> F64Unit:
-        return F64Unit.parse(units) if type(units) is str else units  # type: ignore[return-value]
+        if type(units) is str:
+            return F64Unit.parse(units)
+        return units  # type: ignore[return-value]
 
     @staticmethod
     def _get_magnitude(other: Any) -> R:
-        return other if not isinstance(other, Quantity) else other.magnitude
+        if isinstance(other, Quantity):
+            return other.magnitude
+        return other

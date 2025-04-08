@@ -43,6 +43,9 @@ pub enum SmootError {
     //==================================================
     #[error("Invalid array dimensionality {0}")]
     InvalidArrayDimensionality(String),
+
+    #[error("Mismatched shape {0}")]
+    MismatchedArrayShape(String),
 }
 
 pub type SmootResult<T> = Result<T, SmootError>;

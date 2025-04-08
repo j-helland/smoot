@@ -170,6 +170,65 @@ impl Truncate for ArrayD<i64> {
     }
 }
 
+/// Convert a magnitude to another scale, handling idiosyncrasies of integer scaling.
+pub trait ConvertMagnitude {
+    fn convert(&self, factor: f64) -> Self;
+
+    fn iconvert(&mut self, factor: f64);
+}
+impl ConvertMagnitude for i64 {
+    fn convert(&self, factor: f64) -> i64 {
+        if factor < 1.0 {
+            self / (1.0 / factor) as i64
+        } else {
+            self * factor as i64
+        }
+    }
+
+    fn iconvert(&mut self, factor: f64) {
+        if factor < 1.0 {
+            *self /= (1.0 / factor) as i64;
+        } else {
+            *self *= factor as i64;
+        }
+    }
+}
+impl ConvertMagnitude for f64 {
+    fn convert(&self, factor: f64) -> f64 {
+        self * factor
+    }
+
+    fn iconvert(&mut self, factor: f64) {
+        *self *= factor;
+    }
+}
+impl ConvertMagnitude for ArrayD<i64> {
+    fn convert(&self, factor: f64) -> ArrayD<i64> {
+        if factor < 1.0 {
+            self.clone() / (1.0 / factor) as i64
+        } else {
+            self.clone() * factor as i64
+        }
+    }
+
+    fn iconvert(&mut self, factor: f64) {
+        if factor < 1.0 {
+            *self /= (1.0 / factor) as i64;
+        } else {
+            *self *= factor as i64;
+        }
+    }
+}
+impl ConvertMagnitude for ArrayD<f64> {
+    fn convert(&self, factor: f64) -> ArrayD<f64> {
+        self.clone() * factor
+    }
+
+    fn iconvert(&mut self, factor: f64) {
+        *self *= factor;
+    }
+}
+
 #[cfg(test)]
 mod test_utils {
     use test_case::case;

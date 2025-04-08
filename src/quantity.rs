@@ -1,11 +1,11 @@
 use std::{
     marker::PhantomData,
-    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign},
+    ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign},
 };
 
 use bitcode::{Decode, Encode};
 use numpy::{
-    ndarray::{Array, ArrayD},
+    ndarray::{Array, ArrayD, Zip},
     Ix1, Ix2,
 };
 
@@ -15,7 +15,7 @@ use crate::{
     registry::Registry,
     types::Number,
     unit::Unit,
-    utils::{Powf, Powi},
+    utils::{ConvertMagnitude, Powf, Powi},
 };
 
 pub trait Storage<N: Number>: Mul<N, Output = Self> + MulAssign<N> + Clone + Sized {}
@@ -30,7 +30,10 @@ pub struct Quantity<N: Number, S: Storage<N>> {
     _marker: PhantomData<N>,
 }
 
-impl<N: Number, S: Storage<N>> Quantity<N, S> {
+impl<N: Number, S: Storage<N>> Quantity<N, S>
+where
+    S: ConvertMagnitude,
+{
     pub fn new(magnitude: S, unit: Unit<f64>) -> Self {
         Self {
             magnitude,
@@ -40,11 +43,7 @@ impl<N: Number, S: Storage<N>> Quantity<N, S> {
     }
 
     pub fn new_dimensionless(magnitude: S) -> Self {
-        Self {
-            magnitude,
-            unit: Unit::new(vec![], vec![]),
-            _marker: PhantomData,
-        }
+        Self::new(magnitude, Unit::new(vec![], vec![]))
     }
 
     pub fn is_dimensionless(&self) -> bool {
@@ -55,8 +54,10 @@ impl<N: Number, S: Storage<N>> Quantity<N, S> {
         if self.unit.eq(unit) {
             Ok(self.magnitude.clone())
         } else {
-            let factor = self.unit.conversion_factor(unit)?;
-            Ok(self.magnitude.clone() * N::from_f64(factor).unwrap())
+            Ok(self
+                .unit
+                .conversion_factor(unit)
+                .map(|f| self.magnitude.convert(f))?)
         }
     }
 
@@ -89,7 +90,7 @@ impl<N: Number, S: Storage<N>> Quantity<N, S> {
 
     fn convert_to(&mut self, unit: &Unit<f64>) -> SmootResult<()> {
         let factor = self.unit.conversion_factor(unit)?;
-        self.magnitude *= N::from_f64(factor).unwrap();
+        self.magnitude.iconvert(factor);
         self.unit = unit.clone();
         Ok(())
     }
@@ -106,7 +107,47 @@ impl Quantity<f64, f64> {
     }
 }
 /// Array operators
-impl<N: Number> Quantity<N, ArrayD<N>> {
+impl<N: Number> Quantity<N, ArrayD<N>>
+where
+    ArrayD<N>: ConvertMagnitude,
+{
+    pub fn approx_eq(&self, other: &Self) -> SmootResult<ArrayD<bool>> {
+        self.require_same_shape(other)?;
+
+        Ok(other
+            .unit
+            .conversion_factor(&self.unit)
+            .ok()
+            .and_then(N::from_f64)
+            .map_or_else(
+                // If units cannot be converted, all entries false.
+                || {
+                    Array::from_shape_vec(self.magnitude.shape(), vec![false; self.magnitude.len()])
+                        .unwrap()
+                },
+                |factor| {
+                    Zip::from(&self.magnitude)
+                        .and(&other.magnitude)
+                        .map_collect(|&a, &b| a.approx_eq(b * factor))
+                },
+            ))
+    }
+
+    pub fn arr_pow(&self, other: &Self) -> SmootResult<Self> {
+        self.require_same_shape(other)?;
+        if !other.unit.is_dimensionless() {
+            return Err(SmootError::IncompatibleUnitTypes(
+                self.unit.to_string(),
+                other.unit.to_string(),
+            ));
+        }
+
+        let magnitude = Zip::from(&self.magnitude)
+            .and(&other.magnitude)
+            .map_collect(|&a, &b| a.powf(b.to_f64().unwrap()));
+        Ok(Self::new(magnitude, self.unit.clone()))
+    }
+
     pub fn dot(self, other: &Self) -> SmootResult<Self> {
         // Because we work with dynamically dimensioned arrays, we need to explicitly handle each combination of dimensions
         // explicitly. This is because numpy arrays passed from numpy are fully dynamic, whereas ndarray encodes dimensionality
@@ -152,33 +193,45 @@ impl<N: Number> Quantity<N, ArrayD<N>> {
         // Rescale the result to simplified units.
         let mut unit = self.unit * other.unit.clone();
         let factor = unit.simplify(true);
-        let factor = N::from_f64(factor).unwrap();
-        magnitude *= factor;
+        magnitude.iconvert(factor);
 
         Ok(Self::new(magnitude, unit))
     }
+
+    fn require_same_shape(&self, other: &Self) -> SmootResult<()> {
+        if self.magnitude.dim() != other.magnitude.dim() {
+            Err(SmootError::MismatchedArrayShape(format!(
+                "{:?} != {:?}",
+                self.magnitude.dim(),
+                other.magnitude.dim()
+            )))
+        } else {
+            Ok(())
+        }
+    }
 }
 
-impl<N, S> Powf for Quantity<N, S>
+impl<N: Number, S: Storage<N>> Powf for Quantity<N, S>
 where
-    N: Number,
-    S: Storage<N> + Powf,
+    S: Powf + ConvertMagnitude,
 {
     fn powf(self, p: f64) -> Self {
         Quantity::new(self.magnitude.powf(p), self.unit.powf(p))
     }
 }
-impl<N, S> Powi for Quantity<N, S>
+impl<N: Number, S: Storage<N>> Powi for Quantity<N, S>
 where
-    N: Number,
-    S: Storage<N> + Powi,
+    S: Powi + ConvertMagnitude,
 {
     fn powi(self, p: i32) -> Self {
         Quantity::new(self.magnitude.powi(p), self.unit.powi(p))
     }
 }
 
-impl<N: Number, S: Storage<N> + PartialOrd> PartialOrd for Quantity<N, S> {
+impl<N: Number, S: Storage<N> + PartialOrd> PartialOrd for Quantity<N, S>
+where
+    S: ConvertMagnitude,
+{
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         // Convert to same units before comparison.
         other
@@ -188,30 +241,75 @@ impl<N: Number, S: Storage<N> + PartialOrd> PartialOrd for Quantity<N, S> {
     }
 }
 
+// Modulo quantities
+impl<N: Number, S: Storage<N>> Rem for Quantity<N, S>
+where
+    S: RemAssign + ConvertMagnitude,
+{
+    type Output = SmootResult<Self>;
+
+    fn rem(mut self, rhs: Self) -> Self::Output {
+        self.magnitude %= self
+            .unit
+            .conversion_factor(&rhs.unit)
+            .map(|f| rhs.magnitude.convert(f))?;
+        Ok(self)
+    }
+}
+impl<N: Number, S: Storage<N>> Rem<&Quantity<N, S>> for Quantity<N, S>
+where
+    S: RemAssign + ConvertMagnitude,
+{
+    type Output = SmootResult<Self>;
+
+    fn rem(mut self, rhs: &Self) -> Self::Output {
+        self.magnitude %= rhs
+            .unit
+            .conversion_factor(&self.unit)
+            .map(|f| rhs.magnitude.convert(f))?;
+        Ok(self)
+    }
+}
+impl<N: Number, S: Storage<N>> Rem<&Quantity<N, S>> for &Quantity<N, S>
+where
+    S: RemAssign + ConvertMagnitude,
+{
+    type Output = SmootResult<Quantity<N, S>>;
+
+    fn rem(self, rhs: &Quantity<N, S>) -> Self::Output {
+        let mut new = self.clone();
+        new.magnitude %= rhs
+            .unit
+            .conversion_factor(&self.unit)
+            .map(|f| rhs.magnitude.convert(f))?;
+        Ok(new)
+    }
+}
+
 /// Multiply quantities
 impl<N: Number, S: Storage<N>> MulAssign for Quantity<N, S>
 where
-    S: MulAssign,
+    S: MulAssign + ConvertMagnitude,
 {
     fn mul_assign(&mut self, rhs: Self) {
         self.unit.mul_assign(&rhs.unit);
         let factor = self.unit.simplify(true);
-        self.magnitude *= rhs.magnitude * N::from_f64(factor).unwrap();
+        self.magnitude *= rhs.magnitude.convert(factor);
     }
 }
 impl<N: Number, S: Storage<N>> MulAssign<&Quantity<N, S>> for Quantity<N, S>
 where
-    S: MulAssign,
+    S: MulAssign + ConvertMagnitude,
 {
     fn mul_assign(&mut self, rhs: &Self) {
         self.unit.mul_assign(&rhs.unit);
         let factor = self.unit.simplify(true);
-        self.magnitude *= rhs.magnitude.clone() * N::from_f64(factor).unwrap();
+        self.magnitude *= rhs.magnitude.convert(factor);
     }
 }
 impl<N: Number, S: Storage<N>> Mul<&Quantity<N, S>> for &Quantity<N, S>
 where
-    S: MulAssign,
+    S: MulAssign + ConvertMagnitude,
 {
     type Output = Quantity<N, S>;
 
@@ -254,14 +352,16 @@ impl<N: Number> Mul<ArrayD<N>> for Quantity<N, ArrayD<N>> {
         self
     }
 }
-impl<N: Number> Mul<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
+impl<N: Number> Mul<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>>
+where
+    ArrayD<N>: ConvertMagnitude,
+{
     type Output = Self;
 
     fn mul(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
         self.unit.mul_assign(&rhs.unit);
         let factor = self.unit.simplify(true);
-        let factor = N::from_f64(factor).unwrap();
-        self.magnitude = self.magnitude * rhs.magnitude.clone() * factor;
+        self.magnitude = self.magnitude * rhs.magnitude.convert(factor);
         self
     }
 }
@@ -269,41 +369,40 @@ impl<N: Number> Mul<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
 /// Add quantities
 impl<N: Number, S: Storage<N>> AddAssign for Quantity<N, S>
 where
-    S: AddAssign,
+    S: AddAssign + ConvertMagnitude,
 {
     fn add_assign(&mut self, rhs: Self) {
-        let conversion_factor = self
+        let factor = rhs
             .unit
-            .conversion_factor(&rhs.unit)
+            .conversion_factor(&self.unit)
             .expect("Incompatible units used in add_assign");
-        let conversion_factor = N::from_f64(conversion_factor).unwrap();
-        self.magnitude += rhs.magnitude * conversion_factor;
+        self.magnitude += rhs.magnitude.convert(factor);
     }
 }
 impl<N: Number, S: Storage<N>> AddAssign<&Quantity<N, S>> for Quantity<N, S>
 where
-    S: AddAssign,
+    S: AddAssign + ConvertMagnitude,
 {
     fn add_assign(&mut self, rhs: &Self) {
-        let conversion_factor = self
+        let factor = rhs
             .unit
-            .conversion_factor(&rhs.unit)
+            .conversion_factor(&self.unit)
             .expect("Incompatible units used in add_assign");
-        let conversion_factor = N::from_f64(conversion_factor).unwrap();
-        self.magnitude += rhs.magnitude.clone() * conversion_factor;
+        self.magnitude += rhs.magnitude.convert(factor);
     }
 }
 impl<N: Number, S: Storage<N>> Add<&Quantity<N, S>> for &Quantity<N, S>
 where
-    S: AddAssign,
+    S: AddAssign + ConvertMagnitude,
 {
     type Output = SmootResult<Quantity<N, S>>;
 
     fn add(self, rhs: &Quantity<N, S>) -> Self::Output {
-        let conversion_factor = self.unit.conversion_factor(&rhs.unit)?;
-        let conversion_factor = N::from_f64(conversion_factor).unwrap();
         let mut new = self.clone();
-        new.magnitude += rhs.magnitude.clone() * conversion_factor;
+        new.magnitude += rhs
+            .unit
+            .conversion_factor(&self.unit)
+            .map(|f| rhs.magnitude.convert(f))?;
         Ok(new)
     }
 }
@@ -346,13 +445,15 @@ impl<N: Number> Add<ArrayD<N>> for Quantity<N, ArrayD<N>> {
         Ok(self)
     }
 }
-impl<N: Number> Add<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
+impl<N: Number> Add<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>>
+where
+    ArrayD<N>: ConvertMagnitude,
+{
     type Output = SmootResult<Quantity<N, ArrayD<N>>>;
 
     fn add(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
-        let factor = self.unit.conversion_factor(&rhs.unit)?;
-        let factor = N::from_f64(factor).unwrap();
-        self.magnitude = self.magnitude + rhs.magnitude.clone() * factor;
+        let factor = rhs.unit.conversion_factor(&self.unit)?;
+        self.magnitude = self.magnitude + rhs.magnitude.convert(factor);
         Ok(self)
     }
 }
@@ -535,11 +636,7 @@ impl<N: Number> Div<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
 
 impl From<Quantity<f64, f64>> for Quantity<i64, i64> {
     fn from(value: Quantity<f64, f64>) -> Self {
-        Self {
-            magnitude: value.magnitude as i64,
-            unit: value.unit,
-            _marker: PhantomData,
-        }
+        Self::new(value.magnitude as i64, value.unit)
     }
 }
 

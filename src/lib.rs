@@ -273,6 +273,12 @@ macro_rules! create_quantity_type {
                 new
             }
 
+            fn __mod__(&self, other: &Self) -> PyResult<Self> {
+                (self.inner.clone() % &other.inner)
+                    .map(|inner| Self { inner })
+                    .map_err(|e| PyValueError::new_err(e.to_string()))
+            }
+
             fn __pow__(&self, other: f64, _modulo: Option<i64>) -> Self {
                 Self {
                     inner: self.inner.clone().powf(other),
@@ -469,6 +475,17 @@ macro_rules! create_array_quantity_type {
             //==================================================
             // operators
             //==================================================
+            fn __eq__<'py>(
+                &self,
+                py: Python<'py>,
+                other: &Self,
+            ) -> PyResult<Bound<'py, PyArrayDyn<bool>>> {
+                self.inner
+                    .approx_eq(&other.inner)
+                    .map(|arr| PyArray::from_array(py, &arr))
+                    .map_err(|e| PyValueError::new_err(e.to_string()))
+            }
+
             fn __add__(&self, other: &Self) -> PyResult<Self> {
                 (self.inner.clone() + &other.inner)
                     .map(|inner| Self { inner })
@@ -503,6 +520,14 @@ macro_rules! create_array_quantity_type {
                 Self {
                     inner: self.inner.clone().powf(other),
                 }
+            }
+
+            /// Element-wise power
+            fn arr_pow(&self, other: &Self) -> PyResult<Self> {
+                self.inner
+                    .arr_pow(&other.inner)
+                    .map(|inner| Self { inner })
+                    .map_err(|e| PyValueError::new_err(e.to_string()))
             }
 
             fn __matmul__(&self, other: &Self) -> PyResult<Self> {
