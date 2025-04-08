@@ -20,7 +20,9 @@ class UnitRegistry:
         if (res := self._cache.get(expression)) is not None:
             return res
 
-        res = F64Unit.parse(expression)
+        # Ignore the reduction factor when directly returning units to users
+        # since the factor is only used internally.
+        _, res = F64Unit.parse(expression)
         self._cache[expression] = res
         return res
 

@@ -50,24 +50,25 @@ where
         self.unit.is_dimensionless()
     }
 
-    pub fn m_as(&self, unit: &Unit<f64>) -> SmootResult<S> {
+    pub fn m_as(&self, unit: &Unit<f64>, factor: Option<f64>) -> SmootResult<S> {
+        let factor = factor.unwrap_or(1.0);
         if self.unit.eq(unit) {
-            Ok(self.magnitude.clone())
+            Ok(self.magnitude.convert(factor))
         } else {
             Ok(self
                 .unit
                 .conversion_factor(unit)
-                .map(|f| self.magnitude.convert(f))?)
+                .map(|f| self.magnitude.convert(f * factor))?)
         }
     }
 
-    pub fn to(&self, unit: &Unit<f64>) -> SmootResult<Quantity<N, S>> {
+    pub fn to(&self, unit: &Unit<f64>, factor: Option<f64>) -> SmootResult<Quantity<N, S>> {
         let mut q = self.clone();
-        q.ito(unit)?;
+        q.ito(unit, factor)?;
         Ok(q)
     }
 
-    pub fn ito(&mut self, unit: &Unit<f64>) -> SmootResult<()> {
+    pub fn ito(&mut self, unit: &Unit<f64>, factor: Option<f64>) -> SmootResult<()> {
         if self.unit.eq(unit) {
             return Ok(());
         }
@@ -80,16 +81,16 @@ where
                 unit.get_units_string().unwrap_or("dimensionless".into()),
             ));
         }
-        self.convert_to(unit)
+        self.convert_to(unit, factor)
     }
 
     pub fn ito_reduced_units(&mut self) {
         let factor = self.unit.reduce();
-        self.magnitude *= N::from_f64(factor).unwrap();
+        self.magnitude.iconvert(factor);
     }
 
-    fn convert_to(&mut self, unit: &Unit<f64>) -> SmootResult<()> {
-        let factor = self.unit.conversion_factor(unit)?;
+    fn convert_to(&mut self, unit: &Unit<f64>, factor: Option<f64>) -> SmootResult<()> {
+        let factor = self.unit.conversion_factor(unit)? * factor.unwrap_or(1.0);
         self.magnitude.iconvert(factor);
         self.unit = unit.clone();
         Ok(())
@@ -106,31 +107,50 @@ impl Quantity<f64, f64> {
             .map_err(|_| SmootError::InvalidQuantityExpression(0, s))
     }
 }
+impl<N: Number> Quantity<N, N>
+where
+    N: ConvertMagnitude,
+{
+    pub fn approx_eq(&self, other: &Self) -> bool {
+        // Early outs to avoid copies for speed
+        if !self.unit.is_compatible_with(&other.unit) {
+            return false;
+        }
+        if self.unit == other.unit {
+            return self.magnitude.approx_eq(other.magnitude);
+        }
+
+        let mut q1 = self.clone();
+        q1.ito_reduced_units();
+        let mut q2 = other.clone();
+        q2.ito_reduced_units();
+
+        let factor = q2.unit.conversion_factor(&q1.unit).unwrap();
+        q2.magnitude.iconvert(factor);
+        q1.magnitude.approx_eq(q2.magnitude)
+    }
+}
 /// Array operators
 impl<N: Number> Quantity<N, ArrayD<N>>
 where
+    N: ConvertMagnitude,
     ArrayD<N>: ConvertMagnitude,
 {
     pub fn approx_eq(&self, other: &Self) -> SmootResult<ArrayD<bool>> {
         self.require_same_shape(other)?;
 
-        Ok(other
-            .unit
-            .conversion_factor(&self.unit)
-            .ok()
-            .and_then(N::from_f64)
-            .map_or_else(
-                // If units cannot be converted, all entries false.
-                || {
-                    Array::from_shape_vec(self.magnitude.shape(), vec![false; self.magnitude.len()])
-                        .unwrap()
-                },
-                |factor| {
-                    Zip::from(&self.magnitude)
-                        .and(&other.magnitude)
-                        .map_collect(|&a, &b| a.approx_eq(b * factor))
-                },
-            ))
+        Ok(other.unit.conversion_factor(&self.unit).ok().map_or_else(
+            // If units cannot be converted, all entries false.
+            || {
+                Array::from_shape_vec(self.magnitude.shape(), vec![false; self.magnitude.len()])
+                    .unwrap()
+            },
+            |factor| {
+                Zip::from(&self.magnitude)
+                    .and(&other.magnitude)
+                    .map_collect(|&a, &b| a.approx_eq(b.convert(factor)))
+            },
+        ))
     }
 
     pub fn arr_pow(&self, other: &Self) -> SmootResult<Self> {
@@ -235,7 +255,7 @@ where
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         // Convert to same units before comparison.
         other
-            .m_as(&self.unit)
+            .m_as(&self.unit, None)
             .ok()
             .and_then(|o| self.magnitude.partial_cmp(&o))
     }
@@ -474,41 +494,40 @@ where
 /// Subtract quantities
 impl<N: Number, S: Storage<N>> SubAssign for Quantity<N, S>
 where
-    S: SubAssign,
+    S: SubAssign + ConvertMagnitude,
 {
     fn sub_assign(&mut self, rhs: Self) {
-        let conversion_factor = self
+        let factor = rhs
             .unit
-            .conversion_factor(&rhs.unit)
+            .conversion_factor(&self.unit)
             .expect("Incompatible units used in sub_assign");
-        let conversion_factor = N::from_f64(conversion_factor).unwrap();
-        self.magnitude -= rhs.magnitude * conversion_factor;
+        self.magnitude -= rhs.magnitude.convert(factor);
     }
 }
 impl<N: Number, S: Storage<N>> SubAssign<&Quantity<N, S>> for Quantity<N, S>
 where
-    S: SubAssign,
+    S: SubAssign + ConvertMagnitude,
 {
     fn sub_assign(&mut self, rhs: &Self) {
-        let conversion_factor = self
+        let factor = rhs
             .unit
-            .conversion_factor(&rhs.unit)
+            .conversion_factor(&self.unit)
             .expect("Incompatible units used in sub_assign");
-        let conversion_factor = N::from_f64(conversion_factor).unwrap();
-        self.magnitude -= rhs.magnitude.clone() * conversion_factor;
+        self.magnitude -= rhs.magnitude.convert(factor);
     }
 }
 impl<N: Number, S: Storage<N>> Sub<&Quantity<N, S>> for &Quantity<N, S>
 where
-    S: SubAssign,
+    S: SubAssign + ConvertMagnitude,
 {
     type Output = SmootResult<Quantity<N, S>>;
 
     fn sub(self, rhs: &Quantity<N, S>) -> Self::Output {
-        let conversion_factor = self.unit.conversion_factor(&rhs.unit)?;
-        let conversion_factor = N::from_f64(conversion_factor).unwrap();
         let mut new = self.clone();
-        new.magnitude -= rhs.magnitude.clone() * conversion_factor;
+        new.magnitude -= rhs
+            .unit
+            .conversion_factor(&self.unit)
+            .map(|f| rhs.magnitude.convert(f))?;
         Ok(new)
     }
 }
@@ -551,13 +570,18 @@ impl<N: Number> Sub<ArrayD<N>> for Quantity<N, ArrayD<N>> {
         Ok(self)
     }
 }
-impl<N: Number> Sub<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
+impl<N: Number> Sub<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>>
+where
+    ArrayD<N>: ConvertMagnitude,
+{
     type Output = SmootResult<Self>;
 
     fn sub(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
-        let factor = self.unit.conversion_factor(&rhs.unit)?;
-        let factor = N::from_f64(factor).unwrap();
-        self.magnitude = self.magnitude - rhs.magnitude.clone() * factor;
+        self.magnitude = self.magnitude
+            - self
+                .unit
+                .conversion_factor(&rhs.unit)
+                .map(|f| rhs.magnitude.convert(f))?;
         Ok(self)
     }
 }
@@ -565,7 +589,7 @@ impl<N: Number> Sub<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
 /// Divide quantities
 impl<N: Number, S: Storage<N>> Div<&Quantity<N, S>> for &Quantity<N, S>
 where
-    S: DivAssign,
+    S: DivAssign + ConvertMagnitude,
 {
     type Output = Quantity<N, S>;
 
@@ -577,26 +601,24 @@ where
 }
 impl<N: Number, S: Storage<N>> DivAssign for Quantity<N, S>
 where
-    S: DivAssign,
+    S: DivAssign + ConvertMagnitude,
 {
     fn div_assign(&mut self, rhs: Self) {
         self.magnitude /= rhs.magnitude;
         self.unit.div_assign(&rhs.unit);
         let factor = self.unit.simplify(true);
-        let factor = N::from_f64(factor).unwrap();
-        self.magnitude *= factor;
+        self.magnitude.iconvert(factor);
     }
 }
 impl<N: Number, S: Storage<N>> DivAssign<&Quantity<N, S>> for Quantity<N, S>
 where
-    S: DivAssign,
+    S: DivAssign + ConvertMagnitude,
 {
     fn div_assign(&mut self, rhs: &Self) {
         self.magnitude /= rhs.magnitude.clone();
         self.unit.div_assign(&rhs.unit);
         let factor = self.unit.simplify(true);
-        let factor = N::from_f64(factor).unwrap();
-        self.magnitude *= factor;
+        self.magnitude.iconvert(factor);
     }
 }
 
@@ -621,15 +643,17 @@ impl<N: Number> Div<ArrayD<N>> for Quantity<N, ArrayD<N>> {
         self
     }
 }
-impl<N: Number> Div<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>> {
+impl<N: Number> Div<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>>
+where
+    ArrayD<N>: ConvertMagnitude,
+{
     type Output = Self;
 
     fn div(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
         self.magnitude = self.magnitude / rhs.magnitude.clone();
         self.unit.div_assign(&rhs.unit);
         let factor = self.unit.simplify(true);
-        let factor = N::from_f64(factor).unwrap();
-        self.magnitude *= factor;
+        self.magnitude.iconvert(factor);
         self
     }
 }
@@ -664,7 +688,7 @@ mod test_quantity {
 
         let mut q = Quantity::new(1.0, km_sqrt);
 
-        q.ito(&m_sqrt)?;
+        q.ito(&m_sqrt, None)?;
 
         assert_is_close!(q.magnitude, UNIT_KILOMETER.multiplier.sqrt());
         assert_eq!(q.unit, m_sqrt);
@@ -679,7 +703,7 @@ mod test_quantity {
 
         let mut q = Quantity::new(1.0, meter);
 
-        q.ito(&kilometer)?;
+        q.ito(&kilometer, None)?;
 
         assert_is_close!(q.magnitude, 1.0 / 1000.0);
         assert_eq!(q.unit, kilometer);
@@ -693,7 +717,7 @@ mod test_quantity {
         let second = Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]);
         let mut q = Quantity::new(1.0, meter);
 
-        assert!(q.ito(&second).is_err());
+        assert!(q.ito(&second, None).is_err());
     }
 
     #[test]
@@ -703,7 +727,7 @@ mod test_quantity {
 
         let q = Quantity::new(1.0, meter);
 
-        let q_converted = q.to(&kilometer)?;
+        let q_converted = q.to(&kilometer, None)?;
 
         assert_is_close!(q_converted.magnitude, 1.0 / 1000.0);
         assert_eq!(q_converted.unit, kilometer);
@@ -717,7 +741,7 @@ mod test_quantity {
         let second = Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]);
         let q = Quantity::new(1.0, meter);
 
-        assert!(q.to(&second).is_err());
+        assert!(q.to(&second, None).is_err());
     }
 
     #[test]
@@ -726,7 +750,7 @@ mod test_quantity {
         let kilometer = Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]);
         let q = Quantity::new(1.0, meter);
 
-        let magnitude = q.m_as(&kilometer)?;
+        let magnitude = q.m_as(&kilometer, None)?;
 
         assert_is_close!(magnitude, 1.0 / 1000.0);
 
@@ -739,7 +763,7 @@ mod test_quantity {
         let second = Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]);
         let q = Quantity::new(1.0, meter);
 
-        assert!(q.m_as(&second).is_err());
+        assert!(q.m_as(&second, None).is_err());
     }
 
     #[test]

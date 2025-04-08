@@ -14,7 +14,7 @@ use pyo3::{pyfunction, pymodule, types::PyModule, Bound};
 use crate::quantity::Quantity;
 use crate::registry::REGISTRY;
 use crate::unit::Unit;
-use crate::utils::{Ceil, Floor, Powf, RoundDigits, Truncate};
+use crate::utils::{Ceil, ConvertMagnitude, Floor, Powf, RoundDigits, Truncate};
 
 mod base_unit;
 mod error;
@@ -47,10 +47,18 @@ macro_rules! create_unit_type {
         #[pymethods]
         impl $name_unit {
             #[staticmethod]
-            fn parse(expression: &str) -> PyResult<Self> {
-                let inner = Unit::parse(&REGISTRY, expression)
+            fn parse(expression: &str) -> PyResult<(f64, Self)> {
+                let (factor, inner) = Unit::parse(&REGISTRY, expression)
                     .map_err(|e| PyValueError::new_err(e.to_string()))?;
-                Ok(Self { inner })
+                Ok((factor, Self { inner }))
+            }
+
+            fn is_compatible_with(&self, other: &Self) -> bool {
+                self.inner.is_compatible_with(&other.inner)
+            }
+
+            fn is_dimensionless(&self) -> bool {
+                self.inner.is_dimensionless()
             }
 
             fn __str__(&self) -> String {
@@ -119,8 +127,13 @@ macro_rules! create_quantity_type {
         #[pymethods]
         impl $name_quantity {
             #[new]
-            #[pyo3(signature = (value, units=None))]
-            fn py_new(value: $storage_type, units: Option<&$name_unit>) -> PyResult<Self> {
+            #[pyo3(signature = (value, units=None, factor=None))]
+            fn py_new(
+                value: $storage_type,
+                units: Option<&$name_unit>,
+                factor: Option<f64>,
+            ) -> PyResult<Self> {
+                let value = factor.map(|f| value.convert(f)).unwrap_or(value);
                 let inner = units
                     .map(|u| quantity::Quantity::new(value, u.inner.clone()))
                     .unwrap_or_else(|| quantity::Quantity::new_dimensionless(value));
@@ -153,28 +166,31 @@ macro_rules! create_quantity_type {
                 }
             }
 
-            #[getter(unit)]
+            #[getter(units)]
             fn units(&self) -> $name_unit {
                 self.u()
             }
 
-            fn to(&self, unit: &$name_unit) -> PyResult<$name_quantity> {
-                let new_q = self
+            #[pyo3(signature = (unit, factor=None))]
+            fn to(&self, unit: &$name_unit, factor: Option<f64>) -> PyResult<$name_quantity> {
+                let inner = self
                     .inner
-                    .to(&unit.inner)
+                    .to(&unit.inner, factor)
                     .map_err(|e| PyValueError::new_err(e.to_string()))?;
-                Ok(Self { inner: new_q })
+                Ok(Self { inner })
             }
 
-            fn ito(&mut self, unit: &$name_unit) -> PyResult<()> {
+            #[pyo3(signature = (unit, factor=None))]
+            fn ito(&mut self, unit: &$name_unit, factor: Option<f64>) -> PyResult<()> {
                 self.inner
-                    .ito(&unit.inner)
+                    .ito(&unit.inner, factor)
                     .map_err(|e| PyValueError::new_err(e.to_string()))
             }
 
-            fn m_as(&self, unit: &$name_unit) -> PyResult<$storage_type> {
+            #[pyo3(signature = (unit, factor=None))]
+            fn m_as(&self, unit: &$name_unit, factor: Option<f64>) -> PyResult<$storage_type> {
                 self.inner
-                    .m_as(&unit.inner)
+                    .m_as(&unit.inner, factor)
                     .map_err(|e| PyValueError::new_err(e.to_string()))
             }
 
@@ -214,11 +230,11 @@ macro_rules! create_quantity_type {
             // operators
             //==================================================
             fn __eq__(&self, other: &Self) -> bool {
-                self.inner.partial_cmp(&other.inner) == Some(std::cmp::Ordering::Equal)
+                self.inner.approx_eq(&other.inner)
             }
 
             fn __ne__(&self, other: &Self) -> bool {
-                self.inner.partial_cmp(&other.inner) != Some(std::cmp::Ordering::Equal)
+                !self.__eq__(other)
             }
 
             fn __lt__(&self, other: &Self) -> bool {
@@ -376,16 +392,22 @@ macro_rules! create_array_quantity_type {
         #[pymethods]
         impl $name {
             #[new]
-            #[pyo3(signature = (value, units=None))]
+            #[pyo3(signature = (value, units=None, factor=None))]
             fn py_new(
                 value: Bound<'_, PyArrayDyn<$base_type>>,
                 units: Option<&$unit_type>,
+                factor: Option<f64>,
             ) -> PyResult<Self> {
-                let inner = units
-                    .map(|u| quantity::Quantity::new(value.to_owned_array(), u.inner.clone()))
-                    .unwrap_or_else(|| {
-                        quantity::Quantity::new_dimensionless(value.to_owned_array())
-                    });
+                let mut value = value.to_owned_array();
+                if let Some(factor) = factor {
+                    value.iconvert(factor);
+                }
+
+                let inner = if let Some(u) = units {
+                    Quantity::new(value, u.inner.clone())
+                } else {
+                    Quantity::new_dimensionless(value)
+                };
                 Ok(Self { inner })
             }
 
@@ -421,27 +443,31 @@ macro_rules! create_array_quantity_type {
                 self.u()
             }
 
-            fn to(&self, unit: &$unit_type) -> PyResult<Self> {
+            #[pyo3(signature = (unit, factor=None))]
+            fn to(&self, unit: &$unit_type, factor: Option<f64>) -> PyResult<Self> {
                 let new_q = self
                     .inner
-                    .to(&unit.inner)
+                    .to(&unit.inner, factor)
                     .map_err(|e| PyValueError::new_err(e.to_string()))?;
                 Ok(Self { inner: new_q })
             }
 
-            fn ito(&mut self, unit: &$unit_type) -> PyResult<()> {
+            #[pyo3(signature = (unit, factor=None))]
+            fn ito(&mut self, unit: &$unit_type, factor: Option<f64>) -> PyResult<()> {
                 self.inner
-                    .ito(&unit.inner)
+                    .ito(&unit.inner, factor)
                     .map_err(|e| PyValueError::new_err(e.to_string()))
             }
 
+            #[pyo3(signature = (unit, factor=None))]
             fn m_as<'py>(
                 &self,
                 py: Python<'py>,
                 unit: &$unit_type,
+                factor: Option<f64>,
             ) -> PyResult<Bound<'py, PyArrayDyn<$base_type>>> {
                 self.inner
-                    .m_as(&unit.inner)
+                    .m_as(&unit.inner, factor)
                     .map(|arr| PyArray::from_array(py, &arr))
                     .map_err(|e| PyValueError::new_err(e.to_string()))
             }

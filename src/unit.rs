@@ -279,7 +279,7 @@ impl<N: Number> Unit<N> {
     pub fn reduce(&mut self) -> N {
         let mut result_conversion_factor = self.simplify(false);
 
-        let mut reduce_ = |units: &mut Vec<BaseUnit<N>>| {
+        let mut reduce_func = |units: &mut Vec<BaseUnit<N>>| {
             let mut units_reduced: Vec<BaseUnit<N>> = Vec::new();
             units.drain(..).for_each(|u| {
                 if let Some(last) = units_reduced.last_mut() {
@@ -309,8 +309,8 @@ impl<N: Number> Unit<N> {
             units.extend(units_reduced);
         };
 
-        reduce_(&mut self.numerator_units);
-        reduce_(&mut self.denominator_units);
+        reduce_func(&mut self.numerator_units);
+        reduce_func(&mut self.denominator_units);
         self.update_dimensionality();
 
         result_conversion_factor
@@ -422,16 +422,16 @@ impl<N: Number> Unit<N> {
 }
 
 impl Unit<f64> {
-    pub fn parse(registry: &Registry, s: &str) -> SmootResult<Self> {
+    pub fn parse(registry: &Registry, s: &str) -> SmootResult<(f64, Self)> {
         if s == "dimensionless" {
             // Make sure to return an empty unit container.
-            return Ok(Self::new(vec![], vec![]));
+            return Ok((1.0, Self::new(vec![], vec![])));
         }
 
         expression_parser::unit_expression(s, registry)
             .map(|mut u| {
-                u.reduce();
-                u
+                let factor = u.reduce();
+                (factor, u)
             })
             .map_err(|_| SmootError::InvalidUnitExpression(0, s.into()))
     }
@@ -839,8 +839,6 @@ mod test_unit {
         );
 
         let conversion_factor = u.simplify(false);
-
-        println!("{:#?}", u);
 
         assert_is_close!(conversion_factor, 1000.0_f64.sqrt());
         assert!(u.numerator_units.is_empty());

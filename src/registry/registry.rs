@@ -104,7 +104,6 @@ impl Registry {
                             );
                         }
                     } else {
-                        println!("{:#?}", expr);
                         panic!(
                             "Derived dimension expression {} does not assign to a dimension",
                             line

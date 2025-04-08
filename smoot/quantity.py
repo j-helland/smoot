@@ -51,17 +51,23 @@ class Quantity(Generic[T, R]):
                 raise ValueError(msg)
             quantity = F64Quantity.parse(value)  # type: ignore[arg-type]
         elif t in (float, np.float64, np.float32):
-            _units = self._get_units(units) if units is not None else None
-            quantity = F64Quantity(value=value, units=_units)  # type: ignore[arg-type]
+            factor, _units = (
+                self._get_units(units) if units is not None else (None, None)
+            )
+            quantity = F64Quantity(value=value, units=_units, factor=factor)  # type: ignore[arg-type]
         elif t in (int, np.int64, np.int32):
-            _units = self._get_units(units) if units is not None else None
-            quantity = I64Quantity(value=value, units=_units)  # type: ignore[arg-type]
+            factor, _units = (
+                self._get_units(units) if units is not None else (None, None)
+            )
+            quantity = I64Quantity(value=value, units=_units, factor=factor)  # type: ignore[arg-type]
         elif t in (list, tuple, np.ndarray):
             # arraylike
-            _units = self._get_units(units) if units is not None else None
+            factor, _units = (
+                self._get_units(units) if units is not None else (None, None)
+            )
             arr = np.array(value)
             QType = ArrayI64Quantity if (arr.dtype == np.int64) else ArrayF64Quantity
-            quantity = QType(value=arr, units=_units)
+            quantity = QType(value=arr, units=_units, factor=factor)
         else:
             msg = f"Unsupported type {t}"
             raise NotImplementedError(msg)
@@ -88,15 +94,28 @@ class Quantity(Generic[T, R]):
         units : UnitsLike
             The units to convert to. Can be a string or an existing unit instance.
         """
-        return self.__inner.m_as(self._get_units(units))  # type: ignore[return-value]
+        factor, _units = self._get_units(units)
+        return self.__inner.m_as(_units, factor=factor)  # type: ignore[return-value]
+
+    @property
+    def units(self) -> F64Unit:
+        """Return the units of this quantity."""
+        return self.__inner.units
+
+    @property
+    def u(self) -> F64Unit:
+        """Return the units of this quantity."""
+        return self.__inner.u
 
     def to(self, units: str | F64Unit) -> Quantity[T, R]:
+        factor, _units = self._get_units(units)
         new = object.__new__(Quantity)
-        new.__inner = self.__inner.to(self._get_units(units))
+        new.__inner = self.__inner.to(_units, factor=factor)
         return new
 
     def ito(self, units: str | F64Unit) -> Quantity[T, R]:
-        self.__inner.ito(self._get_units(units))
+        factor, _units = self._get_units(units)
+        self.__inner.ito(_units, factor=factor)
         return self
 
     # ==================================================
@@ -213,11 +232,16 @@ class Quantity(Generic[T, R]):
     def __pow__(
         self, other: Quantity[T, R] | T, modulo: Real | None = None
     ) -> Quantity[T, R]:
+        other_inner = self._get_inner(other)
+        if not other_inner.units.is_dimensionless():
+            msg = f"Expected dimensionless exponent but got: {other_inner.units}"
+            raise ValueError(msg)
+
         new = object.__new__(Quantity)
         if type(self.__inner) in (ArrayF64Quantity, ArrayI64Quantity):
-            new.__inner = self.__inner.arr_pow(self._get_inner(other))  # type: ignore[union-attr]
+            new.__inner = self.__inner.arr_pow(other_inner)  # type: ignore[union-attr]
         else:
-            new.__inner = self.__inner.__pow__(self._get_magnitude(other), modulo)  # type: ignore[arg-type, operator]
+            new.__inner = self.__inner.__pow__(other_inner.magnitude, modulo)  # type: ignore[arg-type, operator]
         return new
 
     def __rpow__(
@@ -228,6 +252,10 @@ class Quantity(Generic[T, R]):
     def __ipow__(
         self, other: Quantity[T, R] | T, modulo: Real | None = None
     ) -> Quantity[T, R]:
+        if isinstance(other, Quantity) and not other.units.is_dimensionless():
+            msg = f"Expected dimensionless exponent but got: {other.units}"
+            raise ValueError(msg)
+
         self.__inner = self.__inner.__pow__(self._get_magnitude(other), modulo)  # type: ignore[arg-type, operator]
         return self
 
@@ -304,10 +332,10 @@ class Quantity(Generic[T, R]):
         return self._get_quantity(other).__inner
 
     @staticmethod
-    def _get_units(units: UnitsLike) -> F64Unit:
+    def _get_units(units: UnitsLike) -> tuple[float, F64Unit]:
         if type(units) is str:
             return F64Unit.parse(units)
-        return units  # type: ignore[return-value]
+        return (1.0, units)  # type: ignore[return-value]
 
     @staticmethod
     def _get_magnitude(other: Any) -> R:

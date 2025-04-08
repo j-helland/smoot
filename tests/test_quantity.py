@@ -1,3 +1,4 @@
+import inspect
 import math
 import operator
 from typing import Any, Callable
@@ -43,37 +44,73 @@ def test_eq() -> None:
 @pytest.mark.parametrize(
     argnames=("x", "op", "y", "expected"),
     argvalues=(
+        #### +
         (Q(1), operator.add, Q(1), Q(2)),
         (Q(1), operator.add, 1, Q(2)),
         (1, operator.add, Q(1), Q(2)),
+        (Q(1, "meter"), operator.add, Q(1, "meter"), Q(2, "meter")),
+        (Q(1, "meter"), operator.add, Q(1, "km"), Q(1001, "meter")),
+        (Q(1, "km"), operator.add, Q(1, "meter"), Q(1001, "meter")),
+        #### -
         (Q(2), operator.sub, Q(1), Q(1)),
         (Q(2), operator.sub, 1, Q(1)),
         (2, operator.sub, Q(1), Q(1)),
+        (Q(2, "meter"), operator.sub, Q(1, "meter"), Q(1, "meter")),
+        (Q(2, "meter"), operator.sub, Q(1, "km"), Q(-998, "meter")),
+        # integer precision
+        (Q(2, "km"), operator.sub, Q(1, "meter"), Q(2, "km")),
+        #### *
         (Q(2), operator.mul, Q(2), Q(4)),
         (Q(2), operator.mul, 2, Q(4)),
         (2, operator.mul, Q(2), Q(4)),
+        (Q(2, "meter"), operator.mul, Q(2, "meter"), Q(4, "meter ** 2")),
+        (Q(2, "meter"), operator.mul, Q(2, "km"), Q(4, "km * meter")),
+        (Q(2, "km"), operator.mul, Q(2, "meter"), Q(4, "km * meter")),
+        (Q(2, "meter"), operator.mul, 2, Q(4, "meter")),
+        #### **
         (Q(2), operator.pow, Q(3), Q(8)),
         (2, operator.pow, Q(3), Q(8)),
         (Q(2), operator.pow, 3, Q(8)),
+        (Q(2, "meter"), operator.pow, Q(3, "meter"), ValueError),
+        (Q(2, "meter"), operator.pow, Q(3), Q(8, "meter ** 3")),
+        (Q(2, "meter"), operator.pow, 3, Q(8, "meter ** 3")),
+        #### /
         (Q(4), operator.truediv, Q(2), Q(2)),
         (Q(4), operator.truediv, 2, Q(2)),
         (4, operator.truediv, Q(2), Q(2)),
+        (Q(4, "meter"), operator.truediv, Q(2, "meter"), Q(2)),
+        (Q(4, "meter"), operator.truediv, 2, Q(2, "meter")),
+        # TODO(jwh): need to handle cases like 1 / meter in unit arithmetic.
+        # (4, operator.truediv, Q(2, "meter"), Q(2, "1 / meter")),
+        #### //
         (Q(4), operator.floordiv, Q(2), Q(2)),
         (Q(4), operator.floordiv, 2, Q(2)),
         (4, operator.floordiv, Q(2), Q(2)),
+        (Q(4, "meter"), operator.floordiv, Q(2, "meter"), Q(2)),
+        (Q(4, "meter"), operator.floordiv, 2, Q(2, "meter")),
+        # TODO(jwh)
+        # (4, operator.floordiv, Q(2, "meter"), Q(2, "1 / meter")),
+        #### %
         (Q(4), operator.mod, Q(2), Q(0)),
         (4, operator.mod, Q(2), Q(0)),
         (Q(4), operator.mod, 2, Q(0)),
+        (Q(4, "meter"), operator.mod, Q(2, "meter"), Q(0, "meter")),
+        (Q(4, "meter"), operator.mod, Q(2, "km"), Q(4, "meter")),
+        # (Q(4, "km"), operator.mod, Q(2, "meter"), Q(0, "meter")),
     ),
 )
 def test_binary_operators(
     x: Q | int,
     op: Callable[[Q | int, Q | int], Q],
     y: Q | int,
-    expected: Q,
+    expected: Q | type[Exception],
 ) -> None:
     """Binary operators applied to quantities produce the expected values."""
-    assert op(x, y) == expected
+    if inspect.isclass(expected) and issubclass(expected, Exception):
+        with pytest.raises(expected):
+            _ = op(x, y)
+    else:
+        assert op(x, y) == expected
 
 
 @pytest.mark.parametrize(
