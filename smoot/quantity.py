@@ -9,7 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .smoot import (
-    F64Unit,
+    Unit,
     F64Quantity,
     I64Quantity,
     ArrayF64Quantity,
@@ -35,7 +35,7 @@ T = TypeVar(
 )
 R = TypeVar("R", int, float, NDArray[np.float64], NDArray[np.int64])
 ValueLike = Union[str, T]
-UnitsLike = Union[str, F64Unit]
+UnitsLike = Union[str, Unit]
 
 
 class Quantity(Generic[T, R]):
@@ -98,22 +98,22 @@ class Quantity(Generic[T, R]):
         return self.__inner.m_as(_units, factor=factor)  # type: ignore[return-value]
 
     @property
-    def units(self) -> F64Unit:
+    def units(self) -> Unit:
         """Return the units of this quantity."""
         return self.__inner.units
 
     @property
-    def u(self) -> F64Unit:
+    def u(self) -> Unit:
         """Return the units of this quantity."""
         return self.__inner.u
 
-    def to(self, units: str | F64Unit) -> Quantity[T, R]:
+    def to(self, units: str | Unit) -> Quantity[T, R]:
         factor, _units = self._get_units(units)
         new = object.__new__(Quantity)
         new.__inner = self.__inner.to(_units, factor=factor)
         return new
 
-    def ito(self, units: str | F64Unit) -> Quantity[T, R]:
+    def ito(self, units: str | Unit) -> Quantity[T, R]:
         factor, _units = self._get_units(units)
         self.__inner.ito(_units, factor=factor)
         return self
@@ -332,9 +332,9 @@ class Quantity(Generic[T, R]):
         return self._get_quantity(other).__inner
 
     @staticmethod
-    def _get_units(units: UnitsLike) -> tuple[float, F64Unit]:
+    def _get_units(units: UnitsLike) -> tuple[float, Unit]:
         if type(units) is str:
-            return F64Unit.parse(units)
+            return Unit.parse(units)
         return (1.0, units)  # type: ignore[return-value]
 
     @staticmethod

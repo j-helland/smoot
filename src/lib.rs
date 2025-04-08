@@ -13,7 +13,6 @@ use pyo3::{pyfunction, pymodule, types::PyModule, Bound};
 
 use crate::quantity::Quantity;
 use crate::registry::REGISTRY;
-use crate::unit::Unit;
 use crate::utils::{Ceil, ConvertMagnitude, Floor, Powf, RoundDigits, Truncate};
 
 mod base_unit;
@@ -42,13 +41,13 @@ macro_rules! create_unit_type {
     ($name_unit: ident, $base_type: ident) => {
         #[pyclass(module = "smoot.smoot")]
         struct $name_unit {
-            inner: Unit<$base_type>,
+            inner: unit::Unit<$base_type>,
         }
         #[pymethods]
         impl $name_unit {
             #[staticmethod]
             fn parse(expression: &str) -> PyResult<(f64, Self)> {
-                let (factor, inner) = Unit::parse(&REGISTRY, expression)
+                let (factor, inner) = unit::Unit::parse(&REGISTRY, expression)
                     .map_err(|e| PyValueError::new_err(e.to_string()))?;
                 Ok((factor, Self { inner }))
             }
@@ -377,7 +376,7 @@ macro_rules! create_quantity_type {
 struct ArrayQuantityStorage<N> {
     dims: Vec<usize>,
     data: Vec<N>,
-    unit: Unit<f64>,
+    unit: unit::Unit<f64>,
 }
 
 /// Create a numpy array version of a unitary quantity type.
@@ -609,18 +608,18 @@ macro_rules! create_array_quantity_type {
     };
 }
 
-create_unit_type!(F64Unit, f64);
+create_unit_type!(Unit, f64);
 
-create_quantity_type!(F64Unit, F64Quantity, f64, f64);
-create_array_quantity_type!(ArrayF64Quantity, F64Unit, f64);
+create_quantity_type!(Unit, F64Quantity, f64, f64);
+create_array_quantity_type!(ArrayF64Quantity, Unit, f64);
 
-create_quantity_type!(F64Unit, I64Quantity, i64, i64);
-create_array_quantity_type!(ArrayI64Quantity, F64Unit, i64);
+create_quantity_type!(Unit, I64Quantity, i64, i64);
+create_array_quantity_type!(ArrayI64Quantity, Unit, i64);
 
 #[pymodule]
 fn smoot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Core unit type
-    m.add_class::<F64Unit>()?;
+    m.add_class::<Unit>()?;
 
     // float-backed types
     m.add_class::<F64Quantity>()?;
