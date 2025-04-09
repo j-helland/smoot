@@ -66,6 +66,10 @@ macro_rules! create_unit_type {
                     .unwrap_or_else(|| "dimensionless".into())
             }
 
+            fn __repr__(&self) -> String {
+                self.__str__()
+            }
+
             fn __eq__(&self, other: &Self) -> bool {
                 self.inner == other.inner
             }

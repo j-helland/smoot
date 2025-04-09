@@ -58,18 +58,18 @@ peg::parser! {
             }
 
         rule quantity(unit_cache: &Registry) -> Quantity<f64, f64>
-            = n:decimal() __ u:unit_expression(unit_cache)
-            { Quantity::new(n, u) }
+            = n:decimal()? __ u:unit_expression(unit_cache)
+            { Quantity::new(n.unwrap_or(1.0), u) }
 
         /// Add operator requires conditional parsing to handle incompatible units.
         rule quantity_add(unit_cache: &Registry) -> Quantity<f64, f64>
             = q1:quantity(unit_cache) __ "+" __ q2:expression(unit_cache)
-            {? (&q1 + &q2).or(Err("Incompatible units")) }
+            {? (q1 + q2).or(Err("Incompatible units")) }
 
         /// Subtract operator requires conditional parsing to handle incompatible units.
         rule quantity_sub(unit_cache: &Registry) -> Quantity<f64, f64>
             = q1:quantity(unit_cache) __ "-" __ q2:expression(unit_cache)
-            {? (&q1 - &q2).or(Err("Incompatible units")) }
+            {? (q1 - q2).or(Err("Incompatible units")) }
 
         pub rule expression(unit_cache: &Registry) -> Quantity<f64, f64>
             = precedence!
@@ -77,9 +77,8 @@ peg::parser! {
                 q:quantity_add(unit_cache) { q }
                 q:quantity_sub(unit_cache) { q }
                 --
-                // TODO(jwh): implement owning operators to reduce copies
-                q1:(@) __ "*" __ q2:@ { &q1 * &q2 }
-                q1:(@) __ "/" __ q2:@ { &q1 / &q2 }
+                q1:(@) __ "*" __ q2:@ { q1 * q2 }
+                q1:(@) __ "/" __ q2:@ { q1 / q2 }
                 --
                 q1:@ __ "**" __ n:integer() !['.'] { q1.powi(n) }
                 q1:@ __ "^" __ n:integer() !['.'] { q1.powi(n) }

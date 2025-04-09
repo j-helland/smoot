@@ -312,7 +312,7 @@ where
     S: MulAssign + ConvertMagnitude,
 {
     fn mul_assign(&mut self, rhs: Self) {
-        self.unit.mul_assign(&rhs.unit);
+        self.unit *= &rhs.unit;
         let factor = self.unit.simplify(true);
         self.magnitude *= rhs.magnitude.convert(factor);
     }
@@ -322,9 +322,20 @@ where
     S: MulAssign + ConvertMagnitude,
 {
     fn mul_assign(&mut self, rhs: &Self) {
-        self.unit.mul_assign(&rhs.unit);
+        self.unit *= &rhs.unit;
         let factor = self.unit.simplify(true);
         self.magnitude *= rhs.magnitude.convert(factor);
+    }
+}
+impl<N: Number, S: Storage<N>> Mul for Quantity<N, S>
+where
+    S: MulAssign + ConvertMagnitude,
+{
+    type Output = Quantity<N, S>;
+
+    fn mul(mut self, rhs: Self) -> Self::Output {
+        self *= rhs;
+        self
     }
 }
 impl<N: Number, S: Storage<N>> Mul<&Quantity<N, S>> for &Quantity<N, S>
@@ -409,6 +420,20 @@ where
             .conversion_factor(&self.unit)
             .expect("Incompatible units used in add_assign");
         self.magnitude += rhs.magnitude.convert(factor);
+    }
+}
+impl<N: Number, S: Storage<N>> Add for Quantity<N, S>
+where
+    S: AddAssign + ConvertMagnitude,
+{
+    type Output = SmootResult<Quantity<N, S>>;
+
+    fn add(mut self, rhs: Self) -> Self::Output {
+        self.magnitude += rhs
+            .unit
+            .conversion_factor(&self.unit)
+            .map(|f| rhs.magnitude.convert(f))?;
+        Ok(self)
     }
 }
 impl<N: Number, S: Storage<N>> Add<&Quantity<N, S>> for &Quantity<N, S>
@@ -516,6 +541,20 @@ where
         self.magnitude -= rhs.magnitude.convert(factor);
     }
 }
+impl<N: Number, S: Storage<N>> Sub for Quantity<N, S>
+where
+    S: SubAssign + ConvertMagnitude,
+{
+    type Output = SmootResult<Quantity<N, S>>;
+
+    fn sub(mut self, rhs: Self) -> Self::Output {
+        self.magnitude -= rhs
+            .unit
+            .conversion_factor(&self.unit)
+            .map(|f| rhs.magnitude.convert(f))?;
+        Ok(self)
+    }
+}
 impl<N: Number, S: Storage<N>> Sub<&Quantity<N, S>> for &Quantity<N, S>
 where
     S: SubAssign + ConvertMagnitude,
@@ -587,6 +626,17 @@ where
 }
 
 /// Divide quantities
+impl<N: Number, S: Storage<N>> Div for Quantity<N, S>
+where
+    S: DivAssign + ConvertMagnitude,
+{
+    type Output = Quantity<N, S>;
+
+    fn div(mut self, rhs: Self) -> Self::Output {
+        self /= rhs;
+        self
+    }
+}
 impl<N: Number, S: Storage<N>> Div<&Quantity<N, S>> for &Quantity<N, S>
 where
     S: DivAssign + ConvertMagnitude,
@@ -663,6 +713,53 @@ impl From<Quantity<f64, f64>> for Quantity<i64, i64> {
         Self::new(value.magnitude as i64, value.unit)
     }
 }
+
+//==================================================
+// Unit
+//==================================================
+// unit / N
+impl<N: Number> Div<N> for Unit<f64>
+where
+    N: ConvertMagnitude,
+{
+    type Output = Quantity<N, N>;
+
+    fn div(self, rhs: N) -> Self::Output {
+        Quantity::new(N::one() / rhs, self)
+    }
+}
+impl<N: Number> Div<N> for &Unit<f64>
+where
+    N: ConvertMagnitude,
+{
+    type Output = Quantity<N, N>;
+
+    fn div(self, rhs: N) -> Self::Output {
+        self.clone() / rhs
+    }
+}
+// N / unit
+macro_rules! unit_div {
+    ($type: ident) => {
+        impl Div<Unit<f64>> for $type {
+            type Output = Quantity<$type, $type>;
+
+            fn div(self, mut rhs: Unit<f64>) -> Self::Output {
+                rhs.ipowi(-1);
+                Quantity::new(self, rhs)
+            }
+        }
+        impl Div<&Unit<f64>> for $type {
+            type Output = Quantity<$type, $type>;
+
+            fn div(self, rhs: &Unit<f64>) -> Self::Output {
+                Quantity::new(self, rhs.powi(-1))
+            }
+        }
+    };
+}
+unit_div!(f64);
+unit_div!(i64);
 
 #[cfg(test)]
 mod test_quantity {
@@ -1064,5 +1161,14 @@ mod test_quantity {
         q.magnitude.for_each(|x| {
             assert_is_close!(*x, 0.5);
         });
+    }
+
+    /// Division with a unit results in a quantity
+    #[test]
+    fn test_unit_div_into_quantity() {
+        let meter = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let expected = Quantity::new(1.0, Unit::new(vec![], vec![BaseUnit::clone(&UNIT_METER)]));
+        assert_eq!(1.0 / &meter, expected);
+        assert_eq!(1.0 / meter, expected);
     }
 }
