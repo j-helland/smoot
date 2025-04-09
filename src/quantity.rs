@@ -290,19 +290,49 @@ where
         Ok(self)
     }
 }
-impl<N: Number, S: Storage<N>> Rem<&Quantity<N, S>> for &Quantity<N, S>
-where
-    S: RemAssign + ConvertMagnitude,
-{
-    type Output = SmootResult<Quantity<N, S>>;
+// impl<N: Number, S: Storage<N>> Rem<&Quantity<N, S>> for &Quantity<N, S>
+// where
+//     S: RemAssign + ConvertMagnitude,
+// {
+//     type Output = SmootResult<Quantity<N, S>>;
 
-    fn rem(self, rhs: &Quantity<N, S>) -> Self::Output {
-        let mut new = self.clone();
-        new.magnitude %= rhs
-            .unit
-            .conversion_factor(&self.unit)
-            .map(|f| rhs.magnitude.convert(f))?;
-        Ok(new)
+//     fn rem(self, rhs: &Quantity<N, S>) -> Self::Output {
+//         let mut new = self.clone();
+//         new.magnitude %= rhs
+//             .unit
+//             .conversion_factor(&self.unit)
+//             .map(|f| rhs.magnitude.convert(f))?;
+//         Ok(new)
+//     }
+// }
+// Array modulo
+impl<N: Number> Rem<ArrayD<N>> for Quantity<N, ArrayD<N>>
+where
+    N: Rem<Output = N>,
+    ArrayD<N>: ConvertMagnitude,
+{
+    type Output = Quantity<N, ArrayD<N>>;
+
+    fn rem(self, rhs: ArrayD<N>) -> Self::Output {
+        let magnitude = Zip::from(&self.magnitude)
+            .and(&rhs)
+            .map_collect(|&a, &b| a % b);
+        Quantity::new(magnitude, self.unit.clone())
+    }
+}
+impl<N: Number> Rem<&Quantity<N, ArrayD<N>>> for &Quantity<N, ArrayD<N>>
+where
+    N: Rem<Output = N> + ConvertMagnitude,
+    ArrayD<N>: ConvertMagnitude,
+{
+    type Output = SmootResult<Quantity<N, ArrayD<N>>>;
+
+    fn rem(self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
+        let factor = rhs.unit.conversion_factor(&self.unit)?;
+        let magnitude = Zip::from(&self.magnitude)
+            .and(&rhs.magnitude)
+            .map_collect(|&a, &b| a % b.convert(factor));
+        Ok(Quantity::new(magnitude, self.unit.clone()))
     }
 }
 
@@ -711,6 +741,17 @@ where
 impl From<Quantity<f64, f64>> for Quantity<i64, i64> {
     fn from(value: Quantity<f64, f64>) -> Self {
         Self::new(value.magnitude as i64, value.unit)
+    }
+}
+impl From<Quantity<i64, i64>> for Quantity<f64, f64> {
+    fn from(value: Quantity<i64, i64>) -> Self {
+        Self::new(value.magnitude as f64, value.unit)
+    }
+}
+impl From<Quantity<i64, ArrayD<i64>>> for Quantity<f64, ArrayD<f64>> {
+    fn from(value: Quantity<i64, ArrayD<i64>>) -> Self {
+        let m = value.magnitude.mapv(|v| v as f64);
+        Self::new(m, value.unit)
     }
 }
 

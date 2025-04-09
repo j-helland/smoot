@@ -279,7 +279,7 @@ mod test_expression_parser {
     )]
     #[case(
         "1 meter - 1 kilometer",
-        Some(Quantity::new(1.0 - 1e-3, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
+        Some(Quantity::new(-999.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
         ; "Subtraction with conversion"
     )]
     #[case(

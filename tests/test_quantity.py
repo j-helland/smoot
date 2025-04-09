@@ -58,7 +58,7 @@ def test_eq() -> None:
         (Q(2, "meter"), operator.sub, Q(1, "meter"), Q(1, "meter")),
         (Q(2, "meter"), operator.sub, Q(1, "km"), Q(-998, "meter")),
         # integer precision
-        (Q(2, "km"), operator.sub, Q(1, "meter"), Q(2, "km")),
+        (Q(2, "km"), operator.sub, Q(1, "meter"), Q(1.999, "km")),
         #### *
         (Q(2), operator.mul, Q(2), Q(4)),
         (Q(2), operator.mul, 2, Q(4)),
@@ -96,7 +96,7 @@ def test_eq() -> None:
         (Q(4), operator.mod, 2, Q(0)),
         (Q(4, "meter"), operator.mod, Q(2, "meter"), Q(0, "meter")),
         (Q(4, "meter"), operator.mod, Q(2, "km"), Q(4, "meter")),
-        # (Q(4, "km"), operator.mod, Q(2, "meter"), Q(0, "meter")),
+        (Q(1, "km"), operator.mod, Q(1, "meter"), Q(1 % 1e-3, "km")),
     ),
 )
 def test_binary_operators(
@@ -238,7 +238,6 @@ def test_binary_array_operators(
     expected: Q,
 ) -> None:
     """Binary array operators produce expected values."""
-    print(op(x, y))
     assert (op(x, y) == expected).all()
 
 

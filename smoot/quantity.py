@@ -11,9 +11,11 @@ from numpy.typing import NDArray
 from .smoot import (
     Unit,
     F64Quantity,
-    I64Quantity,
+    # I64Quantity,
     ArrayF64Quantity,
-    ArrayI64Quantity,
+    # ArrayI64Quantity,
+    # array_i64_to_f64_quantity,
+    # i64_to_f64_quantity,
 )
 
 E = TypeVar("E", int, float, np.float64, np.float32, np.int64, np.int32)
@@ -43,38 +45,37 @@ class Quantity(Generic[T, R]):
 
     def __init__(self, value: ValueLike[T], units: UnitsLike | None = None) -> None:
         t = type(value)
-        quantity: F64Quantity | I64Quantity | ArrayF64Quantity | ArrayI64Quantity
+        quantity: F64Quantity | ArrayF64Quantity
         if t is str:
             # parsable
             if units is not None:
                 msg = f"Cannot pass a string to parse with separate units {units}"
                 raise ValueError(msg)
             quantity = F64Quantity.parse(value)  # type: ignore[arg-type]
-        elif t in (float, np.float64, np.float32):
+        elif t in (int, float, np.int64, np.int32, np.float64, np.float32):
             factor, _units = (
                 self._get_units(units) if units is not None else (None, None)
             )
             quantity = F64Quantity(value=value, units=_units, factor=factor)  # type: ignore[arg-type]
-        elif t in (int, np.int64, np.int32):
-            factor, _units = (
-                self._get_units(units) if units is not None else (None, None)
-            )
-            quantity = I64Quantity(value=value, units=_units, factor=factor)  # type: ignore[arg-type]
+        # elif t in (int, np.int64, np.int32):
+        #     factor, _units = (
+        #         self._get_units(units) if units is not None else (None, None)
+        #     )
+        #     quantity = I64Quantity(value=value, units=_units, factor=factor)  # type: ignore[arg-type]
         elif t in (list, tuple, np.ndarray):
             # arraylike
             factor, _units = (
                 self._get_units(units) if units is not None else (None, None)
             )
-            arr = np.array(value)
-            QType = ArrayI64Quantity if (arr.dtype == np.int64) else ArrayF64Quantity
-            quantity = QType(value=arr, units=_units, factor=factor)
+            arr = np.array(value, dtype=np.float64)
+            # QType = ArrayI64Quantity if (arr.dtype == np.int64) else ArrayF64Quantity
+            # quantity = QType(value=arr, units=_units, factor=factor)
+            quantity = ArrayF64Quantity(value=arr, units=_units, factor=factor)
         else:
             msg = f"Unsupported type {t}"
             raise NotImplementedError(msg)
 
-        self.__inner: (
-            F64Quantity | I64Quantity | ArrayF64Quantity | ArrayI64Quantity
-        ) = quantity
+        self.__inner: F64Quantity | ArrayF64Quantity = quantity
 
     @property
     def magnitude(self) -> R:
@@ -139,39 +140,45 @@ class Quantity(Generic[T, R]):
         return new
 
     def __add__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
+        q1, q2 = self._upcast(self._get_quantity(other))
         new = object.__new__(Quantity)
-        new.__inner = self.__inner + self._get_inner(other)  # type: ignore[operator]
+        new.__inner = q1.__inner + q2.__inner  # type: ignore[operator]
         return new
 
     def __radd__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         return self + other
 
     def __iadd__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
-        self.__inner += self._get_inner(other)  # type: ignore[operator]
+        q1, q2 = self._upcast(self._get_quantity(other))
+        self.__inner = q1.__inner + q2.__inner  # type: ignore[operator]
         return self
 
     def __sub__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
+        q1, q2 = self._upcast(self._get_quantity(other))
         new = object.__new__(Quantity)
-        new.__inner = self.__inner - self._get_inner(other)  # type: ignore[operator]
+        new.__inner = q1.__inner - q2.__inner  # type: ignore[operator]
         return new
 
     def __rsub__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         return self._get_quantity(other) - self
 
     def __isub__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
-        self.__inner -= self._get_inner(other)  # type: ignore[operator]
+        q1, q2 = self._upcast(self._get_quantity(other))
+        self.__inner = q1.__inner - q2.__inner  # type: ignore[operator]
         return self
 
     def __mul__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
+        q1, q2 = self._upcast(self._get_quantity(other))
         new = object.__new__(Quantity)
-        new.__inner = self.__inner * self._get_inner(other)  # type: ignore[operator]
+        new.__inner = q1.__inner * q2.__inner  # type: ignore[operator]
         return new
 
     def __rmul__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         return self * other
 
     def __imul__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
-        self.__inner *= self._get_inner(other)  # type: ignore[operator]
+        q1, q2 = self._upcast(self._get_quantity(other))
+        self.__inner = q1.__inner * q2.__inner  # type: ignore[operator]
         return self
 
     def __matmul__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -194,39 +201,45 @@ class Quantity(Generic[T, R]):
         return self
 
     def __truediv__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
+        q1, q2 = self._upcast(self._get_quantity(other))
         new = object.__new__(Quantity)
-        new.__inner = self.__inner / self._get_inner(other)  # type: ignore[operator]
+        new.__inner = q1.__inner / q2.__inner  # type: ignore[operator]
         return new
 
     def __rtruediv__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         return self._get_quantity(other) / self
 
     def __itruediv__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
-        self.__inner /= self._get_inner(other)  # type: ignore[operator]
+        q1, q2 = self._upcast(self._get_quantity(other))
+        self.__inner = q1.__inner / q2.__inner  # type: ignore[operator]
         return self
 
     def __floordiv__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
+        q1, q2 = self._upcast(self._get_quantity(other))
         new = object.__new__(Quantity)
-        new.__inner = self.__inner // self._get_inner(other)  # type: ignore[operator]
+        new.__inner = q1.__inner // q2.__inner  # type: ignore[operator]
         return new
 
     def __rfloordiv__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         return self._get_quantity(other) // self
 
     def __ifloordiv__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
-        self.__inner //= self._get_inner(other)  # type: ignore[operator]
+        q1, q2 = self._upcast(self._get_quantity(other))
+        self.__inner = q1.__inner // q2.__inner  # type: ignore[operator]
         return self
 
     def __mod__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
+        q1, q2 = self._upcast(self._get_quantity(other))
         new = object.__new__(Quantity)
-        new.__inner = self.__inner % self._get_inner(other)  # type: ignore[operator]
+        new.__inner = q1.__inner % q2.__inner  # type: ignore[operator]
         return new
 
     def __rmod__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         return self._get_quantity(other) % self
 
     def __imod__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
-        self.__inner %= self._get_inner(other)  # type: ignore[operator]
+        q1, q2 = self._upcast(self._get_quantity(other))
+        self.__inner = q1.__inner % q2.__inner  # type: ignore[operator]
         return self
 
     def __pow__(
@@ -238,7 +251,7 @@ class Quantity(Generic[T, R]):
             raise ValueError(msg)
 
         new = object.__new__(Quantity)
-        if type(self.__inner) in (ArrayF64Quantity, ArrayI64Quantity):
+        if type(self.__inner) is ArrayF64Quantity:
             new.__inner = self.__inner.arr_pow(other_inner)  # type: ignore[union-attr]
         else:
             new.__inner = self.__inner.__pow__(other_inner.magnitude, modulo)  # type: ignore[arg-type, operator]
@@ -319,7 +332,7 @@ class Quantity(Generic[T, R]):
 
         # We might be an array type, in which case other needs to be wrapped as an array
         # for compatible operators.
-        is_array = type(self.__inner) in (ArrayF64Quantity, ArrayI64Quantity)
+        is_array = type(self.__inner) is ArrayF64Quantity
         if is_array and type(other) not in (list, tuple, np.ndarray):
             return Quantity([other])
 
@@ -328,8 +341,34 @@ class Quantity(Generic[T, R]):
     def _get_inner(
         self,
         other: Any,
-    ) -> F64Quantity | I64Quantity | ArrayF64Quantity | ArrayI64Quantity:
+    ) -> F64Quantity | ArrayF64Quantity:
         return self._get_quantity(other).__inner
+
+    def _upcast(self, other: Quantity):
+        t1 = type(self.__inner)
+        t2 = type(other.__inner)
+        if t1 is t2:
+            return self, other
+
+        if t1 is F64Quantity:
+            new = object.__new__(Quantity)
+            new.__inner = ArrayF64Quantity(np.array([self.m]), self.u)
+            return new, other
+        if t2 is F64Quantity:
+            new = object.__new__(Quantity)
+            new.__inner = ArrayF64Quantity(np.array([other.m]), other.u)
+            return self, new
+
+        msg = f"No conversion exists between {t1} and {t2}"
+        raise NotImplementedError(msg)
+
+    @staticmethod
+    def _dtype_to_type(t: np.dtype) -> type:
+        if t in (np.float64, np.float32):
+            return float
+        elif t in (np.int64, np.int32):
+            return int
+        raise NotImplementedError(t)
 
     @staticmethod
     def _get_units(units: UnitsLike) -> tuple[float, Unit]:

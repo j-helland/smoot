@@ -13,7 +13,7 @@ use pyo3::{pyfunction, pymodule, types::PyModule, Bound};
 
 use crate::quantity::Quantity;
 use crate::registry::REGISTRY;
-use crate::utils::{Ceil, ConvertMagnitude, Floor, Powf, RoundDigits, Truncate};
+use crate::utils::{ConvertMagnitude, Floor, Powf, RoundDigits};
 
 mod base_unit;
 mod error;
@@ -545,6 +545,12 @@ macro_rules! create_array_quantity_type {
                 new
             }
 
+            fn __mod__(&self, other: &Self) -> PyResult<Self> {
+                (&self.inner % &other.inner)
+                    .map(|inner| Self { inner })
+                    .map_err(|e| PyValueError::new_err(e.to_string()))
+            }
+
             fn __pow__(&self, other: f64, _modulo: Option<i64>) -> Self {
                 Self {
                     inner: self.inner.clone().powf(other),
@@ -617,8 +623,18 @@ create_unit_type!(Unit, f64);
 create_quantity_type!(Unit, F64Quantity, f64, f64);
 create_array_quantity_type!(ArrayF64Quantity, Unit, f64);
 
-create_quantity_type!(Unit, I64Quantity, i64, i64);
-create_array_quantity_type!(ArrayI64Quantity, Unit, i64);
+// create_quantity_type!(Unit, I64Quantity, i64, i64);
+// create_array_quantity_type!(ArrayI64Quantity, Unit, i64);
+
+// #[pyfunction]
+// fn i64_to_f64_quantity(q: &I64Quantity) -> F64Quantity {
+//     F64Quantity { inner: q.inner.clone().into() }
+// }
+
+// #[pyfunction]
+// fn array_i64_to_f64_quantity(q: &ArrayI64Quantity) -> ArrayF64Quantity {
+//     ArrayF64Quantity { inner: q.inner.clone().into() }
+// }
 
 #[pymodule]
 fn smoot(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -629,12 +645,14 @@ fn smoot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<F64Quantity>()?;
     m.add_class::<ArrayF64Quantity>()?;
 
-    // int backed types
-    m.add_class::<I64Quantity>()?;
-    m.add_class::<ArrayI64Quantity>()?;
+    // // int backed types
+    // m.add_class::<I64Quantity>()?;
+    // m.add_class::<ArrayI64Quantity>()?;
 
     let _ = m.add_function(wrap_pyfunction!(get_registry_size, m)?);
     let _ = m.add_function(wrap_pyfunction!(get_all_registry_keys, m)?);
+    // let _ = m.add_function(wrap_pyfunction!(i64_to_f64_quantity, m)?);
+    // let _ = m.add_function(wrap_pyfunction!(array_i64_to_f64_quantity, m)?);
 
     Ok(())
 }

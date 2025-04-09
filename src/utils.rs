@@ -96,6 +96,7 @@ impl Floor for ArrayD<i64> {
 }
 
 pub trait Ceil {
+    #[allow(dead_code)]
     fn ceil(self) -> Self;
 }
 impl Ceil for f64 {
@@ -147,6 +148,7 @@ impl RoundDigits for ArrayD<i64> {
 }
 
 pub trait Truncate {
+    #[allow(dead_code)]
     fn trunc(self) -> Self;
 }
 impl Truncate for f64 {
