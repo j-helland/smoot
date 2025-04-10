@@ -1,6 +1,12 @@
 use num_traits::{Float, PrimInt};
 use numpy::ndarray::ArrayD;
 
+/// Compute approximate equality between floating point numbers using a
+/// relative tolerance bound.
+///
+/// Return
+/// ------
+/// true if the difference between values is within tolerance.
 pub fn float_eq_rel<N: Float>(a: N, b: N, max_diff: N) -> bool {
     let largest = a.abs().max(b.abs());
     (a - b).abs() <= (largest * max_diff)
@@ -178,23 +184,23 @@ pub trait ConvertMagnitude {
 
     fn iconvert(&mut self, factor: f64);
 }
-impl ConvertMagnitude for i64 {
-    fn convert(&self, factor: f64) -> i64 {
-        if factor < 1.0 {
-            self / (1.0 / factor) as i64
-        } else {
-            self * factor as i64
-        }
-    }
+// impl ConvertMagnitude for i64 {
+//     fn convert(&self, factor: f64) -> i64 {
+//         if factor < 1.0 {
+//             self / (1.0 / factor) as i64
+//         } else {
+//             self * factor as i64
+//         }
+//     }
 
-    fn iconvert(&mut self, factor: f64) {
-        if factor < 1.0 {
-            *self /= (1.0 / factor) as i64;
-        } else {
-            *self *= factor as i64;
-        }
-    }
-}
+//     fn iconvert(&mut self, factor: f64) {
+//         if factor < 1.0 {
+//             *self /= (1.0 / factor) as i64;
+//         } else {
+//             *self *= factor as i64;
+//         }
+//     }
+// }
 impl ConvertMagnitude for f64 {
     fn convert(&self, factor: f64) -> f64 {
         self * factor
@@ -204,23 +210,23 @@ impl ConvertMagnitude for f64 {
         *self *= factor;
     }
 }
-impl ConvertMagnitude for ArrayD<i64> {
-    fn convert(&self, factor: f64) -> ArrayD<i64> {
-        if factor < 1.0 {
-            self.clone() / (1.0 / factor) as i64
-        } else {
-            self.clone() * factor as i64
-        }
-    }
+// impl ConvertMagnitude for ArrayD<i64> {
+//     fn convert(&self, factor: f64) -> ArrayD<i64> {
+//         if factor < 1.0 {
+//             self.clone() / (1.0 / factor) as i64
+//         } else {
+//             self.clone() * factor as i64
+//         }
+//     }
 
-    fn iconvert(&mut self, factor: f64) {
-        if factor < 1.0 {
-            *self /= (1.0 / factor) as i64;
-        } else {
-            *self *= factor as i64;
-        }
-    }
-}
+//     fn iconvert(&mut self, factor: f64) {
+//         if factor < 1.0 {
+//             *self /= (1.0 / factor) as i64;
+//         } else {
+//             *self *= factor as i64;
+//         }
+//     }
+// }
 impl ConvertMagnitude for ArrayD<f64> {
     fn convert(&self, factor: f64) -> ArrayD<f64> {
         self.clone() * factor

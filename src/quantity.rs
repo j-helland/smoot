@@ -38,18 +38,21 @@ where
         Self {
             magnitude,
             unit,
-            _marker: PhantomData,
+            _marker: PhantomData, // Only needed to support the `N` generic.
         }
     }
 
+    /// Create a new, dimensionless quantity.
     pub fn new_dimensionless(magnitude: S) -> Self {
         Self::new(magnitude, Unit::new(vec![], vec![]))
     }
 
+    /// Return true if this quantity has no associated units.
     pub fn is_dimensionless(&self) -> bool {
         self.unit.is_dimensionless()
     }
 
+    /// Return the underlying value of this quantity, converted to target units.
     pub fn m_as(&self, unit: &Unit<f64>, factor: Option<f64>) -> SmootResult<S> {
         let factor = factor.unwrap_or(1.0);
         if self.unit.eq(unit) {
@@ -62,12 +65,19 @@ where
         }
     }
 
+    /// Return a new quantity whose value is converted to the target units.
     pub fn to(&self, unit: &Unit<f64>, factor: Option<f64>) -> SmootResult<Quantity<N, S>> {
         let mut q = self.clone();
         q.ito(unit, factor)?;
         Ok(q)
     }
 
+    /// In-place value conversion to the target units.
+    ///
+    /// Parameters
+    /// ----------
+    /// unit : The target unit to convert to.
+    /// factor : Optional additional multiplicative factor to apply.
     pub fn ito(&mut self, unit: &Unit<f64>, factor: Option<f64>) -> SmootResult<()> {
         if self.unit.eq(unit) {
             return Ok(());
@@ -84,6 +94,8 @@ where
         self.convert_to(unit, factor)
     }
 
+    /// In-place simplification of the units associated with this quantity (e.g. "meter * km -> meter ** 2").
+    /// The underlying value may change depending on any unit conversions that occur during reduction.
     pub fn ito_reduced_units(&mut self) {
         let factor = self.unit.reduce();
         self.magnitude.iconvert(factor);
@@ -96,21 +108,26 @@ where
         Ok(())
     }
 }
+
+/// Parsing
 impl Quantity<f64, f64> {
+    /// Parse an expression into a quantity (e.g. "1 meter / second").
     pub fn parse(registry: &Registry, s: &str) -> SmootResult<Self> {
-        let s = s.replace(" ", "");
-        expression_parser::expression(&s, registry)
+        expression_parser::expression(s, registry)
             .map(|mut q| {
                 q.ito_reduced_units();
                 q
             })
-            .map_err(|_| SmootError::InvalidQuantityExpression(0, s))
+            .map_err(|_| SmootError::InvalidQuantityExpression(0, s.to_string()))
     }
 }
+
+/// Scalar operators
 impl<N: Number> Quantity<N, N>
 where
     N: ConvertMagnitude,
 {
+    /// Approximate equality between quantities, accounting for floating point imprecision.
     pub fn approx_eq(&self, other: &Self) -> bool {
         // Early outs to avoid copies for speed
         if !self.unit.is_compatible_with(&other.unit) {
@@ -130,12 +147,14 @@ where
         q1.magnitude.approx_eq(q2.magnitude)
     }
 }
+
 /// Array operators
 impl<N: Number> Quantity<N, ArrayD<N>>
 where
     N: ConvertMagnitude,
     ArrayD<N>: ConvertMagnitude,
 {
+    /// Approximate equality between quantities, accounting for floating point imprecision.
     pub fn approx_eq(&self, other: &Self) -> SmootResult<ArrayD<bool>> {
         self.require_same_shape(other)?;
 
@@ -153,6 +172,7 @@ where
         ))
     }
 
+    /// Elementwise power
     pub fn arr_pow(&self, other: &Self) -> SmootResult<Self> {
         self.require_same_shape(other)?;
         if !other.unit.is_dimensionless() {
@@ -168,6 +188,7 @@ where
         Ok(Self::new(magnitude, self.unit.clone()))
     }
 
+    /// Matrix multiplication. Works like numpy.dot, but only supports 1D and 2D arrays.
     pub fn dot(self, other: &Self) -> SmootResult<Self> {
         // Because we work with dynamically dimensioned arrays, we need to explicitly handle each combination of dimensions
         // explicitly. This is because numpy arrays passed from numpy are fully dynamic, whereas ndarray encodes dimensionality
@@ -290,21 +311,6 @@ where
         Ok(self)
     }
 }
-// impl<N: Number, S: Storage<N>> Rem<&Quantity<N, S>> for &Quantity<N, S>
-// where
-//     S: RemAssign + ConvertMagnitude,
-// {
-//     type Output = SmootResult<Quantity<N, S>>;
-
-//     fn rem(self, rhs: &Quantity<N, S>) -> Self::Output {
-//         let mut new = self.clone();
-//         new.magnitude %= rhs
-//             .unit
-//             .conversion_factor(&self.unit)
-//             .map(|f| rhs.magnitude.convert(f))?;
-//         Ok(new)
-//     }
-// }
 // Array modulo
 impl<N: Number> Rem<ArrayD<N>> for Quantity<N, ArrayD<N>>
 where
@@ -336,6 +342,9 @@ where
     }
 }
 
+//==================================================
+// Arithmetic operators
+//==================================================
 /// Multiply quantities
 impl<N: Number, S: Storage<N>> MulAssign for Quantity<N, S>
 where
@@ -738,25 +747,28 @@ where
     }
 }
 
-impl From<Quantity<f64, f64>> for Quantity<i64, i64> {
-    fn from(value: Quantity<f64, f64>) -> Self {
-        Self::new(value.magnitude as i64, value.unit)
-    }
-}
-impl From<Quantity<i64, i64>> for Quantity<f64, f64> {
-    fn from(value: Quantity<i64, i64>) -> Self {
-        Self::new(value.magnitude as f64, value.unit)
-    }
-}
-impl From<Quantity<i64, ArrayD<i64>>> for Quantity<f64, ArrayD<f64>> {
-    fn from(value: Quantity<i64, ArrayD<i64>>) -> Self {
-        let m = value.magnitude.mapv(|v| v as f64);
-        Self::new(m, value.unit)
-    }
-}
+// impl From<Quantity<f64, f64>> for Quantity<i64, i64> {
+//     fn from(value: Quantity<f64, f64>) -> Self {
+//         Self::new(value.magnitude as i64, value.unit)
+//     }
+// }
+// impl From<Quantity<i64, i64>> for Quantity<f64, f64> {
+//     fn from(value: Quantity<i64, i64>) -> Self {
+//         Self::new(value.magnitude as f64, value.unit)
+//     }
+// }
+// impl From<Quantity<i64, ArrayD<i64>>> for Quantity<f64, ArrayD<f64>> {
+//     fn from(value: Quantity<i64, ArrayD<i64>>) -> Self {
+//         let m = value.magnitude.mapv(|v| v as f64);
+//         Self::new(m, value.unit)
+//     }
+// }
 
 //==================================================
 // Unit
+//
+// Defined here because these operators produce
+// Quantity values.
 //==================================================
 // unit / N
 impl<N: Number> Div<N> for Unit<f64>
@@ -800,11 +812,14 @@ macro_rules! unit_div {
     };
 }
 unit_div!(f64);
-unit_div!(i64);
+// unit_div!(i64);
 
+//==================================================
+// Unit tests
+//==================================================
 #[cfg(test)]
 mod test_quantity {
-    use std::sync::{Arc, LazyLock};
+    use std::sync::LazyLock;
 
     use numpy::ndarray::Array;
 
@@ -812,11 +827,11 @@ mod test_quantity {
 
     use super::*;
 
-    static UNIT_METER: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_METER: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("meter").expect("No unit 'meter'"));
-    static UNIT_KILOMETER: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_KILOMETER: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("kilometer").expect("No unit 'kilometer'"));
-    static UNIT_SECOND: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_SECOND: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("second").expect("No unit 'second`'"));
 
     #[test]

@@ -132,10 +132,12 @@ impl<N: Number> Unit<N> {
         }
     }
 
+    /// Return true if this unit is dimensionless (i.e. has no associated base units).
     pub fn is_dimensionless(&self) -> bool {
         self.numerator_dimension == DIMENSIONLESS && self.denominator_dimension == DIMENSIONLESS
     }
 
+    /// Return true if this unit is compatible with the target (e.g. meter and kilometer).
     pub fn is_compatible_with(&self, other: &Self) -> bool {
         // Fast mask comparison
         let is_same_dimension = self.numerator_dimension == other.numerator_dimension
@@ -174,6 +176,11 @@ impl<N: Number> Unit<N> {
         result
     }
 
+    /// Compute the multiplicative factor necessary to convert this unit into the target unit.
+    ///
+    /// Return
+    /// ------
+    /// Err if this unit is incompatible with the target unit (e.g. meter is incompatible with gram).
     pub fn conversion_factor(&self, other: &Self) -> SmootResult<N> {
         if !self.is_compatible_with(other) {
             return Err(SmootError::IncompatibleUnitTypes(
@@ -213,6 +220,7 @@ impl<N: Number> Unit<N> {
         }
     }
 
+    /// Convert this unit into a displayable string representation.
     pub fn get_units_string(&self) -> Option<String> {
         let nums = self
             .numerator_units
@@ -265,6 +273,9 @@ impl<N: Number> Unit<N> {
         Some(format!("{} / {}", numerator, denominator))
     }
 
+    /// Sync the dimensionality of this unit with its numerator and denominator base units.
+    ///
+    /// This is invoked automatically during unit reduction / simplification.
     fn update_dimensionality(&mut self) {
         self.numerator_dimension = Self::get_dimension_mask(&self.numerator_units);
         Self::get_dimensionality(&mut self.numerator_dimensionality, &self.numerator_units);
@@ -276,6 +287,12 @@ impl<N: Number> Unit<N> {
         );
     }
 
+    /// Merge compatible units e.g. `meter * km -> meter ** 2`.
+    ///
+    /// Return
+    /// ------
+    /// The multiplicative factor computed during reduction, which may not be one
+    /// depending on unit conversion factors.
     pub fn reduce(&mut self) -> N {
         let mut result_conversion_factor = self.simplify(false);
 
@@ -316,6 +333,12 @@ impl<N: Number> Unit<N> {
         result_conversion_factor
     }
 
+    /// Reduce this unit into its simplest form (e.g. "meter ** 2 / meter -> meter").
+    ///
+    /// Return
+    /// ------
+    /// The multiplicative factor resulting from the simplification, which might not be
+    /// one depending on unit conversions that occurred.
     pub fn simplify(&mut self, no_reduction: bool) -> N {
         let mut result_conversion_factor = N::one();
 
@@ -325,16 +348,17 @@ impl<N: Number> Unit<N> {
                 .partial_cmp(&(u2.unit_type, u2.power.map(|p| -p)))
                 .unwrap()
         });
-
         self.denominator_units.sort_by(|u1, u2| {
             (u1.unit_type, u1.power.map(|p| -p))
                 .partial_cmp(&(u2.unit_type, u2.power.map(|p| -p)))
                 .unwrap()
         });
 
+        // Markers for numerator and denominator units indicating whether a cancellation occurred.
         let mut numerator_retain = vec![true; self.numerator_units.len()];
         let mut denominator_retain = vec![true; self.denominator_units.len()];
 
+        // Find cancellations.
         let mut inum = 0;
         let mut iden = 0;
         while inum < self.numerator_units.len() && iden < self.denominator_units.len() {
@@ -363,6 +387,8 @@ impl<N: Number> Unit<N> {
                 result_conversion_factor *= factor;
             }
 
+            // Unit exponents (e.g. meter ** 2) may result in a cancellation without completely removing
+            // the unit from the numerator/denominator.
             let u1_power = u1.power.unwrap_or(1.0);
             let u2_power = u2.power.unwrap_or(1.0);
             if u1_power == u2_power {
@@ -380,19 +406,19 @@ impl<N: Number> Unit<N> {
             iden += 1;
         }
 
+        // Apply cancellations.
         let mut idx = 0;
         self.numerator_units.retain(|_| {
             idx += 1;
             numerator_retain[idx - 1]
         });
-
         idx = 0;
         self.denominator_units.retain(|_| {
             idx += 1;
             denominator_retain[idx - 1]
         });
 
-        // Make sure that dimensionality is synced.
+        // Unit cancellations require syncing dimensionality.
         self.update_dimensionality();
 
         result_conversion_factor
@@ -422,12 +448,17 @@ impl<N: Number> Unit<N> {
 }
 
 impl Unit<f64> {
+    /// Parse a unit expression into its resulting unit.
+    ///
+    /// Return
+    /// ------
+    /// (f64, Unit) A tuple whose first element is the multiplicative factor computed during parsing.
+    ///             e.g. `2 * meter` returns a multiplicative factor of `2`.
     pub fn parse(registry: &Registry, s: &str) -> SmootResult<(f64, Self)> {
         if s == "dimensionless" {
             // Make sure to return an empty unit container.
             return Ok((1.0, Self::new(vec![], vec![])));
         }
-
         expression_parser::unit_expression(s, registry)
             .map(|mut u| {
                 let factor = u.reduce();
@@ -442,11 +473,15 @@ impl<N: Number> fmt::Display for Unit<N> {
         write!(
             f,
             "{}",
+            // Default to displaying unitless units as `dimensionless`.
             self.get_units_string().unwrap_or("dimensionless".into())
         )
     }
 }
 
+//==================================================
+// Arithmetic operators for Unit
+//==================================================
 impl<N: Number> Mul for Unit<N> {
     type Output = Self;
 
@@ -458,7 +493,6 @@ impl<N: Number> Mul for Unit<N> {
         self
     }
 }
-
 impl<N: Number> MulAssign<&Unit<N>> for Unit<N> {
     fn mul_assign(&mut self, rhs: &Unit<N>) {
         self.numerator_units.extend_from_slice(&rhs.numerator_units);
@@ -480,7 +514,6 @@ impl<N: Number> Div for Unit<N> {
         self
     }
 }
-
 impl<N: Number> DivAssign<&Unit<N>> for Unit<N> {
     fn div_assign(&mut self, rhs: &Unit<N>) {
         self.numerator_units
@@ -521,58 +554,30 @@ impl<N: Number> Sub for Unit<N> {
     }
 }
 
-impl From<Unit<f64>> for Unit<i64> {
-    fn from(value: Unit<f64>) -> Self {
-        Self {
-            numerator_units: value
-                .numerator_units
-                .iter()
-                .cloned()
-                .map(|u| u.into())
-                .collect(),
-            numerator_dimension: value.numerator_dimension,
-            numerator_dimensionality: value.numerator_dimensionality,
-            denominator_units: value
-                .denominator_units
-                .iter()
-                .cloned()
-                .map(|u| u.into())
-                .collect(),
-            denominator_dimension: value.denominator_dimension,
-            denominator_dimensionality: value.denominator_dimensionality,
-        }
-    }
-}
-
+//==================================================
+// Unit tests
+//==================================================
 #[cfg(test)]
 mod test_unit {
     use super::*;
-    use std::{
-        f64,
-        sync::{Arc, LazyLock},
-    };
+    use std::{f64, sync::LazyLock};
     use test_case::case;
 
     use crate::{assert_is_close, registry::REGISTRY};
 
-    static UNIT_DIMENSIONLESS: LazyLock<&Arc<BaseUnit<f64>>> = LazyLock::new(|| {
-        REGISTRY
-            .get_unit("dimensionless")
-            .expect("No unit 'dimensionless'")
-    });
-    static UNIT_METER: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_METER: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("meter").expect("No unit 'meter'"));
-    static UNIT_KILOMETER: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_KILOMETER: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("kilometer").expect("No unit 'kilometer'"));
-    static UNIT_SECOND: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_SECOND: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("second").expect("No unit 'second'"));
-    static UNIT_MINUTE: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_MINUTE: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("minute").expect("No unit 'minute'"));
-    static UNIT_HOUR: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_HOUR: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("hour").expect("No unit 'hour'"));
-    static UNIT_GRAM: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_GRAM: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("gram").expect("No unit 'gram'"));
-    static UNIT_WATT: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_WATT: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("watt").expect("No unit 'watt'"));
 
     #[case(
@@ -853,19 +858,19 @@ mod test_unit {
         ; "Trivial"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_DIMENSIONLESS)], vec![]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_DIMENSIONLESS)], vec![]),
+        Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]),
+        Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]),
         true
         ; "Basic compatibility"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_DIMENSIONLESS), BaseUnit::clone(&UNIT_SECOND)], vec![BaseUnit::clone(&UNIT_METER)]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_DIMENSIONLESS), BaseUnit::clone(&UNIT_SECOND)], vec![BaseUnit::clone(&UNIT_METER)]),
+        Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![BaseUnit::clone(&UNIT_METER)]),
+        Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![BaseUnit::clone(&UNIT_METER)]),
         true
         ; "Complex compatibility"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_DIMENSIONLESS)], vec![]),
+        Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]),
         Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]),
         false
         ; "Basic incompatibility"
@@ -908,9 +913,9 @@ mod test_unit {
     #[test]
     /// Dimensionless units should be self-compatible.
     fn test_is_compatible_with_dimensionless() {
-        let u1 = Unit::new(vec![BaseUnit::clone(&UNIT_DIMENSIONLESS)], vec![]);
+        let u1: Unit<f64> = Unit::new(vec![], vec![]);
         // This is equivalent to a dimensionless unit.
-        let u2 = Unit::new(vec![], vec![]);
+        let u2: Unit<f64> = Unit::new(vec![], vec![]);
         assert!(u1.is_compatible_with(&u2));
     }
 

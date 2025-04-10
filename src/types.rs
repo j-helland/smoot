@@ -21,11 +21,11 @@ pub trait DataOps:
 {
 }
 impl DataOps for f64 {}
-impl DataOps for i64 {}
+// impl DataOps for i64 {}
 
 pub trait Number:
     DataOps + FromPrimitive + ToPrimitive + Zero + One + ApproxEq + Powf + Debug
 {
 }
 impl Number for f64 {}
-impl Number for i64 {}
+// impl Number for i64 {}

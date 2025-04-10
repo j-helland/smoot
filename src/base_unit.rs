@@ -17,6 +17,8 @@ pub struct BaseUnit<N: Number> {
     pub dimensionality: Vec<f64>,
 }
 
+/// Compute the dimensionality vector for a given dimension type.
+/// e.g. 0x1 -> [1.0]
 fn get_dimensionality(unit_type: DimensionType) -> Vec<f64> {
     let mut dimensionality = Vec::new();
     let mut bits = unit_type;
@@ -43,6 +45,7 @@ impl<N: Number> BaseUnit<N> {
         }
     }
 
+    /// Create a new, dimensionless base unit. These are used to store constants like pi.
     pub fn new_constant(multiplier: N) -> Self {
         Self {
             name: String::new(),
@@ -53,6 +56,8 @@ impl<N: Number> BaseUnit<N> {
         }
     }
 
+    /// Update the dimensionality vector based on a dimension type mask.
+    /// e.g. 0x1 -> [1.0]
     pub fn update_dimensionality(&mut self, mut unit_type: DimensionType) {
         while unit_type > 0 {
             let idx = unit_type.trailing_zeros() as usize;
@@ -69,16 +74,23 @@ impl<N: Number> BaseUnit<N> {
         }
     }
 
+    /// In-place multiplication of this unit's dimensionality vector by a number.
     pub fn mul_dimensionality(&mut self, n: f64) {
         self.dimensionality.iter_mut().for_each(|d| *d *= n);
     }
 
+    /// Get the multiplicative factor associated with this base unit.
     pub fn get_multiplier(&self) -> N {
         self.power
             .map(|p| self.multiplier.powf(p))
             .unwrap_or(self.multiplier)
     }
 
+    /// Get the multiplicative factor needed to convert this unit into a target unit.
+    ///
+    /// Return
+    /// ------
+    /// Err if the units are incompatible (e.g. meter and gram).
     pub fn conversion_factor(&self, target: &Self) -> SmootResult<N> {
         if self.unit_type != target.unit_type {
             return Err(SmootError::IncompatibleUnitTypes(
@@ -91,11 +103,13 @@ impl<N: Number> BaseUnit<N> {
         Ok(self.get_multiplier() / target.get_multiplier())
     }
 
+    /// In-place power with a floating point exponent.
     pub fn ipowf(&mut self, n: f64) {
         self.power = self.power.or(Some(1.0)).map(|p| p * n);
         self.mul_dimensionality(n);
     }
 
+    /// Return a new BaseUnit raised to a floating point power.
     pub fn powf(&self, n: f64) -> Self {
         let mut new = self.clone();
         new.ipowf(n);
@@ -103,6 +117,9 @@ impl<N: Number> BaseUnit<N> {
     }
 }
 
+//==================================================
+// Arithmetic operators
+//==================================================
 impl<N: Number> Mul for BaseUnit<N> {
     type Output = Self;
 
@@ -175,18 +192,9 @@ impl<N: Number> DivAssign for BaseUnit<N> {
     }
 }
 
-impl From<BaseUnit<f64>> for BaseUnit<i64> {
-    fn from(value: BaseUnit<f64>) -> Self {
-        Self {
-            name: value.name,
-            multiplier: value.multiplier as i64,
-            power: value.power,
-            unit_type: value.unit_type,
-            dimensionality: value.dimensionality,
-        }
-    }
-}
-
+//==================================================
+// Unit tests
+//==================================================
 #[cfg(test)]
 mod test_base_unit {
     use test_case::case;

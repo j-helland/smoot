@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 use num_traits::Float;
 
-use crate::base_unit::BaseUnit;
 use crate::registry::{Registry, REGISTRY};
 use crate::utils::{Powf, Powi};
 use crate::{error::SmootError, quantity::Quantity, unit::Unit};
@@ -13,10 +12,8 @@ impl ParsableFloat for f64 {}
 // Unit and quantity expression parser.
 peg::parser! {
     pub(crate) grammar expression_parser() for str {
-        /// Matches whitespace.
-        rule __()
-            = [' ' | '\n' | '\t']*
-            {}
+        /// Whitespace.
+        rule __() = [' ' | '\n' | '\t']*
 
         rule sign() = ['-' | '+']
         rule digits() = [c if c.is_ascii_digit()]+
@@ -35,7 +32,7 @@ peg::parser! {
             {?
                 registry
                     .get_unit(u)
-                    .map(|u| BaseUnit::clone(u))
+                    .cloned()
                     .map(|u| Unit::new(vec![u], vec![]))
                     .ok_or("Unknown unit")
             }
@@ -124,16 +121,16 @@ mod test_expression_parser {
 
     use super::*;
     use peg::{error::ParseError, str::LineCol};
-    use std::sync::{Arc, LazyLock};
+    use std::sync::LazyLock;
     use test_case::case;
 
-    static UNIT_METER: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_METER: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("meter").expect("No unit 'meter'"));
-    static UNIT_KILOMETER: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_KILOMETER: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("kilometer").expect("No unit 'kilometer'"));
-    static UNIT_SECOND: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_SECOND: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("second").expect("No unit 'second'"));
-    static UNIT_GRAM: LazyLock<&Arc<BaseUnit<f64>>> =
+    static UNIT_GRAM: LazyLock<&BaseUnit<f64>> =
         LazyLock::new(|| REGISTRY.get_unit("gram").expect("No unit 'gram'"));
 
     #[case("1", Some(1); "Basic")]
@@ -174,7 +171,7 @@ mod test_expression_parser {
         let mut registry = Registry::new();
         let _ = registry
             .units
-            .insert("zZ_".into(), Arc::new(BaseUnit::clone(&UNIT_METER)));
+            .insert("zZ_".into(), BaseUnit::clone(&UNIT_METER));
 
         // The unit parses as expected.
         let result = expression_parser::unit_expression("zZ_", &registry)?;

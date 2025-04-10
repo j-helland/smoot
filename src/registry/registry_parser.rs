@@ -113,10 +113,9 @@ where
 
 peg::parser! {
     pub(crate) grammar registry_parser() for str {
-        /// Matches whitespace.
-        rule __()
-            = [' ' | '\n' | '\t']*
-            {}
+        /// Whitespace.
+        rule __() = [' ' | '\n' | '\t']*
+
 
         /// Allow any non-whitespace character except for reserved characters.
         rule symbol() -> &'input str
@@ -130,7 +129,7 @@ peg::parser! {
         rule sign() = ['-' | '+']
         rule digits() = [c if c.is_ascii_digit()]+
         rule integer() -> i32
-            = num:$("-"?digits())
+            = num:$("-"?digits()) !['.' | 'e' | 'E']
             {? num.parse::<i32>().or(Err("Invalid integer number")) }
         rule decimal() -> f64
             = num:$(sign()?(digits()".")?digits()(['e' | 'E']sign()?digits())?)
@@ -165,7 +164,6 @@ peg::parser! {
             // Do not handle assignment operator `=` here because it conflicts with alias definitions
             // e.g. `unit = <expr> = alias1 = alias2 = ...`
             = precedence! {
-                // Basic arithmetic operators
                 u1:(@) __ u2:@
                     { ParseTree::new(Operator::Mul.into(), u1, u2) }
                 u1:(@) __ op:$("*" / "/") __ u2:@
@@ -174,13 +172,9 @@ peg::parser! {
                 u1:(@) __ op:$("^" / "**") __ u2:@
                     { ParseTree::new(Operator::from(op).into(), u1, u2) }
                 --
-                // Parentheticals nested expressions
-                "(" __ expr:unit_expression() __ ")"
-                    { expr }
+                "(" __ expr:unit_expression() __ ")" { expr }
                 --
-                // Leaf nodes: numbers and symbols
-                i:integer() !['.' | 'e' | 'E'] // If a decimal point appears, fall through
-                    { i.into() }
+                i:integer() { i.into() }
                 d:decimal() { d.into() }
                 sym:symbol() { NodeData::Symbol(sym.into()).into() }
                 dim:dimension() { NodeData::Dimension(dim.into()).into() }
