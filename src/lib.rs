@@ -9,7 +9,7 @@ use pyo3::{
     exceptions::{PyRuntimeError, PyValueError},
     prelude::*,
 };
-use pyo3::{pyfunction, pymodule, types::PyModule, Bound};
+use pyo3::{pyfunction, pymodule, types::{PyModule, PyDict}, Bound};
 
 use crate::quantity::Quantity;
 use crate::registry::REGISTRY;
@@ -225,7 +225,7 @@ macro_rules! create_quantity_type {
                 self.clone()
             }
 
-            fn __deepcopy__(&self) -> Self {
+            fn __deepcopy__<'py>(&self, _memo: Bound<'py, PyDict>) -> Self {
                 self.clone()
             }
 
@@ -497,7 +497,7 @@ macro_rules! create_array_quantity_type {
                 self.clone()
             }
 
-            fn __deepcopy__(&self) -> Self {
+            fn __deepcopy__<'py>(&self, _memo: Bound<'py, PyDict>) -> Self {
                 self.clone()
             }
 
