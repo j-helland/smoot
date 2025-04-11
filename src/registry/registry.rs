@@ -23,7 +23,7 @@ pub static REGISTRY: LazyLock<Registry> =
 /// re-parsing the unit definitions file.
 #[derive(Encode, Decode)]
 pub struct Registry {
-    pub(crate) units: HashMap<String, BaseUnit<f64>>,
+    pub(crate) units: HashMap<String, BaseUnit>,
 }
 impl Registry {
     const DEFAULT_UNITS_FILE: &str = "default_en.txt";
@@ -59,7 +59,7 @@ impl Registry {
         std::fs::remove_file(Self::REGISTRY_CACHE_FILE).unwrap_or(())
     }
 
-    pub fn get_unit(&self, key: &str) -> Option<&BaseUnit<f64>> {
+    pub fn get_unit(&self, key: &str) -> Option<&BaseUnit> {
         self.units.get(key)
     }
 
@@ -341,12 +341,7 @@ impl Registry {
     }
 
     /// Insert a unit definition.
-    fn insert_def(
-        &mut self,
-        name: String,
-        aliases: &Vec<&str>,
-        unit: BaseUnit<f64>,
-    ) -> &BaseUnit<f64> {
+    fn insert_def(&mut self, name: String, aliases: &Vec<&str>, unit: BaseUnit) -> &BaseUnit {
         for &alias in aliases.iter().filter(|&&a| a.ne("_")) {
             let _ = self.units.entry(alias.into()).or_insert(unit.clone());
         }
@@ -397,7 +392,7 @@ impl Registry {
         symbol: &'a str,
         unit_defs: &HashMap<String, UnitDefinition>,
         prefix_defs: &'a HashMap<&'a str, PrefixDefinition<'a>>,
-    ) -> Result<&BaseUnit<f64>, SmootError> {
+    ) -> Result<&BaseUnit, SmootError> {
         if self.units.contains_key(symbol) {
             return Ok(self.units.get(symbol).unwrap());
         }
@@ -425,7 +420,7 @@ impl Registry {
         tree: &'a ParseTree,
         unit_defs: &HashMap<String, UnitDefinition>,
         prefix_defs: &'a HashMap<&'a str, PrefixDefinition<'a>>,
-    ) -> Result<BaseUnit<f64>, SmootError> {
+    ) -> Result<BaseUnit, SmootError> {
         if tree.left.is_none() && tree.right.is_none() {
             // Leaf
             let unit = match &tree.val {

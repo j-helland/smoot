@@ -9,7 +9,11 @@ use pyo3::{
     exceptions::{PyRuntimeError, PyValueError},
     prelude::*,
 };
-use pyo3::{pyfunction, pymodule, types::{PyModule, PyDict}, Bound};
+use pyo3::{
+    pyfunction, pymodule,
+    types::{PyDict, PyModule},
+    Bound,
+};
 
 use crate::quantity::Quantity;
 use crate::registry::REGISTRY;
@@ -41,7 +45,7 @@ macro_rules! create_unit_type {
     ($name_unit: ident, $base_type: ident) => {
         #[pyclass(module = "smoot.smoot")]
         struct $name_unit {
-            inner: unit::Unit<$base_type>,
+            inner: unit::Unit,
         }
         #[pymethods]
         impl $name_unit {
@@ -225,7 +229,7 @@ macro_rules! create_quantity_type {
                 self.clone()
             }
 
-            fn __deepcopy__<'py>(&self, _memo: Bound<'py, PyDict>) -> Self {
+            fn __deepcopy__(&self, _memo: Bound<'_, PyDict>) -> Self {
                 self.clone()
             }
 
@@ -380,7 +384,7 @@ macro_rules! create_quantity_type {
 struct ArrayQuantityStorage<N> {
     dims: Vec<usize>,
     data: Vec<N>,
-    unit: unit::Unit<f64>,
+    unit: unit::Unit,
 }
 
 /// Create a numpy array version of a unitary quantity type.
@@ -497,7 +501,7 @@ macro_rules! create_array_quantity_type {
                 self.clone()
             }
 
-            fn __deepcopy__<'py>(&self, _memo: Bound<'py, PyDict>) -> Self {
+            fn __deepcopy__(&self, _memo: Bound<'_, PyDict>) -> Self {
                 self.clone()
             }
 

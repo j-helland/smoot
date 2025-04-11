@@ -13,25 +13,24 @@ use crate::{
     error::{SmootError, SmootResult},
     parser::expression_parser,
     registry::Registry,
-    types::Number,
-    utils::float_eq_rel,
+    utils::{float_eq_rel, ApproxEq},
 };
 
 type UnitDimensionality<N> = Vec<N>;
 
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct Unit<N: Number> {
-    pub numerator_units: Vec<BaseUnit<N>>,
+pub struct Unit {
+    pub numerator_units: Vec<BaseUnit>,
     pub numerator_dimension: DimensionType,
     pub numerator_dimensionality: UnitDimensionality<f64>,
 
-    pub denominator_units: Vec<BaseUnit<N>>,
+    pub denominator_units: Vec<BaseUnit>,
     pub denominator_dimension: DimensionType,
     pub denominator_dimensionality: UnitDimensionality<f64>,
 }
 
-impl<N: Number> Unit<N> {
-    pub fn new(numerator_units: Vec<BaseUnit<N>>, denominator_units: Vec<BaseUnit<N>>) -> Self {
+impl Unit {
+    pub fn new(numerator_units: Vec<BaseUnit>, denominator_units: Vec<BaseUnit>) -> Self {
         let mut unit = Self {
             numerator_units,
             numerator_dimension: DIMENSIONLESS,
@@ -181,7 +180,7 @@ impl<N: Number> Unit<N> {
     /// Return
     /// ------
     /// Err if this unit is incompatible with the target unit (e.g. meter is incompatible with gram).
-    pub fn conversion_factor(&self, other: &Self) -> SmootResult<N> {
+    pub fn conversion_factor(&self, other: &Self) -> SmootResult<f64> {
         if !self.is_compatible_with(other) {
             return Err(SmootError::IncompatibleUnitTypes(
                 self.get_units_string().unwrap_or("dimensionless".into()),
@@ -189,7 +188,7 @@ impl<N: Number> Unit<N> {
             ));
         }
 
-        let mut numerator_conversion_factor = N::one();
+        let mut numerator_conversion_factor = 1.0;
         for (from, to) in self
             .numerator_units
             .iter()
@@ -198,7 +197,7 @@ impl<N: Number> Unit<N> {
             numerator_conversion_factor *= from.conversion_factor(to)?;
         }
 
-        let mut denominator_conversion_factor = N::one();
+        let mut denominator_conversion_factor = 1.0;
         for (from, to) in self
             .denominator_units
             .iter()
@@ -293,11 +292,11 @@ impl<N: Number> Unit<N> {
     /// ------
     /// The multiplicative factor computed during reduction, which may not be one
     /// depending on unit conversion factors.
-    pub fn reduce(&mut self) -> N {
+    pub fn reduce(&mut self) -> f64 {
         let mut result_conversion_factor = self.simplify(false);
 
-        let mut reduce_func = |units: &mut Vec<BaseUnit<N>>| {
-            let mut units_reduced: Vec<BaseUnit<N>> = Vec::new();
+        let mut reduce_func = |units: &mut Vec<BaseUnit>| {
+            let mut units_reduced: Vec<BaseUnit> = Vec::new();
             units.drain(..).for_each(|u| {
                 if let Some(last) = units_reduced.last_mut() {
                     if let Ok(factor) = last.conversion_factor(&u) {
@@ -339,8 +338,8 @@ impl<N: Number> Unit<N> {
     /// ------
     /// The multiplicative factor resulting from the simplification, which might not be
     /// one depending on unit conversions that occurred.
-    pub fn simplify(&mut self, no_reduction: bool) -> N {
-        let mut result_conversion_factor = N::one();
+    pub fn simplify(&mut self, no_reduction: bool) -> f64 {
+        let mut result_conversion_factor = 1.0;
 
         // Sort into unit type groups to find all possible cancellations.
         self.numerator_units.sort_by(|u1, u2| {
@@ -378,7 +377,7 @@ impl<N: Number> Unit<N> {
             }
 
             if let Ok(factor) = u1.conversion_factor(u2) {
-                if no_reduction && !factor.approx_eq(N::one()) {
+                if no_reduction && !factor.approx_eq(1.0) {
                     // Make sure we don't reduce units with disparate scales.
                     inum += 1;
                     iden += 1;
@@ -424,11 +423,11 @@ impl<N: Number> Unit<N> {
         result_conversion_factor
     }
 
-    fn get_dimension_mask(units: &[BaseUnit<N>]) -> DimensionType {
+    fn get_dimension_mask(units: &[BaseUnit]) -> DimensionType {
         units.iter().fold(0, |d, u| d | u.unit_type)
     }
 
-    fn get_dimensionality(dimensionality: &mut UnitDimensionality<f64>, units: &[BaseUnit<N>]) {
+    fn get_dimensionality(dimensionality: &mut UnitDimensionality<f64>, units: &[BaseUnit]) {
         dimensionality.fill(0.0);
         dimensionality.resize(
             units
@@ -447,7 +446,7 @@ impl<N: Number> Unit<N> {
     }
 }
 
-impl Unit<f64> {
+impl Unit {
     /// Parse a unit expression into its resulting unit.
     ///
     /// Return
@@ -468,7 +467,7 @@ impl Unit<f64> {
     }
 }
 
-impl<N: Number> fmt::Display for Unit<N> {
+impl fmt::Display for Unit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -482,7 +481,7 @@ impl<N: Number> fmt::Display for Unit<N> {
 //==================================================
 // Arithmetic operators for Unit
 //==================================================
-impl<N: Number> Mul for Unit<N> {
+impl Mul for Unit {
     type Output = Self;
 
     fn mul(mut self, rhs: Self) -> Self::Output {
@@ -493,8 +492,8 @@ impl<N: Number> Mul for Unit<N> {
         self
     }
 }
-impl<N: Number> MulAssign<&Unit<N>> for Unit<N> {
-    fn mul_assign(&mut self, rhs: &Unit<N>) {
+impl MulAssign<&Unit> for Unit {
+    fn mul_assign(&mut self, rhs: &Unit) {
         self.numerator_units.extend_from_slice(&rhs.numerator_units);
         self.denominator_units
             .extend_from_slice(&rhs.denominator_units);
@@ -502,7 +501,7 @@ impl<N: Number> MulAssign<&Unit<N>> for Unit<N> {
     }
 }
 
-impl<N: Number> Div for Unit<N> {
+impl Div for Unit {
     type Output = Self;
 
     fn div(mut self, rhs: Self) -> Self::Output {
@@ -514,8 +513,8 @@ impl<N: Number> Div for Unit<N> {
         self
     }
 }
-impl<N: Number> DivAssign<&Unit<N>> for Unit<N> {
-    fn div_assign(&mut self, rhs: &Unit<N>) {
+impl DivAssign<&Unit> for Unit {
+    fn div_assign(&mut self, rhs: &Unit) {
         self.numerator_units
             .extend_from_slice(&rhs.denominator_units);
         self.denominator_units
@@ -524,7 +523,7 @@ impl<N: Number> DivAssign<&Unit<N>> for Unit<N> {
     }
 }
 
-impl<N: Number> Add for Unit<N> {
+impl Add for Unit {
     type Output = SmootResult<Self>;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -539,7 +538,7 @@ impl<N: Number> Add for Unit<N> {
     }
 }
 
-impl<N: Number> Sub for Unit<N> {
+impl Sub for Unit {
     type Output = SmootResult<Self>;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -565,19 +564,19 @@ mod test_unit {
 
     use crate::{assert_is_close, registry::REGISTRY};
 
-    static UNIT_METER: LazyLock<&BaseUnit<f64>> =
+    static UNIT_METER: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("meter").expect("No unit 'meter'"));
-    static UNIT_KILOMETER: LazyLock<&BaseUnit<f64>> =
+    static UNIT_KILOMETER: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("kilometer").expect("No unit 'kilometer'"));
-    static UNIT_SECOND: LazyLock<&BaseUnit<f64>> =
+    static UNIT_SECOND: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("second").expect("No unit 'second'"));
-    static UNIT_MINUTE: LazyLock<&BaseUnit<f64>> =
+    static UNIT_MINUTE: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("minute").expect("No unit 'minute'"));
-    static UNIT_HOUR: LazyLock<&BaseUnit<f64>> =
+    static UNIT_HOUR: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("hour").expect("No unit 'hour'"));
-    static UNIT_GRAM: LazyLock<&BaseUnit<f64>> =
+    static UNIT_GRAM: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("gram").expect("No unit 'gram'"));
-    static UNIT_WATT: LazyLock<&BaseUnit<f64>> =
+    static UNIT_WATT: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("watt").expect("No unit 'watt'"));
 
     #[case(
@@ -604,11 +603,7 @@ mod test_unit {
         None
         ; "Incompatible units"
     )]
-    fn test_conversion_factor(
-        u1: Unit<f64>,
-        u2: Unit<f64>,
-        expected: Option<f64>,
-    ) -> SmootResult<()> {
+    fn test_conversion_factor(u1: Unit, u2: Unit, expected: Option<f64>) -> SmootResult<()> {
         if let Some(expected) = expected {
             assert_is_close!(u1.conversion_factor(&u2)?, expected);
             assert_is_close!(u2.conversion_factor(&u1)?, 1.0 / expected);
@@ -663,7 +658,7 @@ mod test_unit {
         Some("meter ** 2.5")
         ; "Fractional powers"
     )]
-    fn test_get_units_string(u: Unit<f64>, expected: Option<&str>) {
+    fn test_get_units_string(u: Unit, expected: Option<&str>) {
         assert_eq!(u.get_units_string(), expected.map(String::from));
     }
 
@@ -899,7 +894,7 @@ mod test_unit {
         false
         ; "Dimensionality incompatibility"
     )]
-    fn test_is_compatible_with(u1: Unit<f64>, u2: Unit<f64>, expected: bool) {
+    fn test_is_compatible_with(u1: Unit, u2: Unit, expected: bool) {
         assert_eq!(u1.is_compatible_with(&u2), expected);
     }
 
@@ -913,9 +908,9 @@ mod test_unit {
     #[test]
     /// Dimensionless units should be self-compatible.
     fn test_is_compatible_with_dimensionless() {
-        let u1: Unit<f64> = Unit::new(vec![], vec![]);
+        let u1: Unit = Unit::new(vec![], vec![]);
         // This is equivalent to a dimensionless unit.
-        let u2: Unit<f64> = Unit::new(vec![], vec![]);
+        let u2: Unit = Unit::new(vec![], vec![]);
         assert!(u1.is_compatible_with(&u2));
     }
 

@@ -25,7 +25,7 @@ impl<N: Number> Storage<N> for ArrayD<N> {}
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct Quantity<N: Number, S: Storage<N>> {
     pub magnitude: S,
-    pub unit: Unit<f64>,
+    pub unit: Unit,
 
     _marker: PhantomData<N>,
 }
@@ -34,7 +34,7 @@ impl<N: Number, S: Storage<N>> Quantity<N, S>
 where
     S: ConvertMagnitude,
 {
-    pub fn new(magnitude: S, unit: Unit<f64>) -> Self {
+    pub fn new(magnitude: S, unit: Unit) -> Self {
         Self {
             magnitude,
             unit,
@@ -53,7 +53,7 @@ where
     }
 
     /// Return the underlying value of this quantity, converted to target units.
-    pub fn m_as(&self, unit: &Unit<f64>, factor: Option<f64>) -> SmootResult<S> {
+    pub fn m_as(&self, unit: &Unit, factor: Option<f64>) -> SmootResult<S> {
         let factor = factor.unwrap_or(1.0);
         if self.unit.eq(unit) {
             Ok(self.magnitude.convert(factor))
@@ -66,7 +66,7 @@ where
     }
 
     /// Return a new quantity whose value is converted to the target units.
-    pub fn to(&self, unit: &Unit<f64>, factor: Option<f64>) -> SmootResult<Quantity<N, S>> {
+    pub fn to(&self, unit: &Unit, factor: Option<f64>) -> SmootResult<Quantity<N, S>> {
         let mut q = self.clone();
         q.ito(unit, factor)?;
         Ok(q)
@@ -78,7 +78,7 @@ where
     /// ----------
     /// unit : The target unit to convert to.
     /// factor : Optional additional multiplicative factor to apply.
-    pub fn ito(&mut self, unit: &Unit<f64>, factor: Option<f64>) -> SmootResult<()> {
+    pub fn ito(&mut self, unit: &Unit, factor: Option<f64>) -> SmootResult<()> {
         if self.unit.eq(unit) {
             return Ok(());
         }
@@ -101,7 +101,7 @@ where
         self.magnitude.iconvert(factor);
     }
 
-    fn convert_to(&mut self, unit: &Unit<f64>, factor: Option<f64>) -> SmootResult<()> {
+    fn convert_to(&mut self, unit: &Unit, factor: Option<f64>) -> SmootResult<()> {
         let factor = self.unit.conversion_factor(unit)? * factor.unwrap_or(1.0);
         self.magnitude.iconvert(factor);
         self.unit = unit.clone();
@@ -771,7 +771,7 @@ where
 // Quantity values.
 //==================================================
 // unit / N
-impl<N: Number> Div<N> for Unit<f64>
+impl<N: Number> Div<N> for Unit
 where
     N: ConvertMagnitude,
 {
@@ -781,7 +781,7 @@ where
         Quantity::new(N::one() / rhs, self)
     }
 }
-impl<N: Number> Div<N> for &Unit<f64>
+impl<N: Number> Div<N> for &Unit
 where
     N: ConvertMagnitude,
 {
@@ -794,18 +794,18 @@ where
 // N / unit
 macro_rules! unit_div {
     ($type: ident) => {
-        impl Div<Unit<f64>> for $type {
+        impl Div<Unit> for $type {
             type Output = Quantity<$type, $type>;
 
-            fn div(self, mut rhs: Unit<f64>) -> Self::Output {
+            fn div(self, mut rhs: Unit) -> Self::Output {
                 rhs.ipowi(-1);
                 Quantity::new(self, rhs)
             }
         }
-        impl Div<&Unit<f64>> for $type {
+        impl Div<&Unit> for $type {
             type Output = Quantity<$type, $type>;
 
-            fn div(self, rhs: &Unit<f64>) -> Self::Output {
+            fn div(self, rhs: &Unit) -> Self::Output {
                 Quantity::new(self, rhs.powi(-1))
             }
         }
@@ -827,11 +827,11 @@ mod test_quantity {
 
     use super::*;
 
-    static UNIT_METER: LazyLock<&BaseUnit<f64>> =
+    static UNIT_METER: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("meter").expect("No unit 'meter'"));
-    static UNIT_KILOMETER: LazyLock<&BaseUnit<f64>> =
+    static UNIT_KILOMETER: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("kilometer").expect("No unit 'kilometer'"));
-    static UNIT_SECOND: LazyLock<&BaseUnit<f64>> =
+    static UNIT_SECOND: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("second").expect("No unit 'second`'"));
 
     #[test]

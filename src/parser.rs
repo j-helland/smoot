@@ -27,7 +27,7 @@ peg::parser! {
             {? num.parse::<N>().or(Err("Invalid decimal number")) }
 
         /// Parses a basic unit. Will fail if the unit string is not found in the specified unit cache.
-        rule unit(registry: &Registry) -> Unit<f64>
+        rule unit(registry: &Registry) -> Unit
             = u:$(['a'..='z' | 'A'..='Z' | '_']+)
             {?
                 registry
@@ -39,7 +39,7 @@ peg::parser! {
 
         /// Core parser with operator precedence.
         /// We only need to support a few basic operators; addition and subtraction don't make sense for units.
-        pub rule unit_expression(unit_cache: &Registry) -> Unit<f64>
+        pub rule unit_expression(unit_cache: &Registry) -> Unit
             = precedence!
             {
                 u1:(@) __ "*" __ u2:@ { u1 * u2 }
@@ -91,10 +91,10 @@ peg::parser! {
 }
 
 /// Implement `.parse()` for strings into units.
-impl FromStr for Unit<f64> {
+impl FromStr for Unit {
     type Err = SmootError;
 
-    fn from_str(s: &str) -> Result<Unit<f64>, Self::Err> {
+    fn from_str(s: &str) -> Result<Unit, Self::Err> {
         // TODO(jwh): get cache from non-global scope
         expression_parser::unit_expression(s, &REGISTRY)
             .map_err(|_e| SmootError::InvalidUnitExpression(0, s.into()))
@@ -117,20 +117,20 @@ impl FromStr for Quantity<f64, f64> {
 
 #[cfg(test)]
 mod test_expression_parser {
-    use crate::error::SmootResult;
+    use crate::{base_unit::BaseUnit, error::SmootResult};
 
     use super::*;
     use peg::{error::ParseError, str::LineCol};
     use std::sync::LazyLock;
     use test_case::case;
 
-    static UNIT_METER: LazyLock<&BaseUnit<f64>> =
+    static UNIT_METER: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("meter").expect("No unit 'meter'"));
-    static UNIT_KILOMETER: LazyLock<&BaseUnit<f64>> =
+    static UNIT_KILOMETER: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("kilometer").expect("No unit 'kilometer'"));
-    static UNIT_SECOND: LazyLock<&BaseUnit<f64>> =
+    static UNIT_SECOND: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("second").expect("No unit 'second'"));
-    static UNIT_GRAM: LazyLock<&BaseUnit<f64>> =
+    static UNIT_GRAM: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("gram").expect("No unit 'gram'"));
 
     #[case("1", Some(1); "Basic")]
@@ -228,8 +228,8 @@ mod test_expression_parser {
         Some(Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![BaseUnit::clone(&UNIT_KILOMETER)]))
         ; "No reduction"
     )]
-    fn test_unit_parsing(s: &str, expected: Option<Unit<f64>>) -> SmootResult<()> {
-        let result = s.parse::<Unit<f64>>();
+    fn test_unit_parsing(s: &str, expected: Option<Unit>) -> SmootResult<()> {
+        let result = s.parse::<Unit>();
         if let Some(expected) = expected {
             let result = result?;
             assert_eq!(result, expected, "{:#?} != {:#?}", result, expected);

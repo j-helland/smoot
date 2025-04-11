@@ -3,15 +3,14 @@ use std::ops::{Div, DivAssign, Mul, MulAssign};
 use bitcode::{Decode, Encode};
 
 use crate::error::{SmootError, SmootResult};
-use crate::types::Number;
 
 pub type DimensionType = u64;
 pub const DIMENSIONLESS: DimensionType = 0;
 
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
-pub struct BaseUnit<N: Number> {
+pub struct BaseUnit {
     pub name: String,
-    pub multiplier: N,
+    pub multiplier: f64,
     pub power: Option<f64>,
     pub unit_type: DimensionType,
     pub dimensionality: Vec<f64>,
@@ -34,8 +33,8 @@ fn get_dimensionality(unit_type: DimensionType) -> Vec<f64> {
     dimensionality
 }
 
-impl<N: Number> BaseUnit<N> {
-    pub fn new(name: String, multiplier: N, unit_type: DimensionType) -> Self {
+impl BaseUnit {
+    pub fn new(name: String, multiplier: f64, unit_type: DimensionType) -> Self {
         Self {
             name,
             multiplier,
@@ -46,7 +45,7 @@ impl<N: Number> BaseUnit<N> {
     }
 
     /// Create a new, dimensionless base unit. These are used to store constants like pi.
-    pub fn new_constant(multiplier: N) -> Self {
+    pub fn new_constant(multiplier: f64) -> Self {
         Self {
             name: String::new(),
             multiplier,
@@ -80,7 +79,7 @@ impl<N: Number> BaseUnit<N> {
     }
 
     /// Get the multiplicative factor associated with this base unit.
-    pub fn get_multiplier(&self) -> N {
+    pub fn get_multiplier(&self) -> f64 {
         self.power
             .map(|p| self.multiplier.powf(p))
             .unwrap_or(self.multiplier)
@@ -91,7 +90,7 @@ impl<N: Number> BaseUnit<N> {
     /// Return
     /// ------
     /// Err if the units are incompatible (e.g. meter and gram).
-    pub fn conversion_factor(&self, target: &Self) -> SmootResult<N> {
+    pub fn conversion_factor(&self, target: &Self) -> SmootResult<f64> {
         if self.unit_type != target.unit_type {
             return Err(SmootError::IncompatibleUnitTypes(
                 self.name.clone(),
@@ -120,7 +119,7 @@ impl<N: Number> BaseUnit<N> {
 //==================================================
 // Arithmetic operators
 //==================================================
-impl<N: Number> Mul for BaseUnit<N> {
+impl Mul for BaseUnit {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
@@ -133,7 +132,7 @@ impl<N: Number> Mul for BaseUnit<N> {
     }
 }
 
-impl<N: Number> MulAssign for BaseUnit<N> {
+impl MulAssign for BaseUnit {
     fn mul_assign(&mut self, rhs: Self) {
         if self.power.is_some() || rhs.power.is_some() {
             panic!("Cannot multiply base units with exponents");
@@ -156,7 +155,7 @@ impl<N: Number> MulAssign for BaseUnit<N> {
     }
 }
 
-impl<N: Number> Div for BaseUnit<N> {
+impl Div for BaseUnit {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self::Output {
@@ -169,7 +168,7 @@ impl<N: Number> Div for BaseUnit<N> {
     }
 }
 
-impl<N: Number> DivAssign for BaseUnit<N> {
+impl DivAssign for BaseUnit {
     fn div_assign(&mut self, rhs: Self) {
         if self.power.is_some() || rhs.power.is_some() {
             panic!("Cannot divide base units with exponents");
@@ -209,7 +208,7 @@ mod test_base_unit {
         BaseUnit::new("left".into(), 6.0, 1 | (1 << 1))
         ; "Multipliers multiply and unit types combine"
     )]
-    fn test_mul(left: BaseUnit<f64>, right: BaseUnit<f64>, expected: BaseUnit<f64>) {
+    fn test_mul(left: BaseUnit, right: BaseUnit, expected: BaseUnit) {
         assert_eq!(left * right, expected);
     }
 
