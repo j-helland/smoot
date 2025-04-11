@@ -206,6 +206,9 @@ class Quantity(Generic[T, R]):
     def __repr__(self) -> str:
         return str(self.__inner)
 
+    def __hash__(self) -> int:
+        return hash(self.__inner)
+
     # ==================================================
     # Operators
     # ==================================================
@@ -439,14 +442,6 @@ class Quantity(Generic[T, R]):
 
         msg = f"No conversion exists between {t1} and {t2}"
         raise NotImplementedError(msg)
-
-    @staticmethod
-    def _dtype_to_type(t: np.dtype) -> type:
-        if t in (np.float64, np.float32):
-            return float
-        elif t in (np.int64, np.int32):
-            return int
-        raise NotImplementedError(t)
 
     @staticmethod
     def _get_units(units: UnitsLike) -> tuple[float, Unit]:

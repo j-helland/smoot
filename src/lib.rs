@@ -1,9 +1,9 @@
-use bitcode::{Decode, Encode};
 use mimalloc::MiMalloc;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+use bitcode::{Decode, Encode};
 use numpy::{ndarray::ArrayD, PyArray, PyArrayDyn, PyArrayMethods};
 use pyo3::{
     exceptions::{PyRuntimeError, PyValueError},
@@ -15,12 +15,16 @@ use pyo3::{
     Bound,
 };
 
+use std::hash::{DefaultHasher, Hasher};
+
+use crate::hash::Hash;
 use crate::quantity::Quantity;
 use crate::registry::REGISTRY;
 use crate::utils::{ConvertMagnitude, Floor, Powf, RoundDigits};
 
 mod base_unit;
 mod error;
+mod hash;
 mod parser;
 mod quantity;
 mod registry;
@@ -73,6 +77,12 @@ macro_rules! create_unit_type {
 
             fn ito_root_units(&mut self) {
                 self.inner.ito_root_units();
+            }
+
+            fn __hash__(&self) -> u64 {
+                let mut hasher = DefaultHasher::new();
+                self.inner.hash(&mut hasher);
+                hasher.finish()
             }
 
             fn __str__(&self) -> String {
@@ -237,7 +247,9 @@ macro_rules! create_quantity_type {
             }
 
             fn __hash__(&self) -> u64 {
-                todo!();
+                let mut hasher = DefaultHasher::new();
+                self.inner.hash(&mut hasher);
+                hasher.finish()
             }
 
             fn __copy__(&self) -> Self {
@@ -511,7 +523,9 @@ macro_rules! create_array_quantity_type {
             }
 
             fn __hash__(&self) -> u64 {
-                todo!();
+                let mut hasher = DefaultHasher::new();
+                self.inner.hash(&mut hasher);
+                hasher.finish()
             }
 
             fn __copy__(&self) -> Self {

@@ -1,7 +1,7 @@
 .git/
 .github/
 
-/target
+target/
 *.smoot
 
 # Byte-compiled / optimized / DLL files

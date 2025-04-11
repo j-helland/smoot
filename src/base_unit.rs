@@ -1,6 +1,8 @@
 use std::ops::{Div, DivAssign, Mul, MulAssign};
 
 use bitcode::{Decode, Encode};
+use hashable::Hashable;
+use crate::hash::Hash;
 
 use crate::{
     error::{SmootError, SmootResult},
@@ -10,8 +12,9 @@ use crate::{
 pub type DimensionType = u64;
 pub const DIMENSIONLESS: DimensionType = 0;
 
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
 pub struct BaseUnit {
+    // TODO(jwh): remove pub
     pub name: String,
     pub multiplier: f64,
     pub power: Option<f64>,
@@ -213,6 +216,8 @@ impl DivAssign for BaseUnit {
 //==================================================
 #[cfg(test)]
 mod test_base_unit {
+    use std::hash::{DefaultHasher, Hasher};
+
     use test_case::case;
 
     use crate::assert_is_close;
@@ -256,5 +261,20 @@ mod test_base_unit {
         // Then the result is an error
         let result = u1.conversion_factor(&u2);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_hash() {
+        let u1 = BaseUnit::new("u1".into(), 1.0, 0);
+        assert_eq!(hash(&u1), hash(&u1.clone()));
+
+        let u2 = BaseUnit::new("u2".into(), 2.0, 1);
+        assert_ne!(hash(&u1), hash(&u2));
+    }
+
+    fn hash<T: Hash>(val: &T) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        val.hash(&mut hasher);
+        hasher.finish()
     }
 }

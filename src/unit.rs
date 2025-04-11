@@ -5,6 +5,7 @@ use std::{
 };
 
 use bitcode::{Decode, Encode};
+use hashable::Hashable;
 use itertools::{EitherOrBoth, Itertools};
 use num_traits::ToPrimitive;
 
@@ -14,12 +15,14 @@ use crate::{
     parser::expression_parser,
     registry::{Registry, REGISTRY},
     utils::{float_eq_rel, ApproxEq},
+    hash::Hash,
 };
 
 type UnitDimensionality<N> = Vec<N>;
 
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
 pub struct Unit {
+    // TODO(jwh): Remove pub
     pub numerator_units: Vec<BaseUnit>,
     pub numerator_dimension: DimensionType,
     pub numerator_dimensionality: UnitDimensionality<f64>,
@@ -580,7 +583,7 @@ impl Sub for Unit {
 #[cfg(test)]
 mod test_unit {
     use super::*;
-    use std::{f64, sync::LazyLock};
+    use std::{f64, hash::{DefaultHasher, Hasher}, sync::LazyLock};
     use test_case::case;
 
     use crate::{assert_is_close, registry::REGISTRY};
@@ -1013,5 +1016,20 @@ mod test_unit {
     fn test_ito_root_unit(mut unit: Unit, expected: Unit, expected_factor: f64) {
         assert_is_close!(unit.ito_root_units(), expected_factor);
         assert_eq!(unit, expected);
+    }
+
+    #[test]
+    fn test_hash() {
+        let u1 = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![BaseUnit::clone(&UNIT_SECOND)]);
+        assert_eq!(hash(&u1), hash(&u1.clone()));
+
+        let u2 = u1.powi(-1);
+        assert_ne!(hash(&u1), hash(&u2));
+    }
+
+    fn hash<T: Hash>(val: &T) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        val.hash(&mut hasher);
+        hasher.finish()
     }
 }

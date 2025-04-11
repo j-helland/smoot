@@ -4,6 +4,7 @@ use std::{
 };
 
 use bitcode::{Decode, Encode};
+use hashable::Hashable;
 use numpy::{
     ndarray::{Array, ArrayD, Zip},
     Ix1, Ix2,
@@ -16,13 +17,14 @@ use crate::{
     types::Number,
     unit::Unit,
     utils::{ConvertMagnitude, Powf, Powi},
+    hash::Hash,
 };
 
 pub trait Storage<N: Number>: Mul<N, Output = Self> + MulAssign<N> + Clone + Sized {}
 impl<N: Number> Storage<N> for N {}
 impl<N: Number> Storage<N> for ArrayD<N> {}
 
-#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
 pub struct Quantity<N: Number, S: Storage<N>> {
     pub magnitude: S,
     pub unit: Unit,
@@ -829,7 +831,7 @@ unit_div!(f64);
 //==================================================
 #[cfg(test)]
 mod test_quantity {
-    use std::sync::LazyLock;
+    use std::{hash::{DefaultHasher, Hasher}, sync::LazyLock};
 
     use numpy::ndarray::Array;
 
@@ -1247,5 +1249,20 @@ mod test_quantity {
         let expected = Quantity::new(1e3, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]));
         q.ito_root_units();
         assert_eq!(q, expected);
+    }
+
+    #[test]
+    fn test_hash() {
+        let q1 = Quantity::new(1.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![BaseUnit::clone(&UNIT_SECOND)]));
+        assert_eq!(hash(&q1), hash(&q1.clone()));
+
+        let q2 = q1.clone().powi(-1);
+        assert_ne!(hash(&q1), hash(&q2));
+    }
+
+    fn hash<T: Hash>(val: &T) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        val.hash(&mut hasher);
+        hasher.finish()
     }
 }
