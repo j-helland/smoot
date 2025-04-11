@@ -8,6 +8,9 @@ pub enum SmootError {
     #[error("Invalid operation {0} between units {1} and {2}")]
     InvalidOperation(&'static str, String, String),
 
+    #[error("{0}")]
+    NoSuchElement(String),
+
     //==================================================
     // Parsing errors
     //==================================================

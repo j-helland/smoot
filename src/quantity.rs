@@ -44,7 +44,7 @@ where
 
     /// Create a new, dimensionless quantity.
     pub fn new_dimensionless(magnitude: S) -> Self {
-        Self::new(magnitude, Unit::new(vec![], vec![]))
+        Self::new(magnitude, Unit::new_dimensionless())
     }
 
     /// Return true if this quantity has no associated units.
@@ -98,6 +98,16 @@ where
     /// The underlying value may change depending on any unit conversions that occur during reduction.
     pub fn ito_reduced_units(&mut self) {
         let factor = self.unit.reduce();
+        self.magnitude.iconvert(factor);
+    }
+
+    /// In-place conversion of this quantity into root units.
+    ///
+    /// Examples
+    /// --------
+    /// 1 kilometer / hour -> 3.6 meter / second
+    pub fn ito_root_units(&mut self) {
+        let factor = self.unit.ito_root_units();
         self.magnitude.iconvert(factor);
     }
 
@@ -1226,5 +1236,16 @@ mod test_quantity {
         let expected = Quantity::new(1.0, Unit::new(vec![], vec![BaseUnit::clone(&UNIT_METER)]));
         assert_eq!(1.0 / &meter, expected);
         assert_eq!(1.0 / meter, expected);
+    }
+
+    #[test]
+    fn test_ito_root_unit() {
+        let mut q = Quantity::new(
+            1.0,
+            Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]),
+        );
+        let expected = Quantity::new(1e3, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]));
+        q.ito_root_units();
+        assert_eq!(q, expected);
     }
 }

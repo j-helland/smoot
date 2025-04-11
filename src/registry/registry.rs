@@ -7,7 +7,7 @@ use std::{collections::HashMap, fs::read_to_string};
 
 use bitcode::{Decode, Encode};
 
-use crate::base_unit::{BaseUnit, DIMENSIONLESS};
+use crate::base_unit::{BaseUnit, DimensionType, DIMENSIONLESS};
 use crate::error::{SmootError, SmootResult};
 
 use super::registry_parser::{
@@ -24,6 +24,11 @@ pub static REGISTRY: LazyLock<Registry> =
 #[derive(Encode, Decode)]
 pub struct Registry {
     pub(crate) units: HashMap<String, BaseUnit>,
+
+    /// A root unit is the canonical unit for a particular dimension (e.g. [length] -> meter).
+    // Don't bother with sharing memory with units because there's relatively few dimensions,
+    // making this cheap.
+    root_units: HashMap<DimensionType, BaseUnit>,
 }
 impl Registry {
     const DEFAULT_UNITS_FILE: &str = "default_en.txt";
@@ -33,6 +38,7 @@ impl Registry {
     pub fn new() -> Self {
         Self {
             units: HashMap::new(),
+            root_units: HashMap::new(),
         }
     }
 
@@ -61,6 +67,10 @@ impl Registry {
 
     pub fn get_unit(&self, key: &str) -> Option<&BaseUnit> {
         self.units.get(key)
+    }
+
+    pub fn get_root_unit(&self, dimension: &DimensionType) -> &BaseUnit {
+        self.root_units.get(dimension).expect("Missing root unit")
     }
 
     pub fn len(&self) -> usize {
@@ -284,11 +294,13 @@ impl Registry {
 
         dim_defs.into_iter().for_each(|def| {
             let unit = BaseUnit::new(def.name.into(), 1.0, next_dimension);
+            self.insert_root_unit(unit.clone());
             self.insert_def(def.name.into(), &def.aliases, unit);
 
             dimensions.insert(def.dimension, next_dimension);
             next_dimension <<= 1;
         });
+        println!("{:#?}", self.root_units);
 
         //==================================================
         // Evaluate unit definitions
@@ -346,6 +358,10 @@ impl Registry {
             let _ = self.units.entry(alias.into()).or_insert(unit.clone());
         }
         self.units.entry(name).or_insert(unit)
+    }
+
+    fn insert_root_unit(&mut self, unit: BaseUnit) {
+        self.root_units.entry(unit.unit_type).or_insert(unit);
     }
 
     /// Take all parsed unit definitions and create real units from them.

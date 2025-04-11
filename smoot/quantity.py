@@ -79,12 +79,26 @@ class Quantity(Generic[T, R]):
 
     @property
     def magnitude(self) -> R:
-        """Return the unitless value of this quantity."""
+        """Return the unitless value of this quantity.
+
+        Examples
+        --------
+        ```python
+        assert Quantity("1 meter").magnitude == 1
+        ```
+        """
         return self.__inner.m  # type: ignore[return-value]
 
     @property
     def m(self) -> R:
-        """Return the unitless value of this quantity."""
+        """Return the unitless value of this quantity.
+
+        Examples
+        --------
+        ```python
+        assert Quantity("1 meter").m == 1
+        ```
+        """
         return self.__inner.m  # type: ignore[return-value]
 
     def m_as(self, units: UnitsLike) -> R:
@@ -94,30 +108,94 @@ class Quantity(Generic[T, R]):
         ----------
         units : UnitsLike
             The units to convert to. Can be a string or an existing unit instance.
+
+        Examples
+        --------
+        ```python
+        assert Quantity("1000 meter").m_as("km") == 1
+        ```
         """
         factor, _units = self._get_units(units)
         return self.__inner.m_as(_units, factor=factor)  # type: ignore[return-value]
 
     @property
     def units(self) -> Unit:
-        """Return the units of this quantity."""
+        """Return the units of this quantity.
+
+        Examples
+        --------
+        ```python
+        assert Quantity("1 meter").units == units.meter
+        ```
+        """
         return self.__inner.units
 
     @property
     def u(self) -> Unit:
-        """Return the units of this quantity."""
+        """Return the units of this quantity.
+
+        Examples
+        --------
+        ```python
+        assert Quantity("1 meter").u == units.meter
+        ```
+        """
         return self.__inner.u
 
     def to(self, units: str | Unit) -> Quantity[T, R]:
+        """Return a copy of this quantity converted to the target units.
+
+        Examples
+        --------
+        ```python
+        assert Quantity("1000 meter").to("km") == Quantity("1 km")
+        ```
+        """
         factor, _units = self._get_units(units)
         new = object.__new__(Quantity)
         new.__inner = self.__inner.to(_units, factor=factor)
         return new
 
     def ito(self, units: str | Unit) -> Quantity[T, R]:
+        """In-place convert this quantity to the target units.
+
+        Examples
+        --------
+        ```python
+        q = Quantity("1000 meter")
+        q.ito("km")
+        assert q == Quantity("1 km")
+        ```
+        """
         factor, _units = self._get_units(units)
         self.__inner.ito(_units, factor=factor)
         return self
+
+    def to_root_units(self) -> Quantity[T, R]:
+        """Return a copy of this quantity converted to root units.
+
+        Examples
+        --------
+        ```python
+        assert Quantity("1 kilometer / hour").to_root_units() == Quantity("3.6 meter / second")
+        ```
+        """
+        new = object.__new__(Quantity)
+        new.__inner = self.__inner.to_root_units()
+        return new
+
+    def ito_root_units(self) -> None:
+        """In-place convert this quantity to root units.
+
+        Examples
+        --------
+        ```python
+        q = Quantity("1 kilometer / hour")
+        q.ito_root_units()
+        assert q == Quantity("3.6 meter / second")
+        ```
+        """
+        self.__inner.ito_root_units()
 
     # ==================================================
     # Standard dunder methods

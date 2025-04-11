@@ -30,6 +30,22 @@ def test_conversion(
     assert value == expected
 
 
+@pytest.mark.parametrize(
+    argnames=("value", "expected"),
+    argvalues=(
+        (Q("1 km"), Q("1000 m")),
+        (Q("1 km / hour"), Q(1000 / 60 / 60, "m / s")),
+        (Q("1 km * hour"), Q(1000 * 60 * 60, "m * s")),
+    ),
+)
+def test_to_root_units(value: Q, expected: Q) -> None:
+    assert value.to_root_units() == expected
+
+    # in-place
+    value.ito_root_units()
+    assert value == expected
+
+
 def test_eq() -> None:
     """`==` operator works."""
     assert Q(1) == Q(1)

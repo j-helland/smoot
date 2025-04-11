@@ -220,7 +220,7 @@ mod test_expression_parser {
     )]
     #[case(
         "(meter / second) * (second / meter)",
-        Some(Unit::new(vec![], vec![]))
+        Some(Unit::new_dimensionless())
         ; "Simplification"
     )]
     #[case(
@@ -329,7 +329,7 @@ mod test_expression_parser {
         "1 meter / 1 kilometer",
         Some(Quantity::new(
             1e-3,
-            Unit::new(vec![], vec![]),
+            Unit::new_dimensionless(),
         ))
         ; "Division with conversion"
     )]
@@ -337,7 +337,7 @@ mod test_expression_parser {
         "1 kilometer / 1 meter",
         Some(Quantity::new(
             1e3,
-            Unit::new(vec![], vec![]),
+            Unit::new_dimensionless(),
         ))
         ; "Division with conversion flipped"
     )]

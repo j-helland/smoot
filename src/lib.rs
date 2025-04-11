@@ -64,6 +64,18 @@ macro_rules! create_unit_type {
                 self.inner.is_dimensionless()
             }
 
+            fn to_root_units(&self) -> Self {
+                let mut new = Self {
+                    inner: self.inner.clone(),
+                };
+                let _ = new.inner.ito_root_units();
+                new
+            }
+
+            fn ito_root_units(&mut self) {
+                self.inner.ito_root_units();
+            }
+
             fn __str__(&self) -> String {
                 self.inner
                     .get_units_string()
@@ -199,6 +211,16 @@ macro_rules! create_quantity_type {
                 self.inner
                     .m_as(&unit.inner, factor)
                     .map_err(|e| PyValueError::new_err(e.to_string()))
+            }
+
+            fn to_root_units(&self) -> Self {
+                let mut new = self.clone();
+                new.inner.ito_root_units();
+                new
+            }
+
+            fn ito_root_units(&mut self) {
+                self.inner.ito_root_units();
             }
 
             fn mul_scalar(&self, scalar: $base_type) -> Self {
@@ -477,6 +499,16 @@ macro_rules! create_array_quantity_type {
                     .m_as(&unit.inner, factor)
                     .map(|arr| PyArray::from_array(py, &arr))
                     .map_err(|e| PyValueError::new_err(e.to_string()))
+            }
+
+            fn to_root_units(&self) -> Self {
+                let mut new = self.clone();
+                new.inner.ito_root_units();
+                new
+            }
+
+            fn ito_root_units(&mut self) {
+                self.inner.ito_root_units();
             }
 
             //==================================================

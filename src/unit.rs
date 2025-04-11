@@ -12,7 +12,7 @@ use crate::{
     base_unit::{BaseUnit, DimensionType, DIMENSIONLESS},
     error::{SmootError, SmootResult},
     parser::expression_parser,
-    registry::Registry,
+    registry::{Registry, REGISTRY},
     utils::{float_eq_rel, ApproxEq},
 };
 
@@ -43,14 +43,18 @@ impl Unit {
         unit
     }
 
+    pub fn new_dimensionless() -> Self {
+        Self::new(vec![], vec![])
+    }
+
     /// Integer power operation that creates a new unit.
     pub fn powi(&self, n: i32) -> Self {
         if self.denominator_dimension == DIMENSIONLESS && self.numerator_dimension == DIMENSIONLESS
         {
-            return Self::new(vec![], vec![]);
+            return Self::new_dimensionless();
         }
         match n {
-            0 => Self::new(vec![], vec![]),
+            0 => Self::new_dimensionless(),
             1 => self.clone(),
             -1 => Self::new(self.denominator_units.clone(), self.numerator_units.clone()),
             _ => self.powf(n.into()),
@@ -64,7 +68,7 @@ impl Unit {
             return;
         }
         match n {
-            0 => *self = Self::new(vec![], vec![]),
+            0 => *self = Self::new_dimensionless(),
             1 => {}
             -1 => {
                 swap(&mut self.numerator_units, &mut self.denominator_units);
@@ -423,6 +427,23 @@ impl Unit {
         result_conversion_factor
     }
 
+    pub fn ito_root_units(&mut self) -> f64 {
+        let mut factor = 1.0;
+
+        self.numerator_units.iter_mut().for_each(|u| {
+            factor *= u.get_multiplier();
+            let root = REGISTRY.get_root_unit(&u.unit_type);
+            *u = u.power.map_or_else(|| root.clone(), |p| root.powf(p));
+        });
+        self.denominator_units.iter_mut().for_each(|u| {
+            factor /= u.get_multiplier();
+            let root = REGISTRY.get_root_unit(&u.unit_type);
+            *u = u.power.map_or_else(|| root.clone(), |p| root.powf(p));
+        });
+
+        factor
+    }
+
     fn get_dimension_mask(units: &[BaseUnit]) -> DimensionType {
         units.iter().fold(0, |d, u| d | u.unit_type)
     }
@@ -456,7 +477,7 @@ impl Unit {
     pub fn parse(registry: &Registry, s: &str) -> SmootResult<(f64, Self)> {
         if s == "dimensionless" {
             // Make sure to return an empty unit container.
-            return Ok((1.0, Self::new(vec![], vec![])));
+            return Ok((1.0, Self::new_dimensionless()));
         }
         expression_parser::unit_expression(s, registry)
             .map(|mut u| {
@@ -580,8 +601,8 @@ mod test_unit {
         LazyLock::new(|| REGISTRY.get_unit("watt").expect("No unit 'watt'"));
 
     #[case(
-        Unit::new(vec![], vec![]),
-        Unit::new(vec![], vec![]),
+        Unit::new_dimensionless(),
+        Unit::new_dimensionless(),
         Some(1.0)
         ; "Trivial conversion factor"
     )]
@@ -614,7 +635,7 @@ mod test_unit {
     }
 
     #[case(
-        Unit::new(vec![], vec![]),
+        Unit::new_dimensionless(),
         None
         ; "Dimensionless"
     )]
@@ -847,8 +868,8 @@ mod test_unit {
 
     // #[test]
     #[case(
-        Unit::new(vec![], vec![]),
-        Unit::new(vec![], vec![]),
+        Unit::new_dimensionless(),
+        Unit::new_dimensionless(),
         true
         ; "Trivial"
     )]
@@ -901,16 +922,16 @@ mod test_unit {
     #[test]
     fn test_is_compatible_with_incompatible_units() {
         let u1 = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
-        let u2 = Unit::new(vec![], vec![]);
+        let u2 = Unit::new_dimensionless();
         assert!(!u1.is_compatible_with(&u2));
     }
 
     #[test]
     /// Dimensionless units should be self-compatible.
     fn test_is_compatible_with_dimensionless() {
-        let u1: Unit = Unit::new(vec![], vec![]);
+        let u1: Unit = Unit::new_dimensionless();
         // This is equivalent to a dimensionless unit.
-        let u2: Unit = Unit::new(vec![], vec![]);
+        let u2: Unit = Unit::new_dimensionless();
         assert!(u1.is_compatible_with(&u2));
     }
 
@@ -929,5 +950,40 @@ mod test_unit {
         let u1 = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
         let u2 = Unit::new(vec![UNIT_METER.powf(0.5)], vec![]);
         assert!(!u1.is_compatible_with(&u2));
+    }
+
+    #[case(
+        Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![BaseUnit::clone(&UNIT_METER)]),
+        Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![BaseUnit::clone(&UNIT_METER)]),
+        1.0
+        ; "noop"
+    )]
+    #[case(
+        Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]),
+        Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]),
+        1e3
+        ; "numerator"
+    )]
+    #[case(
+        Unit::new(vec![], vec![BaseUnit::clone(&UNIT_KILOMETER)]),
+        Unit::new(vec![], vec![BaseUnit::clone(&UNIT_METER)]),
+        1e-3
+        ; "denominator"
+    )]
+    #[case(
+        Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER), BaseUnit::clone(&UNIT_MINUTE)], vec![]),
+        Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![]),
+        1e3 * 60.0
+        ; "multiple units"
+    )]
+    #[case(
+        Unit::new_dimensionless(),
+        Unit::new_dimensionless(),
+        1.0
+        ; "dimensionless"
+    )]
+    fn test_ito_root_unit(mut unit: Unit, expected: Unit, expected_factor: f64) {
+        assert_is_close!(unit.ito_root_units(), expected_factor);
+        assert_eq!(unit, expected);
     }
 }
