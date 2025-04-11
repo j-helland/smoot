@@ -330,7 +330,7 @@ class Quantity(Generic[T, R]):
 
         new = object.__new__(Quantity)
         if type(self.__inner) is ArrayF64Quantity:
-            new.__inner = self.__inner.arr_pow(other_inner)  # type: ignore[union-attr]
+            new.__inner = self.__inner.arr_pow(other_inner)  # type: ignore[arg-type]
         else:
             new.__inner = self.__inner.__pow__(other_inner.magnitude, modulo)  # type: ignore[arg-type, operator]
         return new
@@ -388,7 +388,7 @@ class Quantity(Generic[T, R]):
         method: str,
         *inputs: Self,
         **kwargs: Any,
-    ) -> None | type(NotImplemented) | Quantity[T, R]:
+    ) -> None | type(NotImplemented) | Quantity[T, R]:  # type: ignore[valid-type]
         if method != "__call__":
             return NotImplemented
 
@@ -402,7 +402,7 @@ class Quantity(Generic[T, R]):
         )
 
     # ==================================================
-    # utils
+    # private utils
     # ==================================================
     def _get_quantity(self, other: Any) -> Quantity:
         if isinstance(other, Quantity):

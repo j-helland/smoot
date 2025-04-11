@@ -300,7 +300,6 @@ impl Registry {
             dimensions.insert(def.dimension, next_dimension);
             next_dimension <<= 1;
         });
-        println!("{:#?}", self.root_units);
 
         //==================================================
         // Evaluate unit definitions

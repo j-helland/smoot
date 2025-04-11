@@ -399,10 +399,10 @@ impl Unit {
                 denominator_retain[iden] = false;
             } else if u1_power < u2_power {
                 numerator_retain[inum] = false;
-                u2.ipowf(u2_power - u1_power);
+                u2.sub_power(u1_power);
             } else if u1_power > u2_power {
                 denominator_retain[iden] = false;
-                u1.ipowf(u1_power - u2_power);
+                u1.sub_power(u2_power);
             }
 
             inum += 1;
@@ -850,6 +850,34 @@ mod test_unit {
 
         assert_eq!(u.numerator_units, vec![BaseUnit::clone(&UNIT_SECOND)]);
         assert!(u.denominator_units.is_empty());
+    }
+
+    /// Numerator units with exponents are correctly simplified.
+    #[test]
+    fn test_simplify_adjusts_numerator_powers() {
+        let mut u = Unit::new(
+            vec![UNIT_METER.powf(2.0)],
+            vec![BaseUnit::clone(&UNIT_METER)],
+        );
+        let expected = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+
+        let _ = u.simplify(true);
+
+        assert_eq!(u, expected);
+    }
+
+    /// Denominator units with exponents are correctly simplified.
+    #[test]
+    fn test_simplify_adjusts_denominator_powers() {
+        let mut u = Unit::new(
+            vec![BaseUnit::clone(&UNIT_METER)],
+            vec![UNIT_METER.powf(2.0)],
+        );
+        let expected = Unit::new(vec![], vec![BaseUnit::clone(&UNIT_METER)]);
+
+        let _ = u.simplify(true);
+
+        assert_eq!(u, expected);
     }
 
     #[test]

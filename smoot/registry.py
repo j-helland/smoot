@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Any
 
 from .smoot import Unit, get_registry_size, get_all_registry_keys
 
@@ -26,7 +25,7 @@ class UnitRegistry:
         self._cache[expression] = res
         return res
 
-    def __getattribute__(self, name: str) -> Any:
+    def __getattribute__(self, name: str) -> Unit:
         if name in UnitRegistry.__slots__:
             return object.__getattribute__(self, name)
 

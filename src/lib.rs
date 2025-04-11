@@ -44,6 +44,7 @@ fn get_all_registry_keys() -> Vec<String> {
 macro_rules! create_unit_type {
     ($name_unit: ident, $base_type: ident) => {
         #[pyclass(module = "smoot.smoot")]
+        #[derive(Clone)]
         struct $name_unit {
             inner: unit::Unit,
         }
@@ -65,9 +66,7 @@ macro_rules! create_unit_type {
             }
 
             fn to_root_units(&self) -> Self {
-                let mut new = Self {
-                    inner: self.inner.clone(),
-                };
+                let mut new = self.clone();
                 let _ = new.inner.ito_root_units();
                 new
             }
@@ -91,9 +90,7 @@ macro_rules! create_unit_type {
             }
 
             fn __mul__(&self, other: &Self) -> Self {
-                let mut new = Self {
-                    inner: self.inner.clone(),
-                };
+                let mut new = self.clone();
                 new.inner *= &other.inner;
                 let _ = new.inner.reduce();
                 new
@@ -105,9 +102,7 @@ macro_rules! create_unit_type {
             }
 
             fn __truediv__(&self, other: &Self) -> Self {
-                let mut new = Self {
-                    inner: self.inner.clone(),
-                };
+                let mut new = self.clone();
                 new.inner /= &other.inner;
                 let _ = new.inner.reduce();
                 new
@@ -119,9 +114,7 @@ macro_rules! create_unit_type {
             }
 
             fn __pow__(&self, p: f64, _modulo: Option<i64>) -> Self {
-                let mut new = Self {
-                    inner: self.inner.clone(),
-                };
+                let mut new = self.clone();
                 new.inner.ipowf(p);
                 let _ = new.inner.reduce();
                 new
@@ -338,9 +331,7 @@ macro_rules! create_quantity_type {
 
             #[pyo3(signature = (ndigits=None))]
             fn __round__(&self, ndigits: Option<i32>) -> Self {
-                let mut new = Self {
-                    inner: self.inner.clone(),
-                };
+                let mut new = self.clone();
                 new.inner.magnitude = new.inner.magnitude.round_digits(ndigits.unwrap_or(0));
                 new
             }
@@ -350,25 +341,19 @@ macro_rules! create_quantity_type {
             }
 
             fn __floor__(&self) -> Self {
-                let mut new = Self {
-                    inner: self.inner.clone(),
-                };
+                let mut new = self.clone();
                 new.inner.magnitude = new.inner.magnitude.floor();
                 new
             }
 
             fn __ceil__(&self) -> Self {
-                let mut new = Self {
-                    inner: self.inner.clone(),
-                };
+                let mut new = self.clone();
                 new.inner.magnitude = new.inner.magnitude.ceil();
                 new
             }
 
             fn __abs__(&self) -> Self {
-                let mut new = Self {
-                    inner: self.inner.clone(),
-                };
+                let mut new = self.clone();
                 new.inner.magnitude = new.inner.magnitude.abs();
                 new
             }

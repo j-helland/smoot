@@ -2,7 +2,10 @@ use std::ops::{Div, DivAssign, Mul, MulAssign};
 
 use bitcode::{Decode, Encode};
 
-use crate::error::{SmootError, SmootResult};
+use crate::{
+    error::{SmootError, SmootResult},
+    utils::ApproxEq,
+};
 
 pub type DimensionType = u64;
 pub const DIMENSIONLESS: DimensionType = 0;
@@ -78,6 +81,10 @@ impl BaseUnit {
         self.dimensionality.iter_mut().for_each(|d| *d *= n);
     }
 
+    pub fn sub_dimensionality(&mut self, n: f64) {
+        self.dimensionality.iter_mut().for_each(|d| *d -= n);
+    }
+
     /// Get the multiplicative factor associated with this base unit.
     pub fn get_multiplier(&self) -> f64 {
         self.power
@@ -113,6 +120,16 @@ impl BaseUnit {
         let mut new = self.clone();
         new.ipowf(n);
         new
+    }
+
+    pub fn sub_power(&mut self, p: f64) {
+        let new_power = self.power.unwrap_or(1.0) - p;
+        if new_power.approx_eq(1.0) {
+            self.power = None;
+        } else {
+            self.power = Some(new_power);
+        }
+        self.sub_dimensionality(p);
     }
 }
 
