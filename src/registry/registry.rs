@@ -169,7 +169,7 @@ impl Registry {
                         new_name.into(),
                         ParseTree::new(
                             Operator::Mul.into(),
-                            ParseTree::from(prefix_def.multiplier),
+                            prefix_def.multiplier.into(),
                             name.clone().into(),
                         ),
                     ),
@@ -435,7 +435,7 @@ impl Registry {
         tree: &'a ParseTree,
         unit_defs: &HashMap<String, UnitDefinition>,
         prefix_defs: &'a HashMap<&'a str, PrefixDefinition<'a>>,
-    ) -> Result<BaseUnit, SmootError> {
+    ) -> SmootResult<BaseUnit> {
         if tree.left.is_none() && tree.right.is_none() {
             // Leaf
             let unit = match &tree.val {
@@ -454,6 +454,7 @@ impl Registry {
             return Ok(unit);
         }
         if tree.right.is_none() || tree.left.is_none() {
+            // TODO(jwh): make proper error
             panic!("Intermediate node {:?} has a None child", tree.val);
         }
 
@@ -474,23 +475,29 @@ impl Registry {
         let mut left_unit = BaseUnit::clone(&left_unit);
 
         if let NodeData::Op(op) = &tree.val {
-            return Ok(match op {
+            return match op {
                 Operator::Div => {
                     left_unit /= right_unit;
-                    left_unit
+                    Ok(left_unit)
                 }
                 Operator::Mul => {
                     left_unit *= right_unit;
-                    left_unit
+                    Ok(left_unit)
                 }
                 Operator::Pow => {
                     // We should never have an expression like `meter ** seconds`, only numerical exponents like `meter ** 2`.
-                    // TODO: check this during parsing
+                    if !right_unit.name.is_empty() {
+                        return Err(SmootError::InvalidOperator(
+                            lineno,
+                            format!("{} ** {}", left_unit.name, right_unit.name),
+                        ));
+                    }
                     left_unit.multiplier = left_unit.multiplier.powf(right_unit.multiplier);
-                    left_unit
+                    left_unit.mul_dimensionality(right_unit.multiplier);
+                    Ok(left_unit)
                 }
-                _ => panic!("Invalid operator: {:?}", op),
-            });
+                _ => Err(SmootError::InvalidOperator(lineno, format!("{:?}", op))),
+            };
         }
         unreachable!();
     }
@@ -512,7 +519,7 @@ mod test_registry {
     fn test_registry_loads_default() -> SmootResult<()> {
         Registry::clear_cache();
         let _ = Registry::default()?;
-        // Second load should be from cached file
+        // Second load from cached file
         let _ = Registry::default()?;
         Ok(())
     }

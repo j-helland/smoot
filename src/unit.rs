@@ -12,10 +12,10 @@ use num_traits::ToPrimitive;
 use crate::{
     base_unit::{BaseUnit, DimensionType, DIMENSIONLESS},
     error::{SmootError, SmootResult},
+    hash::Hash,
     parser::expression_parser,
     registry::{Registry, REGISTRY},
     utils::{float_eq_rel, ApproxEq},
-    hash::Hash,
 };
 
 type UnitDimensionality<N> = Vec<N>;
@@ -583,7 +583,11 @@ impl Sub for Unit {
 #[cfg(test)]
 mod test_unit {
     use super::*;
-    use std::{f64, hash::{DefaultHasher, Hasher}, sync::LazyLock};
+    use std::{
+        f64,
+        hash::{DefaultHasher, Hasher},
+        sync::LazyLock,
+    };
     use test_case::case;
 
     use crate::{assert_is_close, registry::REGISTRY};
@@ -1020,7 +1024,10 @@ mod test_unit {
 
     #[test]
     fn test_hash() {
-        let u1 = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![BaseUnit::clone(&UNIT_SECOND)]);
+        let u1 = Unit::new(
+            vec![BaseUnit::clone(&UNIT_METER)],
+            vec![BaseUnit::clone(&UNIT_SECOND)],
+        );
         assert_eq!(hash(&u1), hash(&u1.clone()));
 
         let u2 = u1.powi(-1);

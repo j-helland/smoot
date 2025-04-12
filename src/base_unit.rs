@@ -1,8 +1,8 @@
 use std::ops::{Div, DivAssign, Mul, MulAssign};
 
+use crate::hash::Hash;
 use bitcode::{Decode, Encode};
 use hashable::Hashable;
-use crate::hash::Hash;
 
 use crate::{
     error::{SmootError, SmootResult},
@@ -143,9 +143,6 @@ impl Mul for BaseUnit {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        if self.power.is_some() || rhs.power.is_some() {
-            panic!("Cannot multiply base units with exponents");
-        }
         let mut new = self.clone();
         new *= rhs;
         new
@@ -154,10 +151,7 @@ impl Mul for BaseUnit {
 
 impl MulAssign for BaseUnit {
     fn mul_assign(&mut self, rhs: Self) {
-        if self.power.is_some() || rhs.power.is_some() {
-            panic!("Cannot multiply base units with exponents");
-        }
-        self.multiplier *= rhs.multiplier;
+        self.multiplier *= rhs.get_multiplier();
         self.unit_type |= rhs.unit_type;
 
         self.dimensionality.extend(
@@ -168,7 +162,7 @@ impl MulAssign for BaseUnit {
                 .map(|_| 0.0),
         );
         for i in 0..self.dimensionality.len().min(rhs.dimensionality.len()) {
-            if self.dimensionality[i] > 0.0 || rhs.dimensionality[i] > 0.0 {
+            if !self.dimensionality[i].approx_eq(0.0) || !rhs.dimensionality[i].approx_eq(0.0) {
                 self.dimensionality[i] += rhs.dimensionality[i];
             }
         }
@@ -179,9 +173,6 @@ impl Div for BaseUnit {
     type Output = Self;
 
     fn div(self, rhs: Self) -> Self::Output {
-        if self.power.is_some() || rhs.power.is_some() {
-            panic!("Cannot divide base units with exponents");
-        }
         let mut new = self.clone();
         new /= rhs;
         new
@@ -190,10 +181,7 @@ impl Div for BaseUnit {
 
 impl DivAssign for BaseUnit {
     fn div_assign(&mut self, rhs: Self) {
-        if self.power.is_some() || rhs.power.is_some() {
-            panic!("Cannot divide base units with exponents");
-        }
-        self.multiplier /= rhs.multiplier;
+        self.multiplier /= rhs.get_multiplier();
         self.unit_type |= rhs.unit_type;
 
         self.dimensionality.extend(
@@ -204,7 +192,7 @@ impl DivAssign for BaseUnit {
                 .map(|_| 0.0),
         );
         for i in 0..self.dimensionality.len().min(rhs.dimensionality.len()) {
-            if self.dimensionality[i] > 0.0 || rhs.dimensionality[i] > 0.0 {
+            if !self.dimensionality[i].approx_eq(0.0) || !rhs.dimensionality[i].approx_eq(0.0) {
                 self.dimensionality[i] -= rhs.dimensionality[i];
             }
         }

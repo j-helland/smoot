@@ -1,4 +1,7 @@
-use std::{hash::{Hash as StdHash, Hasher}, marker::PhantomData};
+use std::{
+    hash::{Hash as StdHash, Hasher},
+    marker::PhantomData,
+};
 
 use numpy::ndarray::ArrayD;
 
@@ -33,7 +36,7 @@ impl<T: Hash> Hash for Vec<T> {
 }
 
 impl<T: Hash> Hash for PhantomData<T> {
-    fn hash<H: Hasher>(&self, _state: &mut H) { 
+    fn hash<H: Hasher>(&self, _state: &mut H) {
         // noop
     }
 }

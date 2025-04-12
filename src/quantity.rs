@@ -12,12 +12,12 @@ use numpy::{
 
 use crate::{
     error::{SmootError, SmootResult},
+    hash::Hash,
     parser::expression_parser,
     registry::Registry,
     types::Number,
     unit::Unit,
     utils::{ConvertMagnitude, Powf, Powi},
-    hash::Hash,
 };
 
 pub trait Storage<N: Number>: Mul<N, Output = Self> + MulAssign<N> + Clone + Sized {}
@@ -831,7 +831,10 @@ unit_div!(f64);
 //==================================================
 #[cfg(test)]
 mod test_quantity {
-    use std::{hash::{DefaultHasher, Hasher}, sync::LazyLock};
+    use std::{
+        hash::{DefaultHasher, Hasher},
+        sync::LazyLock,
+    };
 
     use numpy::ndarray::Array;
 
@@ -1253,7 +1256,13 @@ mod test_quantity {
 
     #[test]
     fn test_hash() {
-        let q1 = Quantity::new(1.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![BaseUnit::clone(&UNIT_SECOND)]));
+        let q1 = Quantity::new(
+            1.0,
+            Unit::new(
+                vec![BaseUnit::clone(&UNIT_METER)],
+                vec![BaseUnit::clone(&UNIT_SECOND)],
+            ),
+        );
         assert_eq!(hash(&q1), hash(&q1.clone()));
 
         let q2 = q1.clone().powi(-1);

@@ -305,6 +305,28 @@ mod test_unit_parser {
         ))
         ; "Associativity"
     )]
+    #[case(
+        "meter ** 2",
+        Some(ParseTree::new(
+            Operator::Pow.into(),
+            "meter".into(),
+            2.into(),
+        ))
+        ; "Power"
+    )]
+    #[case(
+        "1 / second ** 2",
+        Some(ParseTree::new(
+            Operator::Div.into(),
+            1.into(),
+            ParseTree::new(
+                Operator::Pow.into(),
+                "second".into(),
+                2.into(),
+            ),
+        ))
+        ; "Inverted power"
+    )]
     fn test_unit_expression(
         expression: &str,
         expected: Option<ParseTree>,
