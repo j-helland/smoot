@@ -6,7 +6,8 @@ static GLOBAL: MiMalloc = MiMalloc;
 use bitcode::{Decode, Encode};
 use numpy::{ndarray::ArrayD, PyArray, PyArrayDyn, PyArrayMethods};
 use pyo3::{
-    exceptions::{PyRuntimeError, PyValueError},
+    create_exception,
+    exceptions::{PyException, PyRuntimeError, PyValueError},
     prelude::*,
 };
 use pyo3::{
@@ -35,6 +36,14 @@ mod utils;
 #[cfg(test)]
 mod test_utils;
 
+create_exception!("smoot.smoot", SmootError, PyException);
+
+impl From<error::SmootError> for PyErr {
+    fn from(value: error::SmootError) -> Self {
+        SmootError::new_err(value.to_string())
+    }
+}
+
 #[pyfunction]
 fn get_registry_size() -> usize {
     REGISTRY.len()
@@ -56,8 +65,7 @@ macro_rules! create_unit_type {
         impl $name_unit {
             #[staticmethod]
             fn parse(expression: &str) -> PyResult<(f64, Self)> {
-                let (factor, inner) = unit::Unit::parse(&REGISTRY, expression)
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                let (factor, inner) = unit::Unit::parse(&REGISTRY, expression)?;
                 Ok((factor, Self { inner }))
             }
 
@@ -164,11 +172,8 @@ macro_rules! create_quantity_type {
 
             #[staticmethod]
             fn parse(expression: &str) -> PyResult<Self> {
-                let quantity = quantity::Quantity::parse(&REGISTRY, expression)
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
-                Ok(Self {
-                    inner: quantity.into(),
-                })
+                let inner = quantity::Quantity::parse(&REGISTRY, expression)?.into();
+                Ok(Self { inner })
             }
 
             #[getter(m)]
@@ -195,25 +200,18 @@ macro_rules! create_quantity_type {
 
             #[pyo3(signature = (unit, factor=None))]
             fn to(&self, unit: &$name_unit, factor: Option<f64>) -> PyResult<$name_quantity> {
-                let inner = self
-                    .inner
-                    .to(&unit.inner, factor)
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                let inner = self.inner.to(&unit.inner, factor)?;
                 Ok(Self { inner })
             }
 
             #[pyo3(signature = (unit, factor=None))]
             fn ito(&mut self, unit: &$name_unit, factor: Option<f64>) -> PyResult<()> {
-                self.inner
-                    .ito(&unit.inner, factor)
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                Ok(self.inner.ito(&unit.inner, factor)?)
             }
 
             #[pyo3(signature = (unit, factor=None))]
             fn m_as(&self, unit: &$name_unit, factor: Option<f64>) -> PyResult<$storage_type> {
-                self.inner
-                    .m_as(&unit.inner, factor)
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                Ok(self.inner.m_as(&unit.inner, factor)?)
             }
 
             fn to_root_units(&self) -> Self {
@@ -294,15 +292,13 @@ macro_rules! create_quantity_type {
             }
 
             fn __add__(&self, other: &Self) -> PyResult<Self> {
-                (&self.inner + &other.inner)
-                    .map(|inner| Self { inner })
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                let inner = (&self.inner + &other.inner)?;
+                Ok(Self { inner })
             }
 
             fn __sub__(&self, other: &Self) -> PyResult<Self> {
-                (&self.inner - &other.inner)
-                    .map(|inner| Self { inner })
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                let inner = (&self.inner - &other.inner)?;
+                Ok(Self { inner })
             }
 
             fn __mul__(&self, other: &Self) -> Self {
@@ -324,9 +320,8 @@ macro_rules! create_quantity_type {
             }
 
             fn __mod__(&self, other: &Self) -> PyResult<Self> {
-                (self.inner.clone() % &other.inner)
-                    .map(|inner| Self { inner })
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                let inner = (self.inner.clone() % &other.inner)?;
+                Ok(Self { inner })
             }
 
             fn __pow__(&self, other: f64, _modulo: Option<i64>) -> Self {
@@ -471,18 +466,14 @@ macro_rules! create_array_quantity_type {
 
             #[pyo3(signature = (unit, factor=None))]
             fn to(&self, unit: &$unit_type, factor: Option<f64>) -> PyResult<Self> {
-                let new_q = self
-                    .inner
-                    .to(&unit.inner, factor)
-                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
-                Ok(Self { inner: new_q })
+                let inner = self.inner.to(&unit.inner, factor)?;
+                Ok(Self { inner })
             }
 
             #[pyo3(signature = (unit, factor=None))]
             fn ito(&mut self, unit: &$unit_type, factor: Option<f64>) -> PyResult<()> {
-                self.inner
-                    .ito(&unit.inner, factor)
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                self.inner.ito(&unit.inner, factor)?;
+                Ok(())
             }
 
             #[pyo3(signature = (unit, factor=None))]
@@ -492,10 +483,8 @@ macro_rules! create_array_quantity_type {
                 unit: &$unit_type,
                 factor: Option<f64>,
             ) -> PyResult<Bound<'py, PyArrayDyn<$base_type>>> {
-                self.inner
-                    .m_as(&unit.inner, factor)
-                    .map(|arr| PyArray::from_array(py, &arr))
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                let arr = self.inner.m_as(&unit.inner, factor)?;
+                Ok(PyArray::from_array(py, &arr))
             }
 
             fn to_root_units(&self) -> Self {
@@ -544,22 +533,20 @@ macro_rules! create_array_quantity_type {
                 py: Python<'py>,
                 other: &Self,
             ) -> PyResult<Bound<'py, PyArrayDyn<bool>>> {
-                self.inner
+                Ok(self
+                    .inner
                     .approx_eq(&other.inner)
-                    .map(|arr| PyArray::from_array(py, &arr))
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                    .map(|arr| PyArray::from_array(py, &arr))?)
             }
 
             fn __add__(&self, other: &Self) -> PyResult<Self> {
-                (self.inner.clone() + &other.inner)
-                    .map(|inner| Self { inner })
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                let inner = (self.inner.clone() + &other.inner)?;
+                Ok(Self { inner })
             }
 
             fn __sub__(&self, other: &Self) -> PyResult<Self> {
-                (self.inner.clone() - &other.inner)
-                    .map(|inner| Self { inner })
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                let inner = (self.inner.clone() - &other.inner)?;
+                Ok(Self { inner })
             }
 
             fn __mul__(&self, other: &Self) -> Self {
@@ -581,9 +568,8 @@ macro_rules! create_array_quantity_type {
             }
 
             fn __mod__(&self, other: &Self) -> PyResult<Self> {
-                (&self.inner % &other.inner)
-                    .map(|inner| Self { inner })
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                let inner = (&self.inner % &other.inner)?;
+                Ok(Self { inner })
             }
 
             fn __pow__(&self, other: f64, _modulo: Option<i64>) -> Self {
@@ -594,18 +580,13 @@ macro_rules! create_array_quantity_type {
 
             /// Element-wise power
             fn arr_pow(&self, other: &Self) -> PyResult<Self> {
-                self.inner
-                    .arr_pow(&other.inner)
-                    .map(|inner| Self { inner })
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                let inner = self.inner.arr_pow(&other.inner)?;
+                Ok(Self { inner })
             }
 
             fn __matmul__(&self, other: &Self) -> PyResult<Self> {
-                self.inner
-                    .clone()
-                    .dot(&other.inner)
-                    .map(|inner| Self { inner })
-                    .map_err(|e| PyValueError::new_err(e.to_string()))
+                let inner = self.inner.clone().dot(&other.inner)?;
+                Ok(Self { inner })
             }
 
             fn __neg__(&self) -> Self {

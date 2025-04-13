@@ -14,7 +14,6 @@ pub const DIMENSIONLESS: DimensionType = 0;
 
 #[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
 pub struct BaseUnit {
-    // TODO(jwh): remove pub
     pub name: String,
     pub multiplier: f64,
     pub power: Option<f64>,

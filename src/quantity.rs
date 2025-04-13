@@ -131,7 +131,7 @@ impl Quantity<f64, f64> {
                 q.ito_reduced_units();
                 q
             })
-            .map_err(|_| SmootError::InvalidQuantityExpression(0, s.to_string()))
+            .map_err(|_| SmootError::ExpressionError(format!("Invalid quantity expression {}", s)))
     }
 }
 

@@ -59,17 +59,32 @@ impl Registry {
 
         std::fs::File::create(Self::REGISTRY_CACHE_FILE)
             .and_then(|mut f| f.write(&bitcode::encode(&new)))
-            .map_err(|_| SmootError::FailedToWriteCache(Self::REGISTRY_CACHE_FILE))
+            .map_err(|e| {
+                SmootError::CacheError(format!(
+                    "Failed to write cache file {}: {}",
+                    Self::REGISTRY_CACHE_FILE,
+                    e
+                ))
+            })
             .map(|_| new)
     }
 
     fn load_from_cache(data: &[u8]) -> SmootResult<Self> {
-        let registry = bitcode::decode::<Registry>(data)
-            .map_err(|_| SmootError::FailedToDecodeCache(Self::REGISTRY_CACHE_FILE))?;
+        let registry = bitcode::decode::<Registry>(data).map_err(|e| {
+            SmootError::CacheError(format!(
+                "Failed to decode cache file {}: {}",
+                Self::REGISTRY_CACHE_FILE,
+                e
+            ))
+        })?;
 
         let checksum = std::fs::read(Self::DEFAULT_UNITS_FILE)
-            .map_err(|_| {
-                SmootError::FailedToReadUnitDefinitions(Self::DEFAULT_UNITS_FILE.to_string())
+            .map_err(|e| {
+                SmootError::FileError(format!(
+                    "Failed to load unit definitions file {}: {}",
+                    Self::DEFAULT_UNITS_FILE,
+                    e
+                ))
             })
             .map(|data| Self::compute_checksum(&data))?;
 
@@ -153,18 +168,18 @@ impl Registry {
             } else if let Ok(expr) = registry_parser::derived_dimension(line) {
                 if let NodeData::Op(Operator::Assign) = &expr.val {
                     if let NodeData::Dimension(dimension) = &expr.left.as_ref().unwrap().val {
-                        // TODO: handle better
                         if let Some(overwrite) = derived_dim_defs.insert(dimension.clone(), expr) {
-                            panic!(
-                                "Line '{}' overwrote previous derived dimension {:?}",
-                                line, overwrite
-                            );
+                            return Err(SmootError::DimensionError(format!(
+                                "line:{} Line '{}' overwrote previous derived dimension {:?}",
+                                lineno, line, overwrite
+                            )));
                         }
                     } else {
-                        panic!(
-                            "Derived dimension expression {} does not assign to a dimension",
+                        return Err(SmootError::DimensionError(format!(
+                            "line:{} Derived dimension expression {} does not assign to a dimension",
+                            lineno,
                             line
-                        );
+                        )));
                     }
                 }
             } else if let Ok(prefix_def) = registry_parser::prefix_definition(line, lineno) {
@@ -347,15 +362,13 @@ impl Registry {
     {
         match map.entry(key) {
             Entry::Vacant(entry) => Ok(entry.insert(val)),
-            Entry::Occupied(entry) => Err(SmootError::ConflictingDefiniition(
+            Entry::Occupied(entry) => Err(SmootError::ExpressionError(format!(
+                "line:{} Attempted to overwrite value {:?}\nwith {:?}:{:?}",
                 lineno,
-                format!(
-                    "Attempted to overwrite value {:?}\nwith {:?}:{:?}",
-                    entry.get(),
-                    entry.key(),
-                    val
-                ),
-            )),
+                entry.get(),
+                entry.key(),
+                val
+            ))),
         }
     }
 
@@ -414,10 +427,10 @@ impl Registry {
                 // Generated alias expressions like `@alias km = kilometer` should use the rhs name `kilometer` for consistency.
                 NodeData::Op(Operator::AssignAlias) => unit,
                 _ => {
-                    return Err(SmootError::InvalidUnitExpression(
-                        def.lineno,
-                        format!("{:#?}", def.expression),
-                    ))
+                    return Err(SmootError::ExpressionError(format!(
+                        "line:{} Invalid unit expression {:#?}",
+                        def.lineno, def.expression,
+                    )));
                 }
             };
 
@@ -438,11 +451,14 @@ impl Registry {
             return Ok(self.units.get(symbol).unwrap());
         }
 
-        let def = unit_defs
-            .get(symbol)
-            .ok_or_else(|| SmootError::UnknownUnit(lineno, symbol.into()))?;
+        let def = unit_defs.get(symbol).ok_or_else(|| {
+            SmootError::ExpressionError(format!("line:{} Unknown unit {}", lineno, symbol))
+        })?;
         let rtree = def.expression.right.as_ref().ok_or_else(|| {
-            SmootError::InvalidUnitExpression(lineno, "Missing right expression tree".into())
+            SmootError::ExpressionError(format!(
+                "line:{} Unit expression missing right expression tree",
+                lineno
+            ))
         })?;
 
         // Make sure the official name is correct
@@ -471,17 +487,26 @@ impl Registry {
                     .get_or_create_unit(lineno, symbol, unit_defs, prefix_defs)?
                     .clone(),
                 NodeData::Op(op) => {
-                    return Err(SmootError::InvalidOperator(lineno, format!("{:?}", op)));
+                    return Err(SmootError::ParseTreeError(format!(
+                        "line:{} Invalid operator {:?}",
+                        lineno, op
+                    )));
                 }
                 NodeData::Dimension(dim) => {
-                    return Err(SmootError::UnexpectedDimension(lineno, dim.to_owned()));
+                    return Err(SmootError::ParseTreeError(format!(
+                        "line:{} Unexpected dimension {}",
+                        lineno,
+                        dim.to_owned()
+                    )));
                 }
             };
             return Ok(unit);
         }
         if tree.right.is_none() || tree.left.is_none() {
-            // TODO(jwh): make proper error
-            panic!("Intermediate node {:?} has a None child", tree.val);
+            return Err(SmootError::ParseTreeError(format!(
+                "line:{} Intermediate node {:?} has a None child",
+                lineno, tree.val
+            )));
         }
 
         let right_unit = self.eval_expression_tree(
@@ -513,16 +538,19 @@ impl Registry {
                 Operator::Pow => {
                     // We should never have an expression like `meter ** seconds`, only numerical exponents like `meter ** 2`.
                     if !right_unit.name.is_empty() {
-                        return Err(SmootError::InvalidOperator(
-                            lineno,
-                            format!("{} ** {}", left_unit.name, right_unit.name),
-                        ));
+                        return Err(SmootError::ParseTreeError(format!(
+                            "line:{} Invalid operator {} ** {}",
+                            lineno, left_unit.name, right_unit.name
+                        )));
                     }
                     left_unit.multiplier = left_unit.multiplier.powf(right_unit.multiplier);
                     left_unit.mul_dimensionality(right_unit.multiplier);
                     Ok(left_unit)
                 }
-                _ => Err(SmootError::InvalidOperator(lineno, format!("{:?}", op))),
+                _ => Err(SmootError::ParseTreeError(format!(
+                    "line:{} Invalid operator {:?}",
+                    lineno, op
+                ))),
             };
         }
         unreachable!();

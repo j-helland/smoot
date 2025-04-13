@@ -22,14 +22,13 @@ type UnitDimensionality<N> = Vec<N>;
 
 #[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
 pub struct Unit {
-    // TODO(jwh): Remove pub
-    pub numerator_units: Vec<BaseUnit>,
-    pub numerator_dimension: DimensionType,
-    pub numerator_dimensionality: UnitDimensionality<f64>,
+    numerator_units: Vec<BaseUnit>,
+    numerator_dimension: DimensionType,
+    numerator_dimensionality: UnitDimensionality<f64>,
 
-    pub denominator_units: Vec<BaseUnit>,
-    pub denominator_dimension: DimensionType,
-    pub denominator_dimensionality: UnitDimensionality<f64>,
+    denominator_units: Vec<BaseUnit>,
+    denominator_dimension: DimensionType,
+    denominator_dimensionality: UnitDimensionality<f64>,
 }
 
 impl Unit {
@@ -568,7 +567,7 @@ impl Unit {
                 let factor = u.reduce();
                 (factor, u)
             })
-            .map_err(|_| SmootError::InvalidUnitExpression(0, s.into()))
+            .map_err(|_| SmootError::ExpressionError(format!("Invalid unit expression {}", s)))
     }
 }
 

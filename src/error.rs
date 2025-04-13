@@ -14,38 +14,20 @@ pub enum SmootError {
     //==================================================
     // Parsing errors
     //==================================================
-    #[error("line:{0} {1}")]
-    ConflictingDefiniition(usize, String),
+    #[error("{0}")]
+    DimensionError(String),
 
-    #[error("line:{0} Invalid operator {1}")]
-    InvalidOperator(usize, String),
+    #[error("{0}")]
+    ParseTreeError(String),
 
-    #[error("line:{0} Unexpected dimensions {1}")]
-    UnexpectedDimension(usize, String),
+    #[error("{0}")]
+    ExpressionError(String),
 
-    #[error("line:{0} Invalid unit expression {1}")]
-    InvalidUnitExpression(usize, String),
+    #[error("{0}")]
+    CacheError(String),
 
-    #[error("line:{0} Invalid quantity expression {1}")]
-    InvalidQuantityExpression(usize, String),
-
-    #[error("line:{0} Unknown unit {1}")]
-    UnknownUnit(usize, String),
-
-    #[error("Failed to load cache file {0}")]
-    FailedToLoadCache(&'static str),
-
-    #[error("Failed to decode cache file {0}")]
-    FailedToDecodeCache(&'static str),
-
-    #[error("Failed to write cache file {0}")]
-    FailedToWriteCache(&'static str),
-
-    #[error("Failed delete cache file {0}")]
-    FailedToDeleteCache(&'static str),
-
-    #[error("Failed to read unit definitions file: {0}")]
-    FailedToReadUnitDefinitions(String),
+    #[error("{0}")]
+    FileError(String),
 
     //==================================================
     // Array errors

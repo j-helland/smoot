@@ -112,7 +112,7 @@ impl FromStr for Unit {
     fn from_str(s: &str) -> Result<Unit, Self::Err> {
         // TODO(jwh): get cache from non-global scope
         expression_parser::unit_expression(s, &REGISTRY)
-            .map_err(|_e| SmootError::InvalidUnitExpression(0, s.into()))
+            .map_err(|_e| SmootError::ExpressionError(format!("Invalid unit expression {}", s)))
     }
 }
 
@@ -126,7 +126,7 @@ impl FromStr for Quantity<f64, f64> {
                 q.ito_reduced_units();
                 q
             })
-            .map_err(|_| SmootError::InvalidQuantityExpression(0, s.into()))
+            .map_err(|_| SmootError::ExpressionError(format!("Invalid quantity expression {}", s)))
     }
 }
 
