@@ -15,6 +15,10 @@ peg::parser! {
         /// Whitespace.
         rule __() = [' ' | '\n' | '\t']*
 
+        /// Allow any non-whitespace character except for reserved characters.
+        rule symbol() -> &'input str
+            = sym:$([^ ' ' | '\n' | '\t' | '-' | '[' | ']' | '(' | ')' | '=' | ';' | ':' | ',' | '*' | '/' | '^' | '#']+)
+            { sym }
         rule sign() = ['-' | '+']
         rule digits() = [c if c.is_ascii_digit()]+
 
@@ -28,10 +32,10 @@ peg::parser! {
 
         /// Parses a basic unit. Will fail if the unit string is not found in the specified unit cache.
         rule unit(registry: &Registry) -> Unit
-            = u:$(['a'..='z' | 'A'..='Z' | '_']+)
+            = sym:symbol()
             {?
                 registry
-                    .get_unit(u)
+                    .get_unit(sym)
                     .cloned()
                     .map(|u| Unit::new(vec![u], vec![]))
                     .ok_or("Unknown unit")
@@ -147,6 +151,8 @@ mod test_expression_parser {
         LazyLock::new(|| REGISTRY.get_unit("newton").expect("No unit 'newton'"));
     static UNIT_JOULE: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("joule").expect("No unit 'joule'"));
+    static UNIT_PERCENT: LazyLock<&BaseUnit> =
+        LazyLock::new(|| REGISTRY.get_unit("percent").expect("No unit 'percent'"));
 
     #[case("1", Some(1); "Basic")]
     #[case("100", Some(100); "Multiple digits")]
@@ -259,6 +265,11 @@ mod test_expression_parser {
         "2 meter",
         None
         ; "Invalid scaling factor"
+    )]
+    #[case(
+        "%",
+        Some(Unit::new(vec![UNIT_PERCENT.clone()], vec![]))
+        ; "Special symbol"
     )]
     fn test_unit_parsing(s: &str, expected: Option<Unit>) -> SmootResult<()> {
         let result = s.parse::<Unit>();

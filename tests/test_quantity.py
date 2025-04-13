@@ -8,8 +8,33 @@ from typing import Any, Callable
 import numpy as np
 from numpy.typing import NDArray
 import pytest
+import hypothesis
+import hypothesis.strategies as st
 
-from smoot import Quantity as Q
+from smoot import UnitRegistry, Quantity as Q
+
+
+@hypothesis.given(st.floats())
+def test_quantity_floats(value: float) -> None:
+    """All floats can be wrapped in a quantity."""
+    if math.isnan(value):
+        assert math.isnan(Q(value))
+    else:
+        assert Q(value).magnitude == value
+
+
+# 2**53 + 1 is the first integer that can't be represented by a 64-bit float.
+@hypothesis.given(st.integers(min_value=-(2**53), max_value=2**53))
+def test_quantity_integers(value: int) -> None:
+    assert Q(value).magnitude == value
+
+
+def test_all_base_unit_strings() -> None:
+    """Make sure smoot can parse all of its unit strings."""
+    # Do this in a loop because there are too many unit combinations to parameterize.
+    units = UnitRegistry()
+    for unit in dir(units):
+        Q(1, unit)
 
 
 @pytest.mark.parametrize(

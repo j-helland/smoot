@@ -230,13 +230,11 @@ impl Unit {
         let nums = self
             .numerator_units
             .iter()
-            .filter(|u| u.unit_type != DIMENSIONLESS)
             .sorted_by_key(|u| u.name.as_str())
             .collect_vec();
         let denoms = self
             .denominator_units
             .iter()
-            .filter(|u| u.unit_type != DIMENSIONLESS)
             .sorted_by_key(|u| u.name.as_str())
             .collect_vec();
 
@@ -696,6 +694,8 @@ mod test_unit {
         LazyLock::new(|| REGISTRY.get_unit("newton").expect("No unit 'newton'"));
     static UNIT_JOULE: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("joule").expect("No unit 'joule'"));
+    static UNIT_PERCENT: LazyLock<&BaseUnit> =
+        LazyLock::new(|| REGISTRY.get_unit("percent").expect("No unit 'percent'"));
 
     #[case(
         Unit::new_dimensionless(),
@@ -783,6 +783,11 @@ mod test_unit {
         ),
         Some("1 / meter")
         ; "No numerator"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_PERCENT.clone()], vec![]),
+        Some("percent")
+        ; "Named dimensionless unit"
     )]
     fn test_get_units_string(u: Unit, expected: Option<&str>) {
         assert_eq!(u.get_units_string(true), expected.map(String::from));
