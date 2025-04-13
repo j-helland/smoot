@@ -1,11 +1,12 @@
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::io::Write;
 use std::sync::LazyLock;
-use std::{collections::HashMap, fs::read_to_string};
 
 use bitcode::{Decode, Encode};
+use xxhash_rust::xxh3::xxh3_64;
 
 use crate::base_unit::{BaseUnit, DimensionType, DIMENSIONLESS};
 use crate::error::{SmootError, SmootResult};
@@ -29,6 +30,7 @@ pub struct Registry {
     // Don't bother with sharing memory with units because there's relatively few dimensions,
     // making this cheap.
     root_units: HashMap<DimensionType, BaseUnit>,
+    checksum: u64,
 }
 impl Registry {
     const DEFAULT_UNITS_FILE: &str = "default_en.txt";
@@ -39,26 +41,44 @@ impl Registry {
         Self {
             units: HashMap::new(),
             root_units: HashMap::new(),
+            checksum: 0,
         }
     }
 
     /// Prefer to load from the cached file on disk. Parse the units file if no cache exists.
     pub fn default() -> SmootResult<Self> {
         std::fs::read(Self::REGISTRY_CACHE_FILE).map_or_else(
-            |_| {
-                let mut new = Self::new();
-                new.load_from_file(Self::DEFAULT_UNITS_FILE)?;
-
-                std::fs::File::create(Self::REGISTRY_CACHE_FILE)
-                    .and_then(|mut f| f.write(&bitcode::encode(&new)))
-                    .map_err(|_| SmootError::FailedToWriteCache(Self::REGISTRY_CACHE_FILE))
-                    .map(|_| new)
-            },
-            |data| {
-                bitcode::decode(&data)
-                    .map_err(|_| SmootError::FailedToDecodeCache(Self::REGISTRY_CACHE_FILE))
-            },
+            |_| Self::load_and_dump_cache(),
+            |data| Self::load_from_cache(&data),
         )
+    }
+
+    fn load_and_dump_cache() -> SmootResult<Self> {
+        let mut new = Self::new();
+        new.load_from_file(Self::DEFAULT_UNITS_FILE)?;
+
+        std::fs::File::create(Self::REGISTRY_CACHE_FILE)
+            .and_then(|mut f| f.write(&bitcode::encode(&new)))
+            .map_err(|_| SmootError::FailedToWriteCache(Self::REGISTRY_CACHE_FILE))
+            .map(|_| new)
+    }
+
+    fn load_from_cache(data: &[u8]) -> SmootResult<Self> {
+        let registry = bitcode::decode::<Registry>(data)
+            .map_err(|_| SmootError::FailedToDecodeCache(Self::REGISTRY_CACHE_FILE))?;
+
+        let checksum = std::fs::read(Self::DEFAULT_UNITS_FILE)
+            .map_err(|_| {
+                SmootError::FailedToReadUnitDefinitions(Self::DEFAULT_UNITS_FILE.to_string())
+            })
+            .map(|data| Self::compute_checksum(&data))?;
+
+        // If the checksum doesn't match, there was a change to the units. Load from scratch.
+        if checksum != registry.checksum {
+            Self::load_and_dump_cache()
+        } else {
+            Ok(registry)
+        }
     }
 
     pub fn clear_cache() {
@@ -83,9 +103,15 @@ impl Registry {
 
     /// Parse a unit definitions file, populating this registry.
     pub fn load_from_file(&mut self, path: &str) -> SmootResult<()> {
-        let data = read_to_string(path).unwrap();
+        let data = std::fs::read_to_string(path).unwrap();
         self.parse_definitions(&data)?;
+        self.checksum = Self::compute_checksum(data.as_bytes());
         Ok(())
+    }
+
+    fn compute_checksum(data: &[u8]) -> u64 {
+        // We just need it to be fast, not cryptographically secure.
+        xxh3_64(data)
     }
 
     /// Internal definitions file parsing logic.

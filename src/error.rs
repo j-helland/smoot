@@ -41,6 +41,12 @@ pub enum SmootError {
     #[error("Failed to write cache file {0}")]
     FailedToWriteCache(&'static str),
 
+    #[error("Failed delete cache file {0}")]
+    FailedToDeleteCache(&'static str),
+
+    #[error("Failed to read unit definitions file: {0}")]
+    FailedToReadUnitDefinitions(String),
+
     //==================================================
     // Array errors
     //==================================================

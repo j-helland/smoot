@@ -86,7 +86,6 @@ macro_rules! create_unit_type {
             }
 
             fn __str__(&self) -> String {
-                println!("{:?}", self.inner);
                 self.inner
                     .get_units_string()
                     .unwrap_or_else(|| "dimensionless".into())
