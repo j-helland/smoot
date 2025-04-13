@@ -848,6 +848,10 @@ mod test_quantity {
         LazyLock::new(|| REGISTRY.get_unit("kilometer").expect("No unit 'kilometer'"));
     static UNIT_SECOND: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("second").expect("No unit 'second`'"));
+    static UNIT_NEWTON: LazyLock<&BaseUnit> =
+        LazyLock::new(|| REGISTRY.get_unit("newton").expect("No unit 'newton`'"));
+    static UNIT_JOULE: LazyLock<&BaseUnit> =
+        LazyLock::new(|| REGISTRY.get_unit("joule").expect("No unit 'joule`'"));
 
     #[test]
     fn test_quantity_ito_fractional_power() -> SmootResult<()> {
@@ -1247,9 +1251,9 @@ mod test_quantity {
     fn test_ito_root_unit() {
         let mut q = Quantity::new(
             1.0,
-            Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]),
+            Unit::new(vec![UNIT_JOULE.clone()], vec![UNIT_NEWTON.clone()]),
         );
-        let expected = Quantity::new(1e3, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]));
+        let expected = Quantity::new(1.0, Unit::new(vec![UNIT_METER.clone()], vec![]));
         q.ito_root_units();
         assert_eq!(q, expected);
     }

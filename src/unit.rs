@@ -1,7 +1,7 @@
 use std::{
     fmt::{self},
     mem::swap,
-    ops::{Add, Div, DivAssign, Mul, MulAssign, Sub},
+    ops::{Add, Deref, Div, DivAssign, Mul, MulAssign, Sub},
 };
 
 use bitcode::{Decode, Encode};
@@ -430,21 +430,75 @@ impl Unit {
         result_conversion_factor
     }
 
+    /// Simplify this unit into the smallest number of root units possible.
+    ///
+    /// Return
+    /// ------
+    /// The multiplicative factor resulting from converting this unit into
+    /// its constituent root units.
+    ///
+    /// Examples
+    /// --------
+    /// `newton.ito_root_units()`
+    ///
+    /// => `1000 * (gram * meter / second ** 2)`
     pub fn ito_root_units(&mut self) -> f64 {
         let mut factor = 1.0;
 
-        self.numerator_units.iter_mut().for_each(|u| {
-            factor *= u.get_multiplier();
-            let root = REGISTRY.get_root_unit(&u.unit_type);
-            *u = u.power.map_or_else(|| root.clone(), |p| root.powf(p));
-        });
-        self.denominator_units.iter_mut().for_each(|u| {
-            factor /= u.get_multiplier();
-            let root = REGISTRY.get_root_unit(&u.unit_type);
-            *u = u.power.map_or_else(|| root.clone(), |p| root.powf(p));
-        });
+        let mut numerator = Vec::with_capacity(self.numerator_units.len());
+        let mut denominator = Vec::with_capacity(self.denominator_units.len());
 
+        for u in self.numerator_units.iter() {
+            factor *= u.get_multiplier();
+            Self::update_with_root_units(&mut numerator, &mut denominator, u);
+        }
+        for u in self.denominator_units.iter() {
+            factor /= u.get_multiplier();
+            // Swap numerator and denominator because this is a division.
+            Self::update_with_root_units(&mut denominator, &mut numerator, u);
+        }
+        self.numerator_units = numerator;
+        self.denominator_units = denominator;
+
+        factor *= self.simplify(false);
         factor
+    }
+
+    /// Append numerator and denominator with the root units of the given BaseUnit.
+    ///
+    /// Examples
+    /// --------
+    /// `newton = kilogram * meter / second ** 2`
+    ///
+    /// => `numerator = [gram, meter]; denominator = [second ** 2]`
+    fn update_with_root_units(
+        numerator: &mut Vec<BaseUnit>,
+        denominator: &mut Vec<BaseUnit>,
+        base: &BaseUnit,
+    ) {
+        // Hold lock, repeated re-locking is more expensive here.
+        let registry = REGISTRY.deref();
+
+        for (i, &dim) in base.dimensionality.iter().enumerate() {
+            if dim.approx_eq(0.0) {
+                continue;
+            }
+            let dim_abs = dim.abs();
+
+            let dim_type = 1 << i;
+            let root = registry.get_root_unit(&dim_type);
+            let root = if dim_abs.approx_eq(1.0) {
+                root.clone()
+            } else {
+                root.powf(dim_abs)
+            };
+
+            if dim.is_sign_negative() {
+                denominator.push(root);
+            } else {
+                numerator.push(root);
+            }
+        }
     }
 
     fn get_dimension_mask(units: &[BaseUnit]) -> DimensionType {
@@ -606,6 +660,10 @@ mod test_unit {
         LazyLock::new(|| REGISTRY.get_unit("gram").expect("No unit 'gram'"));
     static UNIT_WATT: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("watt").expect("No unit 'watt'"));
+    static UNIT_NEWTON: LazyLock<&BaseUnit> =
+        LazyLock::new(|| REGISTRY.get_unit("newton").expect("No unit 'newton'"));
+    static UNIT_JOULE: LazyLock<&BaseUnit> =
+        LazyLock::new(|| REGISTRY.get_unit("joule").expect("No unit 'joule'"));
 
     #[case(
         Unit::new_dimensionless(),
@@ -692,14 +750,14 @@ mod test_unit {
 
     #[test]
     fn test_mul_numerator() {
-        let u1 = Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]);
-        let u2 = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let u1 = Unit::new(vec![UNIT_SECOND.clone()], vec![]);
+        let u2 = Unit::new(vec![UNIT_METER.clone()], vec![]);
 
         let u = u1 * u2;
 
         assert_eq!(
             u.numerator_units,
-            vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)]
+            vec![UNIT_METER.clone(), UNIT_SECOND.clone()]
                 .into_iter()
                 .sorted_by_key(|u| u.unit_type)
                 .collect_vec()
@@ -709,15 +767,15 @@ mod test_unit {
 
     #[test]
     fn test_mul_denominator() {
-        let u1 = Unit::new(vec![], vec![BaseUnit::clone(&UNIT_SECOND)]);
-        let u2 = Unit::new(vec![], vec![BaseUnit::clone(&UNIT_METER)]);
+        let u1 = Unit::new(vec![], vec![UNIT_SECOND.clone()]);
+        let u2 = Unit::new(vec![], vec![UNIT_METER.clone()]);
 
         let u = u1 * u2;
 
         assert!(u.numerator_units.is_empty());
         assert_eq!(
             u.denominator_units,
-            vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)]
+            vec![UNIT_METER.clone(), UNIT_SECOND.clone()]
                 .into_iter()
                 .sorted_by_key(|u| u.unit_type)
                 .collect_vec()
@@ -727,14 +785,8 @@ mod test_unit {
     #[test]
     /// Multiplication of units should trigger simplification.
     fn tet_mul_simplifies_units() {
-        let u1 = Unit::new(
-            vec![BaseUnit::clone(&UNIT_SECOND)],
-            vec![BaseUnit::clone(&UNIT_METER)],
-        );
-        let u2 = Unit::new(
-            vec![BaseUnit::clone(&UNIT_METER)],
-            vec![BaseUnit::clone(&UNIT_SECOND)],
-        );
+        let u1 = Unit::new(vec![UNIT_SECOND.clone()], vec![UNIT_METER.clone()]);
+        let u2 = Unit::new(vec![UNIT_METER.clone()], vec![UNIT_SECOND.clone()]);
 
         let u = u1 * u2;
 
@@ -744,30 +796,30 @@ mod test_unit {
 
     #[test]
     fn test_div_numerator() {
-        let u1 = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
-        let u2 = Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]);
+        let u1 = Unit::new(vec![UNIT_METER.clone()], vec![]);
+        let u2 = Unit::new(vec![UNIT_SECOND.clone()], vec![]);
 
         let u = u1 / u2;
 
-        assert_eq!(u.numerator_units, vec![BaseUnit::clone(&UNIT_METER)]);
-        assert_eq!(u.denominator_units, vec![BaseUnit::clone(&UNIT_SECOND)]);
+        assert_eq!(u.numerator_units, vec![UNIT_METER.clone()]);
+        assert_eq!(u.denominator_units, vec![UNIT_SECOND.clone()]);
     }
 
     #[test]
     fn test_div_denominator() {
-        let u1 = Unit::new(vec![], vec![BaseUnit::clone(&UNIT_METER)]);
-        let u2 = Unit::new(vec![], vec![BaseUnit::clone(&UNIT_SECOND)]);
+        let u1 = Unit::new(vec![], vec![UNIT_METER.clone()]);
+        let u2 = Unit::new(vec![], vec![UNIT_SECOND.clone()]);
 
         let u = u1 / u2;
 
-        assert_eq!(u.numerator_units, vec![BaseUnit::clone(&UNIT_SECOND)]);
-        assert_eq!(u.denominator_units, vec![BaseUnit::clone(&UNIT_METER)]);
+        assert_eq!(u.numerator_units, vec![UNIT_SECOND.clone()]);
+        assert_eq!(u.denominator_units, vec![UNIT_METER.clone()]);
     }
 
     #[test]
     fn test_div_simplifies_units() {
-        let u1 = Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]);
-        let u2 = Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]);
+        let u1 = Unit::new(vec![UNIT_SECOND.clone()], vec![]);
+        let u2 = Unit::new(vec![UNIT_SECOND.clone()], vec![]);
 
         let u = u1 / u2;
 
@@ -779,14 +831,14 @@ mod test_unit {
     /// Simplifying units must compute the correct conversion factor for the cancelled units.
     fn test_simplify_computes_conversion_factor() {
         let mut u = Unit::new(
-            vec![BaseUnit::clone(&UNIT_SECOND), BaseUnit::clone(&UNIT_MINUTE)],
-            vec![BaseUnit::clone(&UNIT_HOUR)],
+            vec![UNIT_SECOND.clone(), UNIT_MINUTE.clone()],
+            vec![UNIT_HOUR.clone()],
         );
 
         let conversion_factor = u.simplify(false);
 
         assert_is_close!(conversion_factor, 1.0 / 60.0 / 60.0);
-        assert_eq!(u.numerator_units, vec![BaseUnit::clone(&UNIT_MINUTE)]);
+        assert_eq!(u.numerator_units, vec![UNIT_MINUTE.clone()]);
         assert!(u.denominator_units.is_empty());
     }
 
@@ -794,26 +846,26 @@ mod test_unit {
     /// Simpliyfing will cancel multiple units within the same unit type.
     fn test_simplify_cancels_multiple_units() {
         let mut u = Unit::new(
-            vec![BaseUnit::clone(&UNIT_SECOND), BaseUnit::clone(&UNIT_SECOND)],
+            vec![UNIT_SECOND.clone(), UNIT_SECOND.clone()],
             vec![
-                BaseUnit::clone(&UNIT_SECOND),
-                BaseUnit::clone(&UNIT_SECOND),
-                BaseUnit::clone(&UNIT_SECOND),
+                UNIT_SECOND.clone(),
+                UNIT_SECOND.clone(),
+                UNIT_SECOND.clone(),
             ],
         );
 
         let _ = u.simplify(true);
 
         assert!(u.numerator_units.is_empty());
-        assert_eq!(u.denominator_units, vec![BaseUnit::clone(&UNIT_SECOND)]);
+        assert_eq!(u.denominator_units, vec![UNIT_SECOND.clone()]);
     }
 
     #[test]
     /// Simplifying will cancel units across unit types.
     fn test_simplify_cancels_units_of_different_types() {
         let mut u = Unit::new(
-            vec![BaseUnit::clone(&UNIT_SECOND), BaseUnit::clone(&UNIT_METER)],
-            vec![BaseUnit::clone(&UNIT_SECOND), BaseUnit::clone(&UNIT_METER)],
+            vec![UNIT_SECOND.clone(), UNIT_METER.clone()],
+            vec![UNIT_SECOND.clone(), UNIT_METER.clone()],
         );
 
         let _ = u.simplify(false);
@@ -826,12 +878,8 @@ mod test_unit {
     /// Simplifying units correctly updates the dimensionality of the numerator and denominator.
     fn test_simplify_updates_unit_dimensionality() {
         let mut u = Unit::new(
-            vec![
-                BaseUnit::clone(&UNIT_SECOND),
-                BaseUnit::clone(&UNIT_SECOND),
-                BaseUnit::clone(&UNIT_METER),
-            ],
-            vec![BaseUnit::clone(&UNIT_SECOND), BaseUnit::clone(&UNIT_METER)],
+            vec![UNIT_SECOND.clone(), UNIT_SECOND.clone(), UNIT_METER.clone()],
+            vec![UNIT_SECOND.clone(), UNIT_METER.clone()],
         );
 
         let _ = u.simplify(true);
@@ -845,28 +893,21 @@ mod test_unit {
     #[test]
     fn test_simplify_with_mixed_ordering() {
         let mut u = Unit::new(
-            vec![
-                BaseUnit::clone(&UNIT_SECOND),
-                BaseUnit::clone(&UNIT_METER),
-                BaseUnit::clone(&UNIT_SECOND),
-            ],
-            vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)],
+            vec![UNIT_SECOND.clone(), UNIT_METER.clone(), UNIT_SECOND.clone()],
+            vec![UNIT_METER.clone(), UNIT_SECOND.clone()],
         );
 
         let _ = u.simplify(true);
 
-        assert_eq!(u.numerator_units, vec![BaseUnit::clone(&UNIT_SECOND)]);
+        assert_eq!(u.numerator_units, vec![UNIT_SECOND.clone()]);
         assert!(u.denominator_units.is_empty());
     }
 
     /// Numerator units with exponents are correctly simplified.
     #[test]
     fn test_simplify_adjusts_numerator_powers() {
-        let mut u = Unit::new(
-            vec![UNIT_METER.powf(2.0)],
-            vec![BaseUnit::clone(&UNIT_METER)],
-        );
-        let expected = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let mut u = Unit::new(vec![UNIT_METER.powf(2.0)], vec![UNIT_METER.clone()]);
+        let expected = Unit::new(vec![UNIT_METER.clone()], vec![]);
 
         let _ = u.simplify(true);
 
@@ -876,11 +917,8 @@ mod test_unit {
     /// Denominator units with exponents are correctly simplified.
     #[test]
     fn test_simplify_adjusts_denominator_powers() {
-        let mut u = Unit::new(
-            vec![BaseUnit::clone(&UNIT_METER)],
-            vec![UNIT_METER.powf(2.0)],
-        );
-        let expected = Unit::new(vec![], vec![BaseUnit::clone(&UNIT_METER)]);
+        let mut u = Unit::new(vec![UNIT_METER.clone()], vec![UNIT_METER.powf(2.0)]);
+        let expected = Unit::new(vec![], vec![UNIT_METER.clone()]);
 
         let _ = u.simplify(true);
 
@@ -889,10 +927,7 @@ mod test_unit {
 
     #[test]
     fn test_simplify_with_fractional_powers() {
-        let mut u = Unit::new(
-            vec![UNIT_KILOMETER.powf(0.5)],
-            vec![BaseUnit::clone(&UNIT_METER)],
-        );
+        let mut u = Unit::new(vec![UNIT_KILOMETER.powf(0.5)], vec![UNIT_METER.clone()]);
 
         let conversion_factor = u.simplify(false);
 
@@ -901,7 +936,6 @@ mod test_unit {
         assert_eq!(u.denominator_units, vec![UNIT_METER.powf(0.5)]);
     }
 
-    // #[test]
     #[case(
         Unit::new_dimensionless(),
         Unit::new_dimensionless(),
@@ -909,46 +943,52 @@ mod test_unit {
         ; "Trivial"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]),
+        Unit::new(vec![UNIT_METER.clone()], vec![]),
+        Unit::new(vec![UNIT_METER.clone()], vec![]),
         true
         ; "Basic compatibility"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![BaseUnit::clone(&UNIT_METER)]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![BaseUnit::clone(&UNIT_METER)]),
+        Unit::new(vec![UNIT_METER.clone(), UNIT_SECOND.clone()], vec![UNIT_METER.clone()]),
+        Unit::new(vec![UNIT_METER.clone(), UNIT_SECOND.clone()], vec![UNIT_METER.clone()]),
         true
         ; "Complex compatibility"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]),
+        Unit::new(vec![UNIT_SECOND.clone()], vec![]),
+        Unit::new(vec![UNIT_METER.clone()], vec![]),
         false
         ; "Basic incompatibility"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_SECOND), BaseUnit::clone(&UNIT_METER)], vec![]),
+        Unit::new(vec![UNIT_METER.clone(), UNIT_SECOND.clone()], vec![]),
+        Unit::new(vec![UNIT_SECOND.clone(), UNIT_METER.clone()], vec![]),
         true
         ; "Invariant to ordering"
     )]
     #[case(
-        Unit::new(vec![], vec![BaseUnit::clone(&UNIT_METER)]),
-        Unit::new(vec![], vec![BaseUnit::clone(&UNIT_METER)]),
+        Unit::new(vec![], vec![UNIT_METER.clone()]),
+        Unit::new(vec![], vec![UNIT_METER.clone()]),
         true
         ; "Basic denominator compatibility"
     )]
     #[case(
-        Unit::new(vec![], vec![BaseUnit::clone(&UNIT_METER)]),
-        Unit::new(vec![], vec![BaseUnit::clone(&UNIT_SECOND)]),
+        Unit::new(vec![], vec![UNIT_METER.clone()]),
+        Unit::new(vec![], vec![UNIT_SECOND.clone()]),
         false
         ; "Basic denominator incompatibility"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_SECOND), BaseUnit::clone(&UNIT_SECOND)], vec![]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]),
+        Unit::new(vec![UNIT_SECOND.clone(), UNIT_SECOND.clone()], vec![]),
+        Unit::new(vec![UNIT_SECOND.clone()], vec![]),
         false
         ; "Dimensionality incompatibility"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_NEWTON.clone()], vec![]),
+        Unit::new(vec![UNIT_JOULE.clone()], vec![]),
+        false
+        ; "Composite incompatible units"
     )]
     fn test_is_compatible_with(u1: Unit, u2: Unit, expected: bool) {
         assert_eq!(u1.is_compatible_with(&u2), expected);
@@ -956,7 +996,7 @@ mod test_unit {
 
     #[test]
     fn test_is_compatible_with_incompatible_units() {
-        let u1 = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let u1 = Unit::new(vec![UNIT_METER.clone()], vec![]);
         let u2 = Unit::new_dimensionless();
         assert!(!u1.is_compatible_with(&u2));
     }
@@ -973,7 +1013,7 @@ mod test_unit {
     #[test]
     /// Floating point imprecision should not cause units to be considered incompatible.
     fn test_is_compatible_with_float_imprecision() {
-        let u1 = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let u1 = Unit::new(vec![UNIT_METER.clone()], vec![]);
         let mut u2 = u1.clone();
         u2.ipowf(1.0 + f64::EPSILON);
         assert!(u1.is_compatible_with(&u2));
@@ -982,32 +1022,32 @@ mod test_unit {
     #[test]
     /// Fractional powers should be checked for compatibility.
     fn test_is_compatible_fractional_powers() {
-        let u1 = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]);
+        let u1 = Unit::new(vec![UNIT_METER.clone()], vec![]);
         let u2 = Unit::new(vec![UNIT_METER.powf(0.5)], vec![]);
         assert!(!u1.is_compatible_with(&u2));
     }
 
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![BaseUnit::clone(&UNIT_METER)]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![BaseUnit::clone(&UNIT_METER)]),
+        Unit::new(vec![UNIT_SECOND.clone()], vec![UNIT_METER.clone()]),
+        Unit::new(vec![UNIT_SECOND.clone()], vec![UNIT_METER.clone()]),
         1.0
         ; "noop"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]),
+        Unit::new(vec![UNIT_KILOMETER.clone()], vec![]),
+        Unit::new(vec![UNIT_METER.clone()], vec![]),
         1e3
         ; "numerator"
     )]
     #[case(
-        Unit::new(vec![], vec![BaseUnit::clone(&UNIT_KILOMETER)]),
-        Unit::new(vec![], vec![BaseUnit::clone(&UNIT_METER)]),
+        Unit::new(vec![], vec![UNIT_KILOMETER.clone()]),
+        Unit::new(vec![], vec![UNIT_METER.clone()]),
         1e-3
         ; "denominator"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER), BaseUnit::clone(&UNIT_MINUTE)], vec![]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![]),
+        Unit::new(vec![UNIT_KILOMETER.clone(), UNIT_MINUTE.clone()], vec![]),
+        Unit::new(vec![UNIT_METER.clone(), UNIT_SECOND.clone()], vec![]),
         1e3 * 60.0
         ; "multiple units"
     )]
@@ -1017,6 +1057,18 @@ mod test_unit {
         1.0
         ; "dimensionless"
     )]
+    #[case(
+        Unit::new(vec![UNIT_NEWTON.clone()], vec![]),
+        Unit::new(vec![UNIT_METER.clone(), UNIT_GRAM.clone()], vec![UNIT_SECOND.powf(2.0)]),
+        1000.0
+        ; "Multidimensional base unit"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_JOULE.clone()], vec![UNIT_NEWTON.clone()]),
+        Unit::new(vec![UNIT_METER.clone()], vec![]),
+        1.0
+        ; "Simplified"
+    )]
     fn test_ito_root_unit(mut unit: Unit, expected: Unit, expected_factor: f64) {
         assert_is_close!(unit.ito_root_units(), expected_factor);
         assert_eq!(unit, expected);
@@ -1024,10 +1076,7 @@ mod test_unit {
 
     #[test]
     fn test_hash() {
-        let u1 = Unit::new(
-            vec![BaseUnit::clone(&UNIT_METER)],
-            vec![BaseUnit::clone(&UNIT_SECOND)],
-        );
+        let u1 = Unit::new(vec![UNIT_METER.clone()], vec![UNIT_SECOND.clone()]);
         assert_eq!(hash(&u1), hash(&u1.clone()));
 
         let u2 = u1.powi(-1);
