@@ -186,8 +186,11 @@ impl Unit {
     pub fn conversion_factor(&self, other: &Self) -> SmootResult<f64> {
         if !self.is_compatible_with(other) {
             return Err(SmootError::IncompatibleUnitTypes(
-                self.get_units_string().unwrap_or("dimensionless".into()),
-                other.get_units_string().unwrap_or("dimensionless".into()),
+                self.get_units_string(true)
+                    .unwrap_or("dimensionless".into()),
+                other
+                    .get_units_string(true)
+                    .unwrap_or("dimensionless".into()),
             ));
         }
 
@@ -223,7 +226,7 @@ impl Unit {
     }
 
     /// Convert this unit into a displayable string representation.
-    pub fn get_units_string(&self) -> Option<String> {
+    pub fn get_units_string(&self, with_scaling_factor: bool) -> Option<String> {
         let nums = self
             .numerator_units
             .iter()
@@ -272,7 +275,15 @@ impl Unit {
             denominator = format!("({})", denominator);
         }
 
-        Some(format!("{} / {}", numerator, denominator))
+        if numerator.is_empty() {
+            if with_scaling_factor {
+                Some(format!("1 / {}", denominator))
+            } else {
+                Some(format!("/ {}", denominator))
+            }
+        } else {
+            Some(format!("{} / {}", numerator, denominator))
+        }
     }
 
     /// Sync the dimensionality of this unit with its numerator and denominator base units.
@@ -569,7 +580,8 @@ impl fmt::Display for Unit {
             f,
             "{}",
             // Default to displaying unitless units as `dimensionless`.
-            self.get_units_string().unwrap_or("dimensionless".into())
+            self.get_units_string(true)
+                .unwrap_or("dimensionless".into())
         )
     }
 }
@@ -626,8 +638,9 @@ impl Add for Unit {
         if !self.is_compatible_with(&rhs) {
             return Err(SmootError::InvalidOperation(
                 "+",
-                self.get_units_string().unwrap_or("dimensionless".into()),
-                rhs.get_units_string().unwrap_or("dimensionless".into()),
+                self.get_units_string(true)
+                    .unwrap_or("dimensionless".into()),
+                rhs.get_units_string(true).unwrap_or("dimensionless".into()),
             ));
         }
         Ok(self)
@@ -641,8 +654,9 @@ impl Sub for Unit {
         if !self.is_compatible_with(&rhs) {
             return Err(SmootError::InvalidOperation(
                 "-",
-                self.get_units_string().unwrap_or("dimensionless".into()),
-                rhs.get_units_string().unwrap_or("dimensionless".into()),
+                self.get_units_string(true)
+                    .unwrap_or("dimensionless".into()),
+                rhs.get_units_string(true).unwrap_or("dimensionless".into()),
             ));
         }
         Ok(self)
@@ -690,20 +704,20 @@ mod test_unit {
         ; "Trivial conversion factor"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_MINUTE)], vec![]),
+        Unit::new(vec![UNIT_SECOND.clone()], vec![]),
+        Unit::new(vec![UNIT_MINUTE.clone()], vec![]),
         Some(1.0 / 60.0)
         ; "Basic conversion factor"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![BaseUnit::clone(&UNIT_SECOND)]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![BaseUnit::clone(&UNIT_HOUR)]),
+        Unit::new(vec![UNIT_METER.clone()], vec![UNIT_SECOND.clone()]),
+        Unit::new(vec![UNIT_KILOMETER.clone()], vec![UNIT_HOUR.clone()]),
         Some(60.0 * 60.0 / 1000.0)
         ; "Composite conversion factor"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]),
-        Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]),
+        Unit::new(vec![UNIT_METER.clone()], vec![]),
+        Unit::new(vec![UNIT_SECOND.clone()], vec![]),
         None
         ; "Incompatible units"
     )]
@@ -723,25 +737,25 @@ mod test_unit {
         ; "Dimensionless"
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![BaseUnit::clone(&UNIT_SECOND)]),
+        Unit::new(vec![UNIT_METER.clone()], vec![UNIT_SECOND.clone()]),
         Some("meter / second")
     )]
     #[case(
-        Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![]),
+        Unit::new(vec![UNIT_METER.clone(), UNIT_SECOND.clone()], vec![]),
         Some("meter * second")
     )]
     #[case(
         Unit::new(
-            vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_WATT)],
-            vec![BaseUnit::clone(&UNIT_SECOND), BaseUnit::clone(&UNIT_GRAM)],
+            vec![UNIT_METER.clone(), UNIT_WATT.clone()],
+            vec![UNIT_SECOND.clone(), UNIT_GRAM.clone()],
         ),
         Some("(meter * watt) / (gram * second)")
         ; "Multiple units in the numerator and denominator are parenthesized and sorted"
     )]
     #[case(
         Unit::new(
-            vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_METER)],
-            vec![BaseUnit::clone(&UNIT_SECOND), BaseUnit::clone(&UNIT_SECOND)],
+            vec![UNIT_METER.clone(), UNIT_METER.clone()],
+            vec![UNIT_SECOND.clone(), UNIT_SECOND.clone()],
         ),
         Some("(meter * meter) / (second * second)")
         ; "Repeated multiplication is not reduced"
@@ -762,8 +776,16 @@ mod test_unit {
         Some("meter ** 2.5")
         ; "Fractional powers"
     )]
+    #[case(
+        Unit::new(
+            vec![],
+            vec![UNIT_METER.clone()],
+        ),
+        Some("1 / meter")
+        ; "No numerator"
+    )]
     fn test_get_units_string(u: Unit, expected: Option<&str>) {
-        assert_eq!(u.get_units_string(), expected.map(String::from));
+        assert_eq!(u.get_units_string(true), expected.map(String::from));
     }
 
     #[test]

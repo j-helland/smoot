@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from .smoot import Unit, get_registry_size, get_all_registry_keys
+from .smoot import get_registry_size, get_all_registry_keys
+from .quantity import Unit
 
 
 class UnitRegistry:
-    __slots__ = "_cache"
+    __slots__ = ("_cache",)
 
     def __init__(self) -> None:
         self._cache: dict[str, Unit] = {}
@@ -19,9 +20,7 @@ class UnitRegistry:
         if (res := self._cache.get(expression)) is not None:
             return res
 
-        # Ignore the reduction factor when directly returning units to users
-        # since the factor is only used internally.
-        _, res = Unit.parse(expression)
+        res = Unit.parse(expression)
         self._cache[expression] = res
         return res
 

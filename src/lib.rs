@@ -87,7 +87,7 @@ macro_rules! create_unit_type {
 
             fn __str__(&self) -> String {
                 self.inner
-                    .get_units_string()
+                    .get_units_string(true)
                     .unwrap_or_else(|| "dimensionless".into())
             }
 
@@ -241,7 +241,7 @@ macro_rules! create_quantity_type {
                     self.inner.magnitude,
                     self.inner
                         .unit
-                        .get_units_string()
+                        .get_units_string(false)
                         .unwrap_or("dimensionless".into())
                 )
             }
@@ -517,7 +517,7 @@ macro_rules! create_array_quantity_type {
                     self.inner.magnitude,
                     self.inner
                         .unit
-                        .get_units_string()
+                        .get_units_string(false)
                         .unwrap_or("dimensionless".into())
                 )
             }
@@ -654,9 +654,35 @@ macro_rules! create_array_quantity_type {
 }
 
 create_unit_type!(Unit, f64);
-
 create_quantity_type!(Unit, F64Quantity, f64, f64);
 create_array_quantity_type!(ArrayF64Quantity, Unit, f64);
+
+//==================================================
+// Cross-type unit operators
+//
+// These can't be defined using dunder methods,
+// which are strongly-typed for pyo3.
+//==================================================
+#[pyfunction]
+fn mul_unit(num: f64, unit: &Unit) -> F64Quantity {
+    F64Quantity {
+        inner: &unit.inner * num,
+    }
+}
+
+#[pyfunction]
+fn div_unit(unit: &Unit, num: f64) -> F64Quantity {
+    F64Quantity {
+        inner: &unit.inner / num,
+    }
+}
+
+#[pyfunction]
+fn rdiv_unit(num: f64, unit: &Unit) -> F64Quantity {
+    F64Quantity {
+        inner: num / &unit.inner,
+    }
+}
 
 // create_quantity_type!(Unit, I64Quantity, i64, i64);
 // create_array_quantity_type!(ArrayI64Quantity, Unit, i64);
@@ -688,6 +714,9 @@ fn smoot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let _ = m.add_function(wrap_pyfunction!(get_all_registry_keys, m)?);
     // let _ = m.add_function(wrap_pyfunction!(i64_to_f64_quantity, m)?);
     // let _ = m.add_function(wrap_pyfunction!(array_i64_to_f64_quantity, m)?);
+    let _ = m.add_function(wrap_pyfunction!(mul_unit, m)?);
+    let _ = m.add_function(wrap_pyfunction!(div_unit, m)?);
+    let _ = m.add_function(wrap_pyfunction!(rdiv_unit, m)?);
 
     Ok(())
 }

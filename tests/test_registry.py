@@ -1,5 +1,8 @@
+from __future__ import annotations
+import typing
+
 import pytest
-from smoot import UnitRegistry
+from smoot import UnitRegistry, Unit, Quantity as Q
 
 
 @pytest.fixture
@@ -23,7 +26,7 @@ def test_is_compatible_with(units: UnitRegistry) -> None:
 
 def test_is_dimensionless(units: UnitRegistry) -> None:
     assert not units.meter.is_dimensionless()
-    assert (units.meter / units.meter).is_dimensionless()
+    assert typing.cast(Unit, units.meter / units.meter).is_dimensionless()
 
 
 def test_to_root_units(units: UnitRegistry) -> None:
@@ -62,6 +65,11 @@ def test_units_multiply(units: UnitRegistry) -> None:
     assert u == units["m ** 2"]
 
 
+def test_units_multiply_into_quantity(units: UnitRegistry) -> None:
+    assert (units.meter * 1) == Q("1 meter")
+    assert (1 * units.meter) == Q("1 meter")
+
+
 def test_units_divide(units: UnitRegistry) -> None:
     assert (units.meter / units.meter) == units.dimensionless
 
@@ -69,6 +77,11 @@ def test_units_divide(units: UnitRegistry) -> None:
     u = units.meter
     u /= units.meter
     assert u == units.dimensionless
+
+
+def test_units_divide_into_quantity(units: UnitRegistry) -> None:
+    assert (1 / units.meter) == Q("1 / meter")
+    assert (units.meter / 1) == Q("1 meter")
 
 
 def test_units_pow(units: UnitRegistry) -> None:

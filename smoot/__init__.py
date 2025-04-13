@@ -1,6 +1,5 @@
-from .quantity import Quantity
+from .quantity import Quantity, Unit
 from .registry import UnitRegistry
-from .smoot import Unit
 
 __all__ = [
     "Quantity",

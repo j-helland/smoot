@@ -88,9 +88,10 @@ where
         if !self.unit.is_compatible_with(unit) {
             return Err(SmootError::IncompatibleUnitTypes(
                 self.unit
-                    .get_units_string()
+                    .get_units_string(true)
                     .unwrap_or("dimensionless".into()),
-                unit.get_units_string().unwrap_or("dimensionless".into()),
+                unit.get_units_string(true)
+                    .unwrap_or("dimensionless".into()),
             ));
         }
         self.convert_to(unit, factor)
@@ -514,7 +515,7 @@ where
             return Err(SmootError::InvalidOperation(
                 "+",
                 self.unit
-                    .get_units_string()
+                    .get_units_string(true)
                     .unwrap_or("dimensionless".into()),
                 "dimensionaless".into(),
             ));
@@ -532,7 +533,7 @@ impl<N: Number> Add<ArrayD<N>> for Quantity<N, ArrayD<N>> {
             return Err(SmootError::InvalidOperation(
                 "+",
                 self.unit
-                    .get_units_string()
+                    .get_units_string(true)
                     .unwrap_or("dimensionless".into()),
                 "dimensionaless".into(),
             ));
@@ -633,7 +634,7 @@ where
             return Err(SmootError::InvalidOperation(
                 "-",
                 self.unit
-                    .get_units_string()
+                    .get_units_string(true)
                     .unwrap_or("dimensionless".into()),
                 "dimensionaless".into(),
             ));
@@ -651,7 +652,7 @@ impl<N: Number> Sub<ArrayD<N>> for Quantity<N, ArrayD<N>> {
             return Err(SmootError::InvalidOperation(
                 "-",
                 self.unit
-                    .get_units_string()
+                    .get_units_string(true)
                     .unwrap_or("dimensionless".into()),
                 "dimensionaless".into(),
             ));
@@ -782,6 +783,28 @@ where
 // Defined here because these operators produce
 // Quantity values.
 //==================================================
+// unit * N
+impl<N: Number> Mul<N> for Unit
+where
+    N: ConvertMagnitude,
+{
+    type Output = Quantity<N, N>;
+
+    fn mul(self, rhs: N) -> Self::Output {
+        Quantity::new(rhs, self)
+    }
+}
+impl<N: Number> Mul<N> for &Unit
+where
+    N: ConvertMagnitude,
+{
+    type Output = Quantity<N, N>;
+
+    fn mul(self, rhs: N) -> Self::Output {
+        self.clone() * rhs
+    }
+}
+
 // unit / N
 impl<N: Number> Div<N> for Unit
 where

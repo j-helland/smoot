@@ -13,6 +13,25 @@ from smoot import Quantity as Q
 
 
 @pytest.mark.parametrize(
+    argnames=("quantity", "expected"),
+    argvalues=(
+        (Q("1 newton"), "1 newton"),
+        (Q("1 km"), "1 kilometer"),
+        (Q("meter") / Q("second"), "1 meter / second"),
+        (Q("meter ** 2"), "1 meter ** 2"),
+        (Q("1 / meter"), "1 / meter"),
+        (Q("1.0 meter"), "1 meter"),
+        (Q("1.1 meter"), "1.1 meter"),
+    ),
+)
+def test_str(
+    quantity: Q,
+    expected: str,
+) -> None:
+    assert str(quantity) == expected
+
+
+@pytest.mark.parametrize(
     argnames=("value", "unit", "expected"),
     argvalues=(
         (Q("1 km"), "meter", Q("1000 meter")),
@@ -40,6 +59,7 @@ def test_conversion(
         (Q("1 km * hour"), Q(1000 * 60 * 60, "m * s")),
         (Q("1 joule / newton"), Q("1 meter")),
         (Q("1 km ** 0.5 / m"), Q(math.sqrt(1000.0), "1 / m ** 0.5")),
+        (Q("1 Hz"), Q("1 / second")),
     ),
 )
 def test_to_root_units(value: Q, expected: Q) -> None:
