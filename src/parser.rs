@@ -3,7 +3,7 @@ use std::str::FromStr;
 use num_traits::Float;
 
 use crate::registry::{Registry, REGISTRY};
-use crate::utils::{Powf, Powi};
+use crate::utils::{ApproxEq, Powf, Powi};
 use crate::{error::SmootError, quantity::Quantity, unit::Unit};
 
 trait ParsableFloat: FromStr + Float {}
@@ -37,6 +37,15 @@ peg::parser! {
                     .ok_or("Unknown unit")
             }
 
+        rule reciprocal_unit(unit_cache: &Registry) -> Unit
+            = d:decimal::<f64>() __ "/" __ u:unit_expression(unit_cache)
+            {?
+                if !d.approx_eq(1.0)  {
+                    return Err("Unit expression cannot have a scaling factor");
+                }
+                Ok(u.powi(-1))
+            }
+
         /// Core parser with operator precedence.
         /// We only need to support a few basic operators; addition and subtraction don't make sense for units.
         pub rule unit_expression(unit_cache: &Registry) -> Unit
@@ -44,6 +53,7 @@ peg::parser! {
             {
                 u1:(@) __ "*" __ u2:@ { u1 * u2 }
                 u1:(@) __ "/" __ u2:@ { u1 / u2 }
+                u:reciprocal_unit(unit_cache) { u }
                 --
                 u:@ __ "**" __ n:integer() { u.powi(n) }
                 u:@ __ "^" __ n:integer() { u.powi(n) }
@@ -76,6 +86,7 @@ peg::parser! {
                 --
                 q1:(@) __ "*" __ q2:@ { q1 * q2 }
                 q1:(@) __ "/" __ q2:@ { q1 / q2 }
+                d:decimal::<f64>() __ "/" __ u:unit_expression(unit_cache) { d / u }
                 --
                 q1:@ __ "**" __ n:integer() !['.'] { q1.powi(n) }
                 q1:@ __ "^" __ n:integer() !['.'] { q1.powi(n) }
@@ -233,6 +244,21 @@ mod test_expression_parser {
         "joule / newton",
         Some(Unit::new(vec![UNIT_JOULE.clone()], vec![UNIT_NEWTON.clone()]))
         ; "Composite base units"
+    )]
+    #[case(
+        "1 / meter",
+        Some(Unit::new(vec![], vec![UNIT_METER.clone()]))
+        ; "Reciprocal unit"
+    )]
+    #[case(
+        "2 / meter",
+        None
+        ; "Invalid reciprocal unit"
+    )]
+    #[case(
+        "2 meter",
+        None
+        ; "Invalid scaling factor"
     )]
     fn test_unit_parsing(s: &str, expected: Option<Unit>) -> SmootResult<()> {
         let result = s.parse::<Unit>();
@@ -404,6 +430,17 @@ mod test_expression_parser {
             ),
         ))
         ; "Exponents add"
+    )]
+    #[case(
+        "1 / meter",
+        Some(Quantity::new(
+            1.0,
+            Unit::new(
+                vec![],
+                vec![UNIT_METER.clone()]
+            ),
+        ))
+        ; "Reciprocal unit"
     )]
     fn test_expression_parsing(s: &str, expected: Option<Quantity<f64, f64>>) -> SmootResult<()> {
         let result = s.parse::<Quantity<f64, f64>>();

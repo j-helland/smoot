@@ -39,7 +39,7 @@ def test_conversion(
         (Q("1 km / hour"), Q(1000 / 60 / 60, "m / s")),
         (Q("1 km * hour"), Q(1000 * 60 * 60, "m * s")),
         (Q("1 joule / newton"), Q("1 meter")),
-        (Q("1 km ** 0.5 / m"), Q(math.sqrt(1000.0), "(m / m) / m ** 0.5")),
+        (Q("1 km ** 0.5 / m"), Q(math.sqrt(1000.0), "1 / m ** 0.5")),
     ),
 )
 def test_to_root_units(value: Q, expected: Q) -> None:
@@ -100,16 +100,14 @@ def test_eq() -> None:
         (4, operator.truediv, Q(2), Q(2)),
         (Q(4, "meter"), operator.truediv, Q(2, "meter"), Q(2)),
         (Q(4, "meter"), operator.truediv, 2, Q(2, "meter")),
-        # TODO(jwh): need to handle cases like 1 / meter in unit arithmetic.
-        # (4, operator.truediv, Q(2, "meter"), Q(2, "1 / meter")),
+        (4, operator.truediv, Q(2, "meter"), Q(2, "1 / meter")),
         #### //
         (Q(4), operator.floordiv, Q(2), Q(2)),
         (Q(4), operator.floordiv, 2, Q(2)),
         (4, operator.floordiv, Q(2), Q(2)),
         (Q(4, "meter"), operator.floordiv, Q(2, "meter"), Q(2)),
         (Q(4, "meter"), operator.floordiv, 2, Q(2, "meter")),
-        # TODO(jwh)
-        # (4, operator.floordiv, Q(2, "meter"), Q(2, "1 / meter")),
+        (4, operator.floordiv, Q(2, "meter"), Q(2, "1 / meter")),
         #### %
         (Q(4), operator.mod, Q(2), Q(0)),
         (4, operator.mod, Q(2), Q(0)),
