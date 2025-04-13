@@ -88,6 +88,12 @@ impl BaseUnit {
         self.dimensionality.iter_mut().for_each(|d| *d -= n);
     }
 
+    /// Return true if this unit is a composite of multiple dimensions.
+    pub fn is_multidimensional(&self) -> bool {
+        let l = self.unit_type.trailing_zeros();
+        (self.unit_type >> l) > 1
+    }
+
     /// Get the multiplicative factor associated with this base unit.
     pub fn get_multiplier(&self) -> f64 {
         self.power
@@ -101,7 +107,10 @@ impl BaseUnit {
     /// ------
     /// Err if the units are incompatible (e.g. meter and gram).
     pub fn conversion_factor(&self, target: &Self) -> SmootResult<f64> {
-        if self.unit_type != target.unit_type {
+        // Fast check with unit types, slower vector equality check for more detail.
+        if self.unit_type != target.unit_type
+            || !self.dimensionality.approx_eq(&target.dimensionality)
+        {
             return Err(SmootError::IncompatibleUnitTypes(
                 self.name.clone(),
                 target.name.clone(),
@@ -109,7 +118,14 @@ impl BaseUnit {
         }
 
         // convert to the base unit, then to the target unit
-        Ok(self.get_multiplier() / target.get_multiplier())
+        Ok(self.conversion_factor_unchecked(target))
+    }
+
+    /// Return the multiplicative factor needed to convert this unit into the target unit,
+    /// assuming that both units have compatible dimensionality.
+    #[inline(always)]
+    pub fn conversion_factor_unchecked(&self, target: &Self) -> f64 {
+        self.get_multiplier() / target.get_multiplier()
     }
 
     /// In-place power with a floating point exponent.
@@ -222,6 +238,25 @@ mod test_base_unit {
         assert_eq!(left * right, expected);
     }
 
+    #[case(
+        BaseUnit::new("test".into(), 1.0, 1),
+        false
+        ; "single dimension 1"
+    )]
+    #[case(
+        BaseUnit::new("test".into(), 1.0, 1 << 8),
+        false
+        ; "single dimension 2"
+    )]
+    #[case(
+        BaseUnit::new("test".into(), 1.0, (1 << 3) | (1 << 8)),
+        true
+        ; "multidimensional"
+    )]
+    fn test_is_multidimensional(unit: BaseUnit, expected: bool) {
+        assert_eq!(unit.is_multidimensional(), expected);
+    }
+
     #[test]
     /// The conversion factor between compatible units is computed correctly.
     fn test_conversion_factor() -> SmootResult<()> {
@@ -248,6 +283,35 @@ mod test_base_unit {
 
         // Then the result is an error
         let result = u1.conversion_factor(&u2);
+        assert!(result.is_err());
+
+        // commutative
+        let result = u2.conversion_factor(&u1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_conversion_factor_unequal_dimensionality() {
+        let u1 = BaseUnit {
+            name: "u1".into(),
+            multiplier: 1.0,
+            power: None,
+            unit_type: 0,
+            dimensionality: vec![2.0, -2.0, 1.0],
+        };
+        let u2 = BaseUnit {
+            name: "u2".into(),
+            multiplier: 1.0,
+            power: None,
+            unit_type: 0,
+            dimensionality: vec![1.0, -2.0, 1.0],
+        };
+
+        let result = u1.conversion_factor(&u2);
+        assert!(result.is_err());
+
+        // commutative
+        let result = u2.conversion_factor(&u1);
         assert!(result.is_err());
     }
 

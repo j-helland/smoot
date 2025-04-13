@@ -38,6 +38,8 @@ def test_conversion(
         (Q("1 km"), Q("1000 m")),
         (Q("1 km / hour"), Q(1000 / 60 / 60, "m / s")),
         (Q("1 km * hour"), Q(1000 * 60 * 60, "m * s")),
+        (Q("1 joule / newton"), Q("1 meter")),
+        (Q("1 km ** 0.5 / m"), Q(math.sqrt(1000.0), "(m / m) / m ** 0.5")),
     ),
 )
 def test_to_root_units(value: Q, expected: Q) -> None:

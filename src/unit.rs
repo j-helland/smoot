@@ -96,8 +96,7 @@ impl Unit {
             .clone()
             .into_iter()
             .map(|mut u| {
-                u.mul_dimensionality(nabs);
-                u.power = u.power.or(Some(1.0)).map(|p| p * nabs);
+                u.ipowf(nabs);
                 u
             })
             .collect();
@@ -106,8 +105,7 @@ impl Unit {
             .clone()
             .into_iter()
             .map(|mut u| {
-                u.mul_dimensionality(nabs);
-                u.power = u.power.or(Some(1.0)).map(|p| p * nabs);
+                u.ipowf(nabs);
                 u
             })
             .collect();
@@ -124,12 +122,10 @@ impl Unit {
     pub fn ipowf(&mut self, n: f64) {
         let nabs = n.abs();
         self.numerator_units.iter_mut().for_each(|u| {
-            u.mul_dimensionality(nabs);
-            u.power = u.power.or(Some(1.0)).map(|p| p * nabs);
+            u.ipowf(nabs);
         });
         self.denominator_units.iter_mut().for_each(|u| {
-            u.mul_dimensionality(nabs);
-            u.power = u.power.or(Some(1.0)).map(|p| p * nabs);
+            u.ipowf(nabs);
         });
 
         // Flip if power sign is negative.
@@ -300,24 +296,35 @@ impl Unit {
     /// The multiplicative factor computed during reduction, which may not be one
     /// depending on unit conversion factors.
     pub fn reduce(&mut self) -> f64 {
+        // Simplify first to cancel matching units across numerator and denominator.
+        // After that, units can be combined independently in the numerator and denominator.
         let mut result_conversion_factor = self.simplify(false);
 
-        let mut reduce_func = |units: &mut Vec<BaseUnit>| {
+        // Merge units.
+        let mut reduce_func = |units: &mut Vec<BaseUnit>, is_denom: bool| {
             let mut units_reduced: Vec<BaseUnit> = Vec::new();
-            units.drain(..).for_each(|u| {
+            units.drain(..).for_each(|next| {
                 if let Some(last) = units_reduced.last_mut() {
-                    if let Ok(factor) = last.conversion_factor(&u) {
+                    if last.unit_type == next.unit_type {
                         // Aggregate conversion factors
-                        result_conversion_factor *= factor;
+                        let factor = last.conversion_factor_unchecked(&next);
+                        if is_denom {
+                            result_conversion_factor /= factor;
+                        } else {
+                            result_conversion_factor *= factor;
+                        }
 
-                        last.name = u.name;
-                        last.multiplier = u.multiplier;
-                        // Powers must update.
-                        last.power = last.power.map(|p| p + u.power.unwrap_or(1.0)).or(Some(2.0));
+                        last.name = next.name;
+                        last.multiplier = next.multiplier;
+                        let next_power = next.power.unwrap_or(1.0);
+                        last.power = last
+                            .power
+                            .map(|p| p + next_power)
+                            .or(Some(1.0 + next_power));
                         last.dimensionality = last
                             .dimensionality
                             .drain(..)
-                            .zip_longest(u.dimensionality.iter())
+                            .zip_longest(next.dimensionality.iter())
                             .map(|lr| match lr {
                                 EitherOrBoth::Both(l, &r) => l + r,
                                 EitherOrBoth::Left(l) => l,
@@ -327,13 +334,13 @@ impl Unit {
                         return;
                     }
                 }
-                units_reduced.push(u);
+                units_reduced.push(next);
             });
             units.extend(units_reduced);
         };
 
-        reduce_func(&mut self.numerator_units);
-        reduce_func(&mut self.denominator_units);
+        reduce_func(&mut self.numerator_units, false);
+        reduce_func(&mut self.denominator_units, true);
         self.update_dimensionality();
 
         result_conversion_factor
@@ -371,6 +378,7 @@ impl Unit {
             let u1 = &mut self.numerator_units[inum];
             let u2 = &mut self.denominator_units[iden];
 
+            // Skip if mismatched units.
             match u1.unit_type.cmp(&u2.unit_type) {
                 std::cmp::Ordering::Less => {
                     inum += 1;
@@ -382,14 +390,24 @@ impl Unit {
                 }
                 _ => (),
             }
+            if u1.is_multidimensional() || u2.is_multidimensional() {
+                // If the base units are composites (i.e. contain multiple dimensions), we cannot simplify
+                // them without breaking them down via `ito_root_units`.
+                inum += 1;
+                iden += 1;
+                continue;
+            }
 
-            if let Ok(factor) = u1.conversion_factor(u2) {
+            if u1.unit_type == u2.unit_type {
+                let factor = u1.conversion_factor_unchecked(u2);
                 if no_reduction && !factor.approx_eq(1.0) {
-                    // Make sure we don't reduce units with disparate scales.
+                    // Make sure we don't reduce units with disparate scales in no_reduction mode.
                     inum += 1;
                     iden += 1;
                     continue;
                 }
+
+                // Now there must be a cancellation.
                 result_conversion_factor *= factor;
             }
 
@@ -460,7 +478,7 @@ impl Unit {
         self.numerator_units = numerator;
         self.denominator_units = denominator;
 
-        factor *= self.simplify(false);
+        factor *= self.simplify(true);
         factor
     }
 
@@ -1025,6 +1043,42 @@ mod test_unit {
         let u1 = Unit::new(vec![UNIT_METER.clone()], vec![]);
         let u2 = Unit::new(vec![UNIT_METER.powf(0.5)], vec![]);
         assert!(!u1.is_compatible_with(&u2));
+    }
+
+    #[case(
+        Unit::new(vec![UNIT_KILOMETER.clone(), UNIT_METER.clone()], vec![]),
+        Unit::new(vec![UNIT_METER.powf(2.0)], vec![]),
+        1000.0
+        ; "Numerator"
+    )]
+    #[case(
+        Unit::new(vec![], vec![UNIT_KILOMETER.clone(), UNIT_METER.clone()]),
+        Unit::new(vec![], vec![UNIT_METER.powf(2.0)]),
+        1e-3
+        ; "Denominator"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_JOULE.clone()], vec![UNIT_NEWTON.clone()]),
+        Unit::new(vec![UNIT_JOULE.clone()], vec![UNIT_NEWTON.clone()]),
+        1.0
+        ; "Incompatible units with matching dimensions do not reduce"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_KILOMETER.powf(0.5), UNIT_METER.clone()], vec![]),
+        Unit::new(vec![UNIT_KILOMETER.powf(1.5)], vec![]),
+        1e-3_f64.sqrt()
+        ; "Units with fractional powers"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.powf(0.5), UNIT_KILOMETER.clone()], vec![]),
+        Unit::new(vec![UNIT_METER.powf(1.5)], vec![]),
+        1000.0
+        ; "Units with fractional powers 2"
+    )]
+    fn test_reduce(mut unit: Unit, expected: Unit, expected_factor: f64) {
+        assert_is_close!(unit.reduce(), expected_factor);
+        assert_is_close!(unit.reduce(), 1.0); // idempotent
+        assert_eq!(unit, expected);
     }
 
     #[case(

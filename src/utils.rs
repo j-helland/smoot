@@ -25,6 +25,14 @@ impl ApproxEq for i64 {
         self == x
     }
 }
+impl<T: ApproxEq + Copy> ApproxEq for &Vec<T> {
+    fn approx_eq(self, x: Self) -> bool {
+        if self.len() != x.len() {
+            return false;
+        }
+        self.iter().zip(x.iter()).all(|(&a, &b)| a.approx_eq(b))
+    }
+}
 
 pub trait Powf {
     fn powf(self, p: f64) -> Self;

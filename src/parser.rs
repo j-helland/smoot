@@ -132,6 +132,10 @@ mod test_expression_parser {
         LazyLock::new(|| REGISTRY.get_unit("second").expect("No unit 'second'"));
     static UNIT_GRAM: LazyLock<&BaseUnit> =
         LazyLock::new(|| REGISTRY.get_unit("gram").expect("No unit 'gram'"));
+    static UNIT_NEWTON: LazyLock<&BaseUnit> =
+        LazyLock::new(|| REGISTRY.get_unit("newton").expect("No unit 'newton'"));
+    static UNIT_JOULE: LazyLock<&BaseUnit> =
+        LazyLock::new(|| REGISTRY.get_unit("joule").expect("No unit 'joule'"));
 
     #[case("1", Some(1); "Basic")]
     #[case("100", Some(100); "Multiple digits")]
@@ -182,10 +186,10 @@ mod test_expression_parser {
         Ok(())
     }
 
-    #[case("meter", Some(Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])); "Basic")]
-    #[case("gram", Some(Unit::new(vec![BaseUnit::clone(&UNIT_GRAM)], vec![])); "Gram")]
-    #[case("meter / second", Some(Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![BaseUnit::clone(&UNIT_SECOND)])); "Division")]
-    #[case("meter * second", Some(Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![])); "Multiplication")]
+    #[case("meter", Some(Unit::new(vec![UNIT_METER.clone()], vec![])); "Basic")]
+    #[case("gram", Some(Unit::new(vec![UNIT_GRAM.clone()], vec![])); "Gram")]
+    #[case("meter / second", Some(Unit::new(vec![UNIT_METER.clone()], vec![UNIT_SECOND.clone()])); "Division")]
+    #[case("meter * second", Some(Unit::new(vec![UNIT_METER.clone(), UNIT_SECOND.clone()], vec![])); "Multiplication")]
     #[case("meter ** 2", Some(Unit::new(vec![UNIT_METER.powf(2.0)], vec![])); "Exponentiation")]
     #[case(
         "meter^2",
@@ -197,10 +201,7 @@ mod test_expression_parser {
     #[case(
         "(meter * gram) / second",
         Some(Unit::new(
-            vec![
-                BaseUnit::clone(&UNIT_METER),
-                BaseUnit::clone(&UNIT_GRAM),
-            ],
+            vec![UNIT_METER.clone(), UNIT_GRAM.clone()],
             vec![BaseUnit::clone(&UNIT_SECOND)],
         ))
         ; "Parentheses"
@@ -215,7 +216,7 @@ mod test_expression_parser {
     )]
     #[case(
         "((meter) * (second))",
-        Some(Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![]))
+        Some(Unit::new(vec![UNIT_METER.clone(), UNIT_SECOND.clone()], vec![]))
         ; "Parentheses with nesting"
     )]
     #[case(
@@ -225,8 +226,13 @@ mod test_expression_parser {
     )]
     #[case(
         "meter / kilometer",
-        Some(Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![BaseUnit::clone(&UNIT_KILOMETER)]))
+        Some(Unit::new(vec![UNIT_METER.clone()], vec![UNIT_KILOMETER.clone()]))
         ; "No reduction"
+    )]
+    #[case(
+        "joule / newton",
+        Some(Unit::new(vec![UNIT_JOULE.clone()], vec![UNIT_NEWTON.clone()]))
+        ; "Composite base units"
     )]
     fn test_unit_parsing(s: &str, expected: Option<Unit>) -> SmootResult<()> {
         let result = s.parse::<Unit>();
@@ -241,27 +247,27 @@ mod test_expression_parser {
 
     #[case(
         "1 meter",
-        Some(Quantity::new(1.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
+        Some(Quantity::new(1.0, Unit::new(vec![UNIT_METER.clone()], vec![])))
         ; "Basic"
     )]
     #[case(
         "1meter",
-        Some(Quantity::new(1.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
+        Some(Quantity::new(1.0, Unit::new(vec![UNIT_METER.clone()], vec![])))
         ; "Spaces should not matter"
     )]
     #[case(
         "1.0 meter",
-        Some(Quantity::new(1.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
+        Some(Quantity::new(1.0, Unit::new(vec![UNIT_METER.clone()], vec![])))
         ; "Decimal point"
     )]
     #[case(
         "1 meter + 1 meter",
-        Some(Quantity::new(2.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
+        Some(Quantity::new(2.0, Unit::new(vec![UNIT_METER.clone()], vec![])))
         ; "Addition"
     )]
     #[case(
         "1 meter + 1 kilometer",
-        Some(Quantity::new(1001.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
+        Some(Quantity::new(1001.0, Unit::new(vec![UNIT_METER.clone()], vec![])))
         ; "Addition with conversion"
     )]
     #[case(
@@ -271,12 +277,12 @@ mod test_expression_parser {
     )]
     #[case(
         "1 meter - 1 meter",
-        Some(Quantity::new(0.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
+        Some(Quantity::new(0.0, Unit::new(vec![UNIT_METER.clone()], vec![])))
         ; "Subtraction"
     )]
     #[case(
         "1 meter - 1 kilometer",
-        Some(Quantity::new(-999.0, Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![])))
+        Some(Quantity::new(-999.0, Unit::new(vec![UNIT_METER.clone()], vec![])))
         ; "Subtraction with conversion"
     )]
     #[case(
@@ -288,7 +294,7 @@ mod test_expression_parser {
         "1 meter * 2 second",
         Some(Quantity::new(
             2.0,
-            Unit::new(vec![BaseUnit::clone(&UNIT_METER), BaseUnit::clone(&UNIT_SECOND)], vec![]),
+            Unit::new(vec![UNIT_METER.clone(), UNIT_SECOND.clone()], vec![]),
         ))
         ; "Multiplication"
     )]
@@ -296,7 +302,7 @@ mod test_expression_parser {
         "1 meter * 1 kilometer",
         Some(Quantity::new(
             1e-3,
-            Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]).powf(2.0),
+            Unit::new(vec![UNIT_KILOMETER.clone()], vec![]).powf(2.0),
         ))
         ; "Multiplication with conversion"
     )]
@@ -304,7 +310,7 @@ mod test_expression_parser {
         "1 kilometer * 1 meter",
         Some(Quantity::new(
             1e3,
-            Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]).powf(2.0),
+            Unit::new(vec![UNIT_METER.clone()], vec![]).powf(2.0),
         ))
         ; "Multiplication with conversion flipped"
     )]
@@ -312,8 +318,8 @@ mod test_expression_parser {
         "1 meter * 1 second * 1 kilometer",
         Some(Quantity::new(
             1e-3,
-            Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]).powf(2.0)
-                * Unit::new(vec![BaseUnit::clone(&UNIT_SECOND)], vec![]),
+            Unit::new(vec![UNIT_KILOMETER.clone()], vec![]).powf(2.0)
+                * Unit::new(vec![UNIT_SECOND.clone()], vec![]),
         ))
         ; "Multiplication with other unit in the middle"
     )]
@@ -321,7 +327,7 @@ mod test_expression_parser {
         "1 meter / 2 second",
         Some(Quantity::new(
             0.5,
-            Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![BaseUnit::clone(&UNIT_SECOND)]),
+            Unit::new(vec![UNIT_METER.clone()], vec![UNIT_SECOND.clone()]),
         ))
         ; "Division"
     )]
@@ -346,7 +352,7 @@ mod test_expression_parser {
         Some(Quantity::new(
             1.0,
             Unit::new(
-                vec![BaseUnit::clone(&UNIT_METER).powf(2.0)],
+                vec![UNIT_METER.powf(2.0)],
                 vec![]
             ),
         ))
@@ -357,7 +363,7 @@ mod test_expression_parser {
         Some(Quantity::new(
             1.0,
             Unit::new(
-                vec![BaseUnit::clone(&UNIT_METER).powf(0.5)],
+                vec![UNIT_METER.powf(0.5)],
                 vec![]
             ),
         ))
@@ -369,7 +375,7 @@ mod test_expression_parser {
             1.0,
             Unit::new(
                 vec![],
-                vec![BaseUnit::clone(&UNIT_METER)],
+                vec![UNIT_METER.clone()],
             ),
         ))
         ; "Negative powers"
@@ -380,8 +386,8 @@ mod test_expression_parser {
             4.0,
             Unit::new(
                 vec![
-                    BaseUnit::clone(&UNIT_METER).powf(2.0),
-                    BaseUnit::clone(&UNIT_SECOND).powf(2.0),
+                    UNIT_METER.powf(2.0),
+                    UNIT_SECOND.powf(2.0),
                 ],
                 vec![]
             ),
@@ -393,7 +399,7 @@ mod test_expression_parser {
         Some(Quantity::new(
             1.0,
             Unit::new(
-                vec![BaseUnit::clone(&UNIT_METER).powf(2.5)],
+                vec![UNIT_METER.powf(2.5)],
                 vec![]
             ),
         ))
