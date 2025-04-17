@@ -8,11 +8,12 @@ use std::sync::LazyLock;
 use bitcode::{Decode, Encode};
 use xxhash_rust::xxh3::xxh3_64;
 
-use crate::base_unit::{BaseUnit, DimensionType, DIMENSIONLESS};
+use crate::base_unit::{BaseUnit, DimensionType, DIMENSIONLESS_TYPE};
 use crate::error::{SmootError, SmootResult};
 
 use super::registry_parser::{
-    registry_parser, NodeData, Operator, ParseTree, PrefixDefinition, UnitDefinition,
+    registry_parser, DimensionDefinition, NodeData, Operator, ParseTree, PrefixDefinition,
+    UnitDefinition,
 };
 
 pub static REGISTRY: LazyLock<Registry> =
@@ -30,6 +31,7 @@ pub struct Registry {
     // Don't bother with sharing memory with units because there's relatively few dimensions,
     // making this cheap.
     root_units: HashMap<DimensionType, BaseUnit>,
+    dimensions: HashMap<DimensionType, String>,
     checksum: u64,
 }
 impl Registry {
@@ -41,8 +43,16 @@ impl Registry {
         Self {
             units: HashMap::new(),
             root_units: HashMap::new(),
+            dimensions: HashMap::new(),
             checksum: 0,
         }
+    }
+
+    /// Load a registry from a string containing unit definitions.
+    pub fn new_from_str(data: &str) -> SmootResult<Self> {
+        let mut new = Self::new();
+        new.parse_definitions(data)?;
+        Ok(new)
     }
 
     /// Prefer to load from the cached file on disk. Parse the units file if no cache exists.
@@ -108,6 +118,10 @@ impl Registry {
         self.root_units.get(dimension).expect("Missing root unit")
     }
 
+    pub fn get_dimension(&self, dimension: &DimensionType) -> &String {
+        self.dimensions.get(dimension).expect("Missing dimension")
+    }
+
     pub fn len(&self) -> usize {
         self.units.len()
     }
@@ -144,13 +158,13 @@ impl Registry {
         // Containers for parsed unit constructs. These are not the "real" units, we can only build those
         // in a second pass since parsed expressions may reference units that are defined later in the file.
         // Dimensions like `[length]` define the category that a unit belongs to.
-        let mut dim_defs = Vec::new();
-        let mut unit_defs = HashMap::new();
+        let mut dim_defs: Vec<DimensionDefinition> = Vec::new();
+        let mut unit_defs: HashMap<String, UnitDefinition> = HashMap::new();
         // Derived dimensions are defined by expressions of base dimensions e.g. `[length] / [time]`.
-        let mut derived_dim_defs = HashMap::new();
+        let mut derived_dim_defs: HashMap<String, ParseTree> = HashMap::new();
         // Prefixes generate more units e.g. `kilo-` generates a new unit `kilometer` which has a
         // multiplicative factor of 1000.
-        let mut prefix_defs = HashMap::new();
+        let mut prefix_defs: HashMap<&str, PrefixDefinition> = HashMap::new();
 
         //==================================================
         // First pass - get raw definitions
@@ -161,13 +175,14 @@ impl Registry {
             if let Ok(dim_def) = registry_parser::dimension_definition(line, lineno) {
                 dim_defs.push(dim_def);
             } else if let Ok(unit_def) = registry_parser::unit_with_aliases(line, lineno) {
+                // Ignore any aliases named `_`
                 for &alias in unit_def.aliases.iter().filter(|&&a| a.ne("_")) {
                     Self::try_insert(lineno, &mut unit_defs, alias.into(), unit_def.clone())?;
                 }
                 Self::try_insert(lineno, &mut unit_defs, unit_def.name.clone(), unit_def)?;
             } else if let Ok(expr) = registry_parser::derived_dimension(line) {
                 if let NodeData::Op(Operator::Assign) = &expr.val {
-                    if let NodeData::Dimension(dimension) = &expr.left.as_ref().unwrap().val {
+                    if let NodeData::Dimension(Some(dimension)) = &expr.left.as_ref().unwrap().val {
                         if let Some(overwrite) = derived_dim_defs.insert(dimension.clone(), expr) {
                             return Err(SmootError::DimensionError(format!(
                                 "line:{} Line '{}' overwrote previous derived dimension {:?}",
@@ -238,6 +253,7 @@ impl Registry {
                 let mut prefix_name: String = prefix_def.name.into();
                 prefix_name.push_str(&name);
 
+                // Ignore any aliases named `_`
                 for &prefix_alias in prefix_def.aliases.iter().filter(|&&a| a.ne("_")) {
                     let mut alias_name: String = prefix_alias.into();
                     alias_name.push_str(&name);
@@ -293,10 +309,12 @@ impl Registry {
                 prefix_name.push_str(name);
 
                 // Add all combinations of prefix aliases and unit aliases.
+                // Ignore any aliases named `_`
                 for alias in def.aliases.iter().filter(|&&a| a.ne("_")) {
                     let mut alias_name: String = prefix_def.name.into();
                     alias_name.push_str(alias);
 
+                    // Ignore any aliases named `_`
                     for &prefix_alias in prefix_def.aliases.iter().filter(|&&a| a.ne("_")) {
                         let mut alias_name: String = prefix_alias.into();
                         alias_name.push_str(alias);
@@ -312,6 +330,7 @@ impl Registry {
                 }
 
                 // Add all prefix aliases to the unit name
+                // Ignore any aliases named `_`
                 for &prefix_alias in prefix_def.aliases.iter().filter(|&&a| a.ne("_")) {
                     let mut alias_name: String = prefix_alias.into();
                     alias_name.push_str(def.name);
@@ -331,15 +350,22 @@ impl Registry {
         //==================================================
         let mut next_dimension = 1;
         let mut dimensions = HashMap::new();
-        dimensions.insert("[dimensionless]", DIMENSIONLESS);
 
         dim_defs.into_iter().for_each(|def| {
             let unit = BaseUnit::new(def.name.into(), 1.0, next_dimension);
             self.insert_root_unit(unit.clone());
             self.insert_def(def.name.into(), &def.aliases, unit);
 
-            dimensions.insert(def.dimension, next_dimension);
-            next_dimension <<= 1;
+            let dim = if def.is_dimensionless() {
+                DIMENSIONLESS_TYPE
+            } else {
+                let dim = next_dimension;
+                next_dimension <<= 1;
+                dim
+            };
+
+            dimensions.insert(def.dimension, dim);
+            self.dimensions.insert(dim, def.dimension.to_string());
         });
 
         //==================================================
@@ -392,6 +418,7 @@ impl Registry {
 
     /// Insert a unit definition.
     fn insert_def(&mut self, name: String, aliases: &Vec<&str>, unit: BaseUnit) -> &BaseUnit {
+        // Ignore any aliases named `_`
         for &alias in aliases.iter().filter(|&&a| a.ne("_")) {
             let _ = self.units.entry(alias.into()).or_insert(unit.clone());
         }
@@ -421,7 +448,7 @@ impl Registry {
                 NodeData::Op(Operator::Assign) => {
                     let mut unit = BaseUnit::clone(&unit);
                     // Make sure the official name is correct
-                    unit.name = name.clone();
+                    unit.name = def.name.clone();
                     unit
                 }
                 // Generated alias expressions like `@alias km = kilometer` should use the rhs name `kilometer` for consistency.
@@ -494,7 +521,7 @@ impl Registry {
                 }
                 NodeData::Dimension(dim) => {
                     return Err(SmootError::ParseTreeError(format!(
-                        "line:{} Unexpected dimension {}",
+                        "line:{} Unexpected dimension {:?}",
                         lineno,
                         dim.to_owned()
                     )));
@@ -567,6 +594,8 @@ impl Registry {
 //==================================================
 #[cfg(test)]
 mod test_registry {
+    use test_case::case;
+
     use super::*;
 
     #[test]
@@ -575,6 +604,51 @@ mod test_registry {
         let _ = Registry::default()?;
         // Second load from cached file
         let _ = Registry::default()?;
+        Ok(())
+    }
+
+    #[case(
+        "percent = 0.01 = %",
+        Some(HashMap::from([
+            ("percent".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+            ("%".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+        ]))
+        ; "Dimensionless unit with alias parses"
+    )]
+    #[case(
+        "# ignored comment\npercent = 0.01 = %  # ignored comment",
+        Some(HashMap::from([
+            ("percent".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+            ("%".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+        ]))
+        ; "Comments are ignored"
+    )]
+    #[case(
+        "kilo- = 1e3\nmeter = [length]",
+        Some(HashMap::from([
+            ("meter".to_string(), BaseUnit::new("meter".to_string(), 1.0, 1)),
+            ("kilometer".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 1)),
+        ]))
+        ; "Prefixes are applied"
+    )]
+    #[case(
+        "unit2 = 2 * unit1\nunit1 = 1.0",
+        Some(HashMap::from([
+            ("unit1".to_string(), BaseUnit::new("unit1".to_string(), 1.0, 0)),
+            ("unit2".to_string(), BaseUnit::new("unit2".to_string(), 2.0, 0)),
+        ]))
+        ; "Derived units can be defined in any order"
+    )]
+    fn test_registry_load_from_str(
+        data: &str,
+        expected_units: Option<HashMap<String, BaseUnit>>,
+    ) -> SmootResult<()> {
+        let res = Registry::new_from_str(data);
+        if let Some(expected_units) = expected_units {
+            assert_eq!(res?.units, expected_units);
+        } else {
+            assert!(res.is_err());
+        }
         Ok(())
     }
 }

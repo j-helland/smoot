@@ -10,7 +10,7 @@ use crate::{
 };
 
 pub type DimensionType = u64;
-pub const DIMENSIONLESS: DimensionType = 0;
+pub const DIMENSIONLESS_TYPE: DimensionType = 0;
 
 #[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
 pub struct BaseUnit {
@@ -55,7 +55,7 @@ impl BaseUnit {
             name: String::new(),
             multiplier,
             power: None,
-            unit_type: DIMENSIONLESS,
+            unit_type: DIMENSIONLESS_TYPE,
             dimensionality: vec![],
         }
     }

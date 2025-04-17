@@ -16,6 +16,7 @@ use pyo3::{
     Bound,
 };
 
+use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hasher};
 
 use crate::hash::Hash;
@@ -73,8 +74,14 @@ macro_rules! create_unit_type {
                 self.inner.is_compatible_with(&other.inner)
             }
 
-            fn is_dimensionless(&self) -> bool {
+            #[getter(dimensionless)]
+            fn dimensionless(&self) -> bool {
                 self.inner.is_dimensionless()
+            }
+
+            #[getter(dimensionality)]
+            fn dimensionality(&self) -> Option<HashMap<String, f64>> {
+                self.inner.get_dimensionality().map(|dims| dims.0)
             }
 
             fn to_root_units(&self) -> Self {
@@ -174,6 +181,21 @@ macro_rules! create_quantity_type {
             fn parse(expression: &str) -> PyResult<Self> {
                 let inner = quantity::Quantity::parse(&REGISTRY, expression)?.into();
                 Ok(Self { inner })
+            }
+
+            #[getter(dimensionless)]
+            fn dimensionless(&self) -> bool {
+                self.inner.is_dimensionless()
+            }
+
+            #[getter(unitless)]
+            fn unitless(&self) -> bool {
+                self.inner.is_dimensionless()
+            }
+
+            #[getter(dimensionality)]
+            fn dimensionality(&self) -> Option<HashMap<String, f64>> {
+                self.inner.get_dimensionality().map(|dims| dims.0)
             }
 
             #[getter(m)]
@@ -437,6 +459,21 @@ macro_rules! create_array_quantity_type {
                 Self {
                     inner: quantity::Quantity::new(arr.to_owned_array(), unit.inner.clone()),
                 }
+            }
+
+            #[getter(dimensionless)]
+            fn dimensionless(&self) -> bool {
+                self.inner.is_dimensionless()
+            }
+
+            #[getter(unitless)]
+            fn unitless(&self) -> bool {
+                self.inner.is_dimensionless()
+            }
+
+            #[getter(dimensionality)]
+            fn dimensionality(&self) -> Option<HashMap<String, f64>> {
+                self.inner.get_dimensionality().map(|dims| dims.0)
             }
 
             #[getter(m)]

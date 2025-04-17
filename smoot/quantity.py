@@ -64,18 +64,33 @@ class Unit:
         """
         return self.__inner.is_compatible_with(other.__inner)
 
-    def is_dimensionless(self) -> bool:
+    @property
+    def dimensionless(self) -> bool:
         """Return True if this unit is dimensionless.
 
         Examples
         --------
         ```python
-        assert units.dimensionless.is_dimensionless()
-        assert not units.meter.is_dimensionless()
-        assert (units.meter / units.meter).is_dimensionless()
+        assert units.dimensionless.dimensionless
+        assert not units.meter.dimensionless
+        assert (units.meter / units.meter).dimensionless
         ```
         """
-        return self.__inner.is_dimensionless()
+        return self.__inner.dimensionless
+
+    @property
+    def dimensionality(self) -> dict[str, float] | None:
+        """Returns the dimensionality of this unit.
+
+        Examples
+        --------
+        ```python
+        assert units.dimensionless.dimensionality is None
+        assert units.meter.dimensionality == {"[length]": 1.0}
+        assert units.newton.dimensionality == {"[length]": 1.0, "[mass]": 1.0, "[time]": -2.0}
+        ```
+        """
+        return self.__inner.dimensionality
 
     def to_root_units(self) -> Unit:
         """Return a simplified version of this unit with the minimum number of base units.
@@ -216,6 +231,46 @@ class Quantity(Generic[T, R]):
             raise NotImplementedError(msg)
 
         self.__inner: F64Quantity | ArrayF64Quantity = quantity
+
+    @property
+    def dimensionless(self) -> bool:
+        """True if this quantity is dimensionless.
+
+        Examples
+        --------
+        ```python
+        assert Quantity(1).dimensionless
+        assert not Quantity(1, "meter").dimensionless
+        ```
+        """
+        return self.__inner.dimensionless
+
+    @property
+    def dimensionality(self) -> dict[str, float] | None:
+        """Returns the dimensionality of this quantity.
+
+        Examples
+        --------
+        ```python
+        assert Quantity(1).dimensionality is None
+        assert Quantity(1, "meter").dimensionality == {"[length]": 1.0}
+        assert Quantity(1, "newton").dimensionality == {"[length]": 1.0, "[mass]": 1.0, "[time]": -2.0}
+        ```
+        """
+        return self.__inner.dimensionality
+
+    @property
+    def unitless(self) -> bool:
+        """True if this quantity is dimensionless.
+
+        Examples
+        --------
+        ```python
+        assert Quantity(1).unitless
+        assert not Quantity(1, "meter").unitless
+        ```
+        """
+        return self.__inner.unitless
 
     @property
     def magnitude(self) -> R:
@@ -467,7 +522,7 @@ class Quantity(Generic[T, R]):
         self, other: Quantity[T, R] | T, modulo: Real | None = None
     ) -> Quantity[T, R]:
         other_inner = self._get_inner(other)
-        if not other_inner.units.is_dimensionless():
+        if not other_inner.units.dimensionless:
             msg = f"Expected dimensionless exponent but got: {other_inner.units}"
             raise ValueError(msg)
 
@@ -484,7 +539,7 @@ class Quantity(Generic[T, R]):
         return self._get_quantity(other).__pow__(self, modulo)
 
     def __ipow__(self, other: Quantity[T, R] | T, modulo: Real | None = None) -> Self:
-        if isinstance(other, Quantity) and not other.units.is_dimensionless():
+        if isinstance(other, Quantity) and not other.units.dimensionless:
             msg = f"Expected dimensionless exponent but got: {other.units}"
             raise ValueError(msg)
 

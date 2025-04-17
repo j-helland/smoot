@@ -16,7 +16,7 @@ use crate::{
     parser::expression_parser,
     registry::Registry,
     types::Number,
-    unit::Unit,
+    unit::{Dimensionality, Unit},
     utils::{ConvertMagnitude, Powf, Powi},
 };
 
@@ -52,6 +52,10 @@ where
     /// Return true if this quantity has no associated units.
     pub fn is_dimensionless(&self) -> bool {
         self.unit.is_dimensionless()
+    }
+
+    pub fn get_dimensionality(&self) -> Option<Dimensionality> {
+        self.unit.get_dimensionality()
     }
 
     /// Return the underlying value of this quantity, converted to target units.

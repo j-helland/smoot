@@ -1,7 +1,8 @@
 use std::{
+    collections::HashMap,
     fmt::{self},
     mem::swap,
-    ops::{Add, Deref, Div, DivAssign, Mul, MulAssign, Sub},
+    ops::{Add, Div, DivAssign, Mul, MulAssign, Sub},
 };
 
 use bitcode::{Decode, Encode};
@@ -10,7 +11,7 @@ use itertools::{EitherOrBoth, Itertools};
 use num_traits::ToPrimitive;
 
 use crate::{
-    base_unit::{BaseUnit, DimensionType, DIMENSIONLESS},
+    base_unit::{BaseUnit, DimensionType, DIMENSIONLESS_TYPE},
     error::{SmootError, SmootResult},
     hash::Hash,
     parser::expression_parser,
@@ -19,6 +20,8 @@ use crate::{
 };
 
 type UnitDimensionality<N> = Vec<N>;
+
+pub struct Dimensionality(pub HashMap<String, f64>);
 
 #[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
 pub struct Unit {
@@ -35,10 +38,10 @@ impl Unit {
     pub fn new(numerator_units: Vec<BaseUnit>, denominator_units: Vec<BaseUnit>) -> Self {
         let mut unit = Self {
             numerator_units,
-            numerator_dimension: DIMENSIONLESS,
+            numerator_dimension: DIMENSIONLESS_TYPE,
             numerator_dimensionality: UnitDimensionality::new(),
             denominator_units,
-            denominator_dimension: DIMENSIONLESS,
+            denominator_dimension: DIMENSIONLESS_TYPE,
             denominator_dimensionality: UnitDimensionality::new(),
         };
         unit.update_dimensionality();
@@ -51,7 +54,8 @@ impl Unit {
 
     /// Integer power operation that creates a new unit.
     pub fn powi(&self, n: i32) -> Self {
-        if self.denominator_dimension == DIMENSIONLESS && self.numerator_dimension == DIMENSIONLESS
+        if self.denominator_dimension == DIMENSIONLESS_TYPE
+            && self.numerator_dimension == DIMENSIONLESS_TYPE
         {
             return Self::new_dimensionless();
         }
@@ -65,7 +69,8 @@ impl Unit {
 
     /// In-place integer power operation.
     pub fn ipowi(&mut self, n: i32) {
-        if self.denominator_dimension == DIMENSIONLESS && self.numerator_dimension == DIMENSIONLESS
+        if self.denominator_dimension == DIMENSIONLESS_TYPE
+            && self.numerator_dimension == DIMENSIONLESS_TYPE
         {
             return;
         }
@@ -135,7 +140,8 @@ impl Unit {
 
     /// Return true if this unit is dimensionless (i.e. has no associated base units).
     pub fn is_dimensionless(&self) -> bool {
-        self.numerator_dimension == DIMENSIONLESS && self.denominator_dimension == DIMENSIONLESS
+        self.numerator_dimension == DIMENSIONLESS_TYPE
+            && self.denominator_dimension == DIMENSIONLESS_TYPE
     }
 
     /// Return true if this unit is compatible with the target (e.g. meter and kilometer).
@@ -185,10 +191,10 @@ impl Unit {
     pub fn conversion_factor(&self, other: &Self) -> SmootResult<f64> {
         if !self.is_compatible_with(other) {
             return Err(SmootError::IncompatibleUnitTypes(
-                self.get_units_string(true)
+                self.get_dimensionality_str()
                     .unwrap_or("dimensionless".into()),
                 other
-                    .get_units_string(true)
+                    .get_dimensionality_str()
                     .unwrap_or("dimensionless".into()),
             ));
         }
@@ -214,14 +220,55 @@ impl Unit {
         Ok(numerator_conversion_factor / denominator_conversion_factor)
     }
 
-    /// Format a power as a string.
-    /// If the power is close to an integer, only display the integer part.
-    fn format_power(p: f64) -> String {
+    /// Format a float as a string.
+    /// If the float is close to an integer, only display the integer part.
+    fn format_float(p: f64) -> String {
         if float_eq_rel(p.fract(), 0.0, 1e-8) {
             format!("{}", p.to_i64().unwrap())
         } else {
             format!("{:?}", p)
         }
+    }
+
+    pub fn get_dimensionality(&self) -> Option<Dimensionality> {
+        if self.is_dimensionless() {
+            return None;
+        }
+
+        // Numerator
+        let mut dims = HashMap::new();
+        self.numerator_dimensionality
+            .iter()
+            .enumerate()
+            .filter(|(_, dim)| !dim.approx_eq(0.0))
+            .for_each(|(idx, &dim)| {
+                let dim_str = REGISTRY.get_dimension(&(1 << idx));
+                dims.insert(dim_str.clone(), dim);
+            });
+
+        // Denominator
+        self.denominator_dimensionality
+            .iter()
+            .enumerate()
+            .filter(|(_, dim)| !dim.approx_eq(0.0))
+            .for_each(|(idx, &dim)| {
+                let dim_str = REGISTRY.get_dimension(&(1 << idx));
+                dims.entry(dim_str.clone())
+                    .and_modify(|d| *d -= dim)
+                    .or_insert(-dim);
+            });
+
+        Some(Dimensionality(dims))
+    }
+
+    pub fn get_dimensionality_str(&self) -> Option<String> {
+        self.get_dimensionality().map(|dims| {
+            dims.0
+                .iter()
+                .sorted_by_key(|(k, _)| k.as_str())
+                .map(|(k, v)| format!("{}: {}", k, Self::format_float(*v)))
+                .join(", ")
+        })
     }
 
     /// Convert this unit into a displayable string representation.
@@ -245,7 +292,7 @@ impl Unit {
             .iter()
             .map(|u| {
                 u.power
-                    .map(Self::format_power)
+                    .map(Self::format_float)
                     .map(|s| format!("{} ** {}", u.name, s))
                     .unwrap_or_else(|| u.name.clone())
             })
@@ -259,7 +306,7 @@ impl Unit {
             .iter()
             .map(|u| {
                 u.power
-                    .map(Self::format_power)
+                    .map(Self::format_float)
                     .map(|s| format!("{} ** {}", u.name, s))
                     .unwrap_or_else(|| u.name.clone())
             })
@@ -288,10 +335,10 @@ impl Unit {
     /// This is invoked automatically during unit reduction / simplification.
     fn update_dimensionality(&mut self) {
         self.numerator_dimension = Self::get_dimension_mask(&self.numerator_units);
-        Self::get_dimensionality(&mut self.numerator_dimensionality, &self.numerator_units);
+        Self::get_dimensionality_vec(&mut self.numerator_dimensionality, &self.numerator_units);
 
         self.denominator_dimension = Self::get_dimension_mask(&self.denominator_units);
-        Self::get_dimensionality(
+        Self::get_dimensionality_vec(
             &mut self.denominator_dimensionality,
             &self.denominator_units,
         );
@@ -502,9 +549,6 @@ impl Unit {
         denominator: &mut Vec<BaseUnit>,
         base: &BaseUnit,
     ) {
-        // Hold lock, repeated re-locking is more expensive here.
-        let registry = REGISTRY.deref();
-
         for (i, &dim) in base.dimensionality.iter().enumerate() {
             if dim.approx_eq(0.0) {
                 continue;
@@ -512,7 +556,7 @@ impl Unit {
             let dim_abs = dim.abs();
 
             let dim_type = 1 << i;
-            let root = registry.get_root_unit(&dim_type);
+            let root = REGISTRY.get_root_unit(&dim_type);
             let root = if dim_abs.approx_eq(1.0) {
                 root.clone()
             } else {
@@ -531,7 +575,7 @@ impl Unit {
         units.iter().fold(0, |d, u| d | u.unit_type)
     }
 
-    fn get_dimensionality(dimensionality: &mut UnitDimensionality<f64>, units: &[BaseUnit]) {
+    fn get_dimensionality_vec(dimensionality: &mut UnitDimensionality<f64>, units: &[BaseUnit]) {
         dimensionality.fill(0.0);
         dimensionality.resize(
             units
@@ -792,6 +836,55 @@ mod test_unit {
         assert_eq!(u.get_units_string(true), expected.map(String::from));
     }
 
+    #[case(
+        Unit::new(
+            vec![UNIT_METER.clone()],
+            vec![],
+        ),
+        Some("[length]: 1")
+        ; "Numerator"
+    )]
+    #[case(
+        Unit::new(
+            vec![],
+            vec![UNIT_METER.clone()],
+        ),
+        Some("[length]: -1")
+        ; "Denominator"
+    )]
+    #[case(
+        Unit::new(
+            vec![UNIT_METER.powf(2.5)],
+            vec![],
+        ),
+        Some("[length]: 2.5")
+        ; "Power"
+    )]
+    #[case(
+        Unit::new(
+            vec![UNIT_METER.clone(), UNIT_KILOMETER.clone()],
+            vec![],
+        ),
+        Some("[length]: 2")
+        ; "Multi-unit"
+    )]
+    #[case(
+        Unit::new(vec![], vec![]),
+        None
+        ; "Dimensionless"
+    )]
+    #[case(
+        Unit::new(
+            vec![UNIT_NEWTON.clone()],
+            vec![],
+        ),
+        Some("[length]: 1, [mass]: 1, [time]: -2")
+        ; "Multidimensional base unit"
+    )]
+    fn test_get_dimensionality_string(u: Unit, expected: Option<&str>) {
+        assert_eq!(u.get_dimensionality_str(), expected.map(String::from));
+    }
+
     #[test]
     fn test_mul_numerator() {
         let u1 = Unit::new(vec![UNIT_SECOND.clone()], vec![]);
@@ -928,7 +1021,7 @@ mod test_unit {
 
         let _ = u.simplify(true);
 
-        assert_eq!(u.denominator_dimension, DIMENSIONLESS);
+        assert_eq!(u.denominator_dimension, DIMENSIONLESS_TYPE);
         assert!(u.denominator_dimensionality.is_empty());
         assert_eq!(u.numerator_dimension, UNIT_SECOND.unit_type);
         assert_eq!(u.numerator_dimensionality, UNIT_SECOND.dimensionality);

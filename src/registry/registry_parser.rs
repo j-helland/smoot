@@ -1,3 +1,5 @@
+static DIMENSIONLESS: &str = "[dimensionless]";
+
 #[derive(Debug, PartialEq)]
 pub(crate) struct PrefixDefinition<'a> {
     pub(crate) name: &'a str,
@@ -6,13 +8,18 @@ pub(crate) struct PrefixDefinition<'a> {
     pub(crate) lineno: usize,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DimensionDefinition<'a> {
     pub(crate) name: &'a str,
     pub(crate) dimension: &'a str,
     pub(crate) modifiers: Vec<(&'a str, f64)>,
     pub(crate) aliases: Vec<&'a str>,
     pub(crate) lineno: usize,
+}
+impl DimensionDefinition<'_> {
+    pub fn is_dimensionless(&self) -> bool {
+        self.dimension == DIMENSIONLESS
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -51,7 +58,7 @@ pub(crate) enum NodeData {
     Integer(i32),
     Decimal(f64),
     Symbol(String),
-    Dimension(String),
+    Dimension(Option<String>),
 }
 impl From<i32> for NodeData {
     fn from(value: i32) -> Self {
@@ -121,9 +128,15 @@ peg::parser! {
         rule symbol() -> &'input str
             = sym:$([^ ' ' | '\n' | '\t' | '-' | '[' | ']' | '(' | ')' | '=' | ';' | ':' | ',' | '*' | '/' | '^' | '#']+)
             { sym }
-        rule dimension() -> &'input str
+        rule dimension() -> Option<&'input str>
             = dim:$("[" symbol()? "]")
-            { dim }
+            {
+                if dim == "[]" {
+                    None
+                } else {
+                    Some(dim)
+                }
+            }
 
         rule eq() = __ "=" __
         rule sign() = ['-' | '+']
@@ -177,7 +190,7 @@ peg::parser! {
                 i:integer() { i.into() }
                 d:decimal() { d.into() }
                 sym:symbol() { NodeData::Symbol(sym.into()).into() }
-                dim:dimension() { NodeData::Dimension(dim.into()).into() }
+                dim:dimension() { NodeData::Dimension(dim.map(String::from)).into() }
             }
 
         pub rule unit_with_aliases(lineno: usize) -> UnitDefinition<'input>
@@ -204,7 +217,10 @@ peg::parser! {
                 modifiers:(modifiers()*)
                 aliases:(aliases()*)
                 comment()?
-            { DimensionDefinition { name, dimension, modifiers, aliases, lineno } }
+            {
+                let dimension = dimension.unwrap_or(DIMENSIONLESS);
+                DimensionDefinition { name, dimension, modifiers, aliases, lineno }
+            }
 
         pub rule derived_dimension() -> ParseTree
             = dim:dimension() eq() expr:unit_expression()
@@ -212,7 +228,7 @@ peg::parser! {
             {
                 ParseTree::new(
                     Operator::Assign.into(),
-                    NodeData::Dimension(dim.into()).into(),
+                    NodeData::Dimension(dim.map(String::from)).into(),
                     expr,
                 )
             }
@@ -284,11 +300,21 @@ mod test_unit_parser {
         ; "Nested parentheticals"
     )]
     #[case(
+        "[length]",
+        Some(ParseTree::node(NodeData::Dimension(Some("[length]".into()))))
+        ; "Basic dimension"
+    )]
+    #[case(
+        "[]",
+        Some(ParseTree::node(NodeData::Dimension(None)))
+        ; "Dimensionless"
+    )]
+    #[case(
         "1 / [viscosity]",
         Some(ParseTree::new(
             Operator::Div.into(),
             1.into(),
-            NodeData::Dimension("[viscosity]".into()).into(),
+            NodeData::Dimension(Some("[viscosity]".into())).into(),
         ))
         ; "Dimension expression"
     )]
@@ -425,15 +451,15 @@ mod test_unit_parser {
         "[momentum] = [length] * [mass] / [time]",
         Some(ParseTree::new(
             Operator::Assign.into(),
-            NodeData::Dimension("[momentum]".into()).into(),
+            NodeData::Dimension(Some("[momentum]".into())).into(),
             ParseTree::new(
                 Operator::Div.into(),
                 ParseTree::new(
                     Operator::Mul.into(),
-                    NodeData::Dimension("[length]".into()).into(),
-                    NodeData::Dimension("[mass]".into()).into(),
+                    NodeData::Dimension(Some("[length]".into())).into(),
+                    NodeData::Dimension(Some("[mass]".into())).into(),
                 ),
-                NodeData::Dimension("[time]".into()).into(),
+                NodeData::Dimension(Some("[time]".into())).into(),
             )
         ))
         ; "Basic derived dimension expression"

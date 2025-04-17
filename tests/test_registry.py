@@ -25,8 +25,14 @@ def test_is_compatible_with(units: UnitRegistry) -> None:
 
 
 def test_is_dimensionless(units: UnitRegistry) -> None:
-    assert not units.meter.is_dimensionless()
-    assert typing.cast(Unit, units.meter / units.meter).is_dimensionless()
+    assert not units.meter.dimensionless
+    assert typing.cast(Unit, units.meter / units.meter).dimensionless
+
+
+def test_dimensionality(units: UnitRegistry) -> None:
+    assert units.dimensionless.dimensionality is None
+    assert units.meter.dimensionality == {"[length]": 1.0}
+    assert units.newton.dimensionality == {"[length]": 1.0, "[mass]": 1.0, "[time]": -2.0}
 
 
 def test_to_root_units(units: UnitRegistry) -> None:

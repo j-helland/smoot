@@ -40,6 +40,22 @@ def test_all_base_unit_strings() -> None:
 @pytest.mark.parametrize(
     argnames=("quantity", "expected"),
     argvalues=(
+        (Q(1), None),
+        (Q("1 meter"), {"[length]": 1.0}),
+        (Q([1, 2, 3], "meter"), {"[length]": 1.0}),
+        (Q("1 newton"), {"[length]": 1.0, "[mass]": 1.0, "[time]": -2.0}),
+    ),
+)
+def test_dimensionality(
+    quantity: Q,
+    expected: dict[str, float] | None,
+) -> None:
+    assert quantity.dimensionality == expected
+
+
+@pytest.mark.parametrize(
+    argnames=("quantity", "expected"),
+    argvalues=(
         (Q("1 newton"), "1 newton"),
         (Q("1 km"), "1 kilometer"),
         (Q("meter") / Q("second"), "1 meter / second"),
