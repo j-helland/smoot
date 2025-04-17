@@ -179,6 +179,20 @@ impl Registry {
                 for &alias in unit_def.aliases.iter().filter(|&&a| a.ne("_")) {
                     Self::try_insert(lineno, &mut unit_defs, alias.into(), unit_def.clone())?;
                 }
+
+                // Plural form e.g. "meters"
+                // Don't add plural suffix to aliases because this could create confusing conflicts like "ms" for "meters" / "milliseconds".
+                let mut plural_unit_def = unit_def.clone();
+                // No need for aliases since the non-plural definition already covers it.
+                plural_unit_def.aliases.clear();
+                Self::try_insert(
+                    lineno,
+                    &mut unit_defs,
+                    plural_unit_def.name.clone() + "s",
+                    plural_unit_def,
+                )?;
+
+                // Non-plural form e.g. "meter"
                 Self::try_insert(lineno, &mut unit_defs, unit_def.name.clone(), unit_def)?;
             } else if let Ok(expr) = registry_parser::derived_dimension(line) {
                 if let NodeData::Op(Operator::Assign) = &expr.val {
@@ -273,12 +287,12 @@ impl Registry {
             let name = def.name;
 
             for prefix_def in prefix_defs.values() {
-                let f_make_new_def = |name: String| UnitDefinition {
-                    name: name.clone(),
+                let f_make_new_def = |new_name: String| UnitDefinition {
+                    name: new_name.clone(),
                     // Create an expression like `kilometer = 1000 * meter`, where `M` is the prefix multiplier.
                     expression: ParseTree::new(
                         Operator::Assign.into(),
-                        name.into(),
+                        new_name.into(),
                         ParseTree::new(
                             Operator::Mul.into(),
                             ParseTree::from(prefix_def.multiplier),
@@ -291,12 +305,12 @@ impl Registry {
                     lineno: def.lineno,
                 };
 
-                let f_make_new_alias = |name: String, from: String| UnitDefinition {
-                    name: name.clone(),
+                let f_make_new_alias = |new_name: String, from: String| UnitDefinition {
+                    name: new_name.clone(),
                     // Create an expression like `km = kilometer`.
                     expression: ParseTree::new(
                         Operator::AssignAlias.into(),
-                        name.into(),
+                        new_name.into(),
                         from.into(),
                     ),
                     modifiers: def.modifiers.clone(),
@@ -305,19 +319,22 @@ impl Registry {
                     lineno: def.lineno,
                 };
 
-                let mut prefix_name: String = prefix_def.name.into();
-                prefix_name.push_str(name);
+                let f_add_prefix = |prefix: &str, name: &str| {
+                    let mut prefix_name = prefix.to_string();
+                    prefix_name.push_str(name);
+                    prefix_name
+                };
+
+                let prefix_name = f_add_prefix(prefix_def.name, def.name);
 
                 // Add all combinations of prefix aliases and unit aliases.
                 // Ignore any aliases named `_`
                 for alias in def.aliases.iter().filter(|&&a| a.ne("_")) {
-                    let mut alias_name: String = prefix_def.name.into();
-                    alias_name.push_str(alias);
+                    let alias_name = f_add_prefix(prefix_def.name, alias);
 
                     // Ignore any aliases named `_`
                     for &prefix_alias in prefix_def.aliases.iter().filter(|&&a| a.ne("_")) {
-                        let mut alias_name: String = prefix_alias.into();
-                        alias_name.push_str(alias);
+                        let alias_name = f_add_prefix(prefix_alias, alias);
 
                         // Add prefix aliases
                         let new_alias = f_make_new_alias(alias_name.clone(), prefix_name.clone());
@@ -332,8 +349,7 @@ impl Registry {
                 // Add all prefix aliases to the unit name
                 // Ignore any aliases named `_`
                 for &prefix_alias in prefix_def.aliases.iter().filter(|&&a| a.ne("_")) {
-                    let mut alias_name: String = prefix_alias.into();
-                    alias_name.push_str(def.name);
+                    let alias_name = f_add_prefix(prefix_alias, def.name);
 
                     let new_alias = f_make_new_alias(alias_name.clone(), prefix_name.clone());
                     Self::insert_or_warn(def.lineno, &mut unit_defs, alias_name, new_alias);
@@ -341,7 +357,18 @@ impl Registry {
 
                 // Add prefixed unit
                 let new_def = f_make_new_def(prefix_name.clone());
-                Self::insert_or_warn(def.lineno, &mut unit_defs, prefix_name.clone(), new_def);
+                // Plural
+                let mut plural_new_def = new_def.clone();
+                // No aliases needed in plural since non-plural covers it
+                plural_new_def.aliases.clear();
+                Self::insert_or_warn(
+                    def.lineno,
+                    &mut unit_defs,
+                    f_add_prefix(prefix_def.name, name) + "s",
+                    plural_new_def,
+                );
+                // Non-plural
+                Self::insert_or_warn(def.lineno, &mut unit_defs, prefix_name, new_def);
             }
         }
 
@@ -354,7 +381,11 @@ impl Registry {
         dim_defs.into_iter().for_each(|def| {
             let unit = BaseUnit::new(def.name.into(), 1.0, next_dimension);
             self.insert_root_unit(unit.clone());
-            self.insert_def(def.name.into(), &def.aliases, unit);
+            // Plural
+            // No aliases needed since non-plural covers it
+            self.insert_def(def.name.to_string() + "s", &vec![], unit.clone());
+            // Non-plural
+            self.insert_def(def.name.to_string(), &def.aliases, unit);
 
             let dim = if def.is_dimensionless() {
                 DIMENSIONLESS_TYPE
@@ -425,6 +456,7 @@ impl Registry {
         self.units.entry(name).or_insert(unit)
     }
 
+    /// Insert only if the entry doesn't exist
     fn insert_root_unit(&mut self, unit: BaseUnit) {
         self.root_units.entry(unit.unit_type).or_insert(unit);
     }
@@ -461,7 +493,7 @@ impl Registry {
                 }
             };
 
-            let _ = self.insert_def(def.name.clone(), &def.aliases, unit);
+            let _ = self.insert_def(name.clone(), &def.aliases, unit);
         }
         Ok(())
     }
@@ -611,6 +643,7 @@ mod test_registry {
         "percent = 0.01 = %",
         Some(HashMap::from([
             ("percent".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+            ("percents".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
             ("%".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
         ]))
         ; "Dimensionless unit with alias parses"
@@ -619,6 +652,7 @@ mod test_registry {
         "# ignored comment\npercent = 0.01 = %  # ignored comment",
         Some(HashMap::from([
             ("percent".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+            ("percents".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
             ("%".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
         ]))
         ; "Comments are ignored"
@@ -627,7 +661,9 @@ mod test_registry {
         "kilo- = 1e3\nmeter = [length]",
         Some(HashMap::from([
             ("meter".to_string(), BaseUnit::new("meter".to_string(), 1.0, 1)),
+            ("meters".to_string(), BaseUnit::new("meter".to_string(), 1.0, 1)),
             ("kilometer".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 1)),
+            ("kilometers".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 1)),
         ]))
         ; "Prefixes are applied"
     )]
@@ -635,7 +671,9 @@ mod test_registry {
         "unit2 = 2 * unit1\nunit1 = 1.0",
         Some(HashMap::from([
             ("unit1".to_string(), BaseUnit::new("unit1".to_string(), 1.0, 0)),
+            ("unit1s".to_string(), BaseUnit::new("unit1".to_string(), 1.0, 0)),
             ("unit2".to_string(), BaseUnit::new("unit2".to_string(), 2.0, 0)),
+            ("unit2s".to_string(), BaseUnit::new("unit2".to_string(), 2.0, 0)),
         ]))
         ; "Derived units can be defined in any order"
     )]

@@ -717,6 +717,9 @@ fn rdiv_unit(num: f64, unit: &Unit) -> F64Quantity {
 
 #[pymodule]
 fn smoot(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Error types
+    m.add("SmootError", m.py().get_type::<SmootError>())?;
+
     // Core unit type
     m.add_class::<Unit>()?;
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 import typing
 
 import pytest
-from smoot import UnitRegistry, Unit, Quantity as Q
+from smoot import UnitRegistry, Unit, Quantity as Q, SmootError
 
 
 @pytest.fixture
@@ -32,7 +32,11 @@ def test_is_dimensionless(units: UnitRegistry) -> None:
 def test_dimensionality(units: UnitRegistry) -> None:
     assert units.dimensionless.dimensionality is None
     assert units.meter.dimensionality == {"[length]": 1.0}
-    assert units.newton.dimensionality == {"[length]": 1.0, "[mass]": 1.0, "[time]": -2.0}
+    assert units.newton.dimensionality == {
+        "[length]": 1.0,
+        "[mass]": 1.0,
+        "[time]": -2.0,
+    }
 
 
 def test_to_root_units(units: UnitRegistry) -> None:
@@ -43,6 +47,16 @@ def test_to_root_units(units: UnitRegistry) -> None:
     u = units.km
     u.ito_root_units()
     assert u == units.meter
+
+
+def test_plural_units_parse(units: UnitRegistry) -> None:
+    assert units.meters == units.meter
+    assert units.kilometers == units.kilometer
+
+    # No plurality for abbreviations
+    assert units.ms == units.millisecond
+    with pytest.raises(SmootError):
+        units.kms
 
 
 def test_str(units: UnitRegistry) -> None:
