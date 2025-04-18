@@ -1,10 +1,12 @@
+use bitcode::{Decode, Encode};
+
 static DIMENSIONLESS: &str = "[dimensionless]";
 
-#[derive(Debug, PartialEq)]
-pub(crate) struct PrefixDefinition<'a> {
-    pub(crate) name: &'a str,
+#[derive(Encode, Decode, Debug, PartialEq)]
+pub(crate) struct PrefixDefinition {
+    pub(crate) name: String,
     pub(crate) multiplier: f64,
-    pub(crate) aliases: Vec<&'a str>,
+    pub(crate) aliases: Vec<String>,
     pub(crate) lineno: usize,
 }
 
@@ -233,12 +235,19 @@ peg::parser! {
                 )
             }
 
-        pub rule prefix_definition(lineno: usize) -> PrefixDefinition<'input>
+        pub rule prefix_definition(lineno: usize) -> PrefixDefinition
             = name:symbol() "-" eq() multiplier:decimal()
                 // Prefix aliases are special: they have a `-` suffix.
                 aliases:((eq() s:symbol() "-"? { s })*)
                 comment()?
-            { PrefixDefinition { name, multiplier, aliases, lineno } }
+            {
+                PrefixDefinition {
+                    name: name.to_string(),
+                    multiplier,
+                    aliases: aliases.into_iter().map(String::from).collect(),
+                    lineno,
+                }
+            }
     }
 }
 
@@ -480,9 +489,9 @@ mod test_unit_parser {
     #[case(
         "micro- = 1e-6  = µ- = μ- = u- = mu- = mc-  # comment",
         Some(PrefixDefinition {
-            name: "micro",
+            name: "micro".to_string(),
             multiplier: 1e-6,
-            aliases: vec!["µ", "μ", "u", "mu", "mc"],
+            aliases: vec!["µ", "μ", "u", "mu", "mc"].into_iter().map(String::from).collect(),
             lineno: 0,
         })
         ; "Prefix definition with aliases and comment"
@@ -490,9 +499,9 @@ mod test_unit_parser {
     #[case(
         "semi- = 0.5 = _ = demi-",
         Some(PrefixDefinition {
-            name: "semi",
+            name: "semi".to_string(),
             multiplier: 0.5,
-            aliases: vec!["_", "demi"],
+            aliases: vec!["_", "demi"].into_iter().map(String::from).collect(),
             lineno: 0,
         })
     )]

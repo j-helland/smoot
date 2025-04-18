@@ -16,12 +16,20 @@ use pyo3::{
     Bound,
 };
 
-use std::collections::HashMap;
-use std::hash::{DefaultHasher, Hasher};
+use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    ops::Deref,
+    sync::{Mutex, MutexGuard},
+};
+use std::{
+    hash::{DefaultHasher, Hasher},
+    path::Path,
+};
 
 use crate::hash::Hash;
 use crate::quantity::Quantity;
-use crate::registry::REGISTRY;
+use crate::registry::Registry;
 use crate::utils::{ConvertMagnitude, Floor, Powf, RoundDigits};
 
 mod base_unit;
@@ -37,24 +45,114 @@ mod utils;
 #[cfg(test)]
 mod test_utils;
 
+//==================================================
+// Error types
+//==================================================
 create_exception!("smoot.smoot", SmootError, PyException);
+create_exception!("smoot.smoot", SmootParseError, PyException);
+create_exception!("smoot.smoot", SmootInvalidOperationError, PyException);
 
 impl From<error::SmootError> for PyErr {
     fn from(value: error::SmootError) -> Self {
-        SmootError::new_err(value.to_string())
+        match value {
+            error::SmootError::ParseTreeError(msg) => SmootParseError::new_err(msg),
+            _ => SmootError::new_err(value.to_string()),
+        }
     }
 }
 
-#[pyfunction]
-fn get_registry_size() -> usize {
-    REGISTRY.len()
+//==================================================
+// Registry
+//==================================================
+type InnerRegistry = Arc<Mutex<Registry>>;
+
+#[pyclass(module = "smoot.smoot")]
+struct UnitRegistry {
+    inner: InnerRegistry,
 }
 
-#[pyfunction]
-fn get_all_registry_keys() -> Vec<String> {
-    REGISTRY.all_keys()
+#[pymethods]
+impl UnitRegistry {
+    #[new]
+    fn py_new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Registry::new())),
+        }
+    }
+
+    #[staticmethod]
+    fn default() -> PyResult<Self> {
+        let inner = Registry::default()?;
+        Ok(Self {
+            inner: Arc::new(Mutex::new(inner)),
+        })
+    }
+
+    #[staticmethod]
+    fn new_from_str(data: &str) -> PyResult<Self> {
+        let inner = Registry::new_from_str(data)?;
+        Ok(Self {
+            inner: Arc::new(Mutex::new(inner)),
+        })
+    }
+
+    #[staticmethod]
+    fn new_from_file(path: &str) -> PyResult<Self> {
+        let inner = Registry::new_from_file(Path::new(path))?;
+        Ok(Self {
+            inner: Arc::new(Mutex::new(inner)),
+        })
+    }
+
+    fn extend(&mut self, data: &str) -> PyResult<()> {
+        let mut registry = self.get()?;
+        registry.extend(data)?;
+        Ok(())
+    }
+
+    fn get_registry_size(&self) -> PyResult<usize> {
+        Ok(self.get()?.len())
+    }
+
+    fn get_all_registry_keys(&self) -> PyResult<Vec<String>> {
+        Ok(self.get()?.all_keys())
+    }
+
+    //==================================================
+    // pickle support
+    //==================================================
+    fn __setstate__(&mut self, state: &[u8]) -> PyResult<()> {
+        let registry =
+            bitcode::decode(state).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        self.inner = Arc::new(Mutex::new(registry));
+        Ok(())
+    }
+
+    fn __getstate__(&self) -> PyResult<Vec<u8>> {
+        let registry = self.get()?;
+        Ok(bitcode::encode(registry.deref()))
+    }
 }
 
+impl UnitRegistry {
+    fn get(&self) -> Result<MutexGuard<Registry>, PyErr> {
+        self.inner
+            .lock()
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    }
+}
+
+impl Deref for UnitRegistry {
+    type Target = InnerRegistry;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+//==================================================
+// Quantities / Units
+//==================================================
 macro_rules! create_unit_type {
     ($name_unit: ident, $base_type: ident) => {
         #[pyclass(module = "smoot.smoot")]
@@ -62,11 +160,13 @@ macro_rules! create_unit_type {
         struct $name_unit {
             inner: unit::Unit,
         }
+
         #[pymethods]
         impl $name_unit {
             #[staticmethod]
-            fn parse(expression: &str) -> PyResult<(f64, Self)> {
-                let (factor, inner) = unit::Unit::parse(&REGISTRY, expression)?;
+            fn parse(expression: &str, registry: &UnitRegistry) -> PyResult<(f64, Self)> {
+                let registry = registry.get()?;
+                let (factor, inner) = unit::Unit::parse(&registry, expression)?;
                 Ok((factor, Self { inner }))
             }
 
@@ -79,19 +179,25 @@ macro_rules! create_unit_type {
                 self.inner.is_dimensionless()
             }
 
-            #[getter(dimensionality)]
-            fn dimensionality(&self) -> Option<HashMap<String, f64>> {
-                self.inner.get_dimensionality().map(|dims| dims.0)
+            fn dimensionality(
+                &self,
+                registry: &UnitRegistry,
+            ) -> PyResult<Option<HashMap<String, f64>>> {
+                let registry = registry.get()?;
+                Ok(self.inner.get_dimensionality(&registry).map(|dims| dims.0))
             }
 
-            fn to_root_units(&self) -> Self {
+            fn to_root_units(&self, registry: &UnitRegistry) -> PyResult<Self> {
+                let registry = registry.get()?;
                 let mut new = self.clone();
-                let _ = new.inner.ito_root_units();
-                new
+                let _ = new.inner.ito_root_units(&registry);
+                Ok(new)
             }
 
-            fn ito_root_units(&mut self) {
-                self.inner.ito_root_units();
+            fn ito_root_units(&mut self, registry: &UnitRegistry) -> PyResult<()> {
+                let registry = registry.get()?;
+                self.inner.ito_root_units(&registry);
+                Ok(())
             }
 
             fn __hash__(&self) -> u64 {
@@ -161,6 +267,7 @@ macro_rules! create_quantity_type {
         struct $name_quantity {
             inner: quantity::Quantity<$base_type, $storage_type>,
         }
+
         #[pymethods]
         impl $name_quantity {
             #[new]
@@ -178,8 +285,9 @@ macro_rules! create_quantity_type {
             }
 
             #[staticmethod]
-            fn parse(expression: &str) -> PyResult<Self> {
-                let inner = quantity::Quantity::parse(&REGISTRY, expression)?.into();
+            fn parse(expression: &str, registry: &UnitRegistry) -> PyResult<Self> {
+                let registry = registry.get()?;
+                let inner = quantity::Quantity::parse(&registry, expression)?.into();
                 Ok(Self { inner })
             }
 
@@ -193,9 +301,12 @@ macro_rules! create_quantity_type {
                 self.inner.is_dimensionless()
             }
 
-            #[getter(dimensionality)]
-            fn dimensionality(&self) -> Option<HashMap<String, f64>> {
-                self.inner.get_dimensionality().map(|dims| dims.0)
+            fn dimensionality(
+                &self,
+                registry: &UnitRegistry,
+            ) -> PyResult<Option<HashMap<String, f64>>> {
+                let registry = registry.get()?;
+                Ok(self.inner.get_dimensionality(&registry).map(|dims| dims.0))
             }
 
             #[getter(m)]
@@ -236,14 +347,17 @@ macro_rules! create_quantity_type {
                 Ok(self.inner.m_as(&unit.inner, factor)?)
             }
 
-            fn to_root_units(&self) -> Self {
+            fn to_root_units(&self, registry: &UnitRegistry) -> PyResult<Self> {
+                let registry = registry.get()?;
                 let mut new = self.clone();
-                new.inner.ito_root_units();
-                new
+                new.inner.ito_root_units(&registry);
+                Ok(new)
             }
 
-            fn ito_root_units(&mut self) {
-                self.inner.ito_root_units();
+            fn ito_root_units(&mut self, registry: &UnitRegistry) -> PyResult<()> {
+                let registry = registry.get()?;
+                self.inner.ito_root_units(&registry);
+                Ok(())
             }
 
             fn mul_scalar(&self, scalar: $base_type) -> Self {
@@ -409,7 +523,7 @@ macro_rules! create_quantity_type {
             }
 
             fn __getnewargs__(&self) -> ($storage_type,) {
-                (self.m(),)
+                (self.inner.magnitude,)
             }
         }
     };
@@ -432,6 +546,7 @@ macro_rules! create_array_quantity_type {
         struct $name {
             inner: quantity::Quantity<$base_type, ArrayD<$base_type>>,
         }
+
         #[pymethods]
         impl $name {
             #[new]
@@ -454,13 +569,6 @@ macro_rules! create_array_quantity_type {
                 Ok(Self { inner })
             }
 
-            #[staticmethod]
-            fn new(arr: Bound<'_, PyArrayDyn<$base_type>>, unit: &$unit_type) -> Self {
-                Self {
-                    inner: quantity::Quantity::new(arr.to_owned_array(), unit.inner.clone()),
-                }
-            }
-
             #[getter(dimensionless)]
             fn dimensionless(&self) -> bool {
                 self.inner.is_dimensionless()
@@ -471,9 +579,12 @@ macro_rules! create_array_quantity_type {
                 self.inner.is_dimensionless()
             }
 
-            #[getter(dimensionality)]
-            fn dimensionality(&self) -> Option<HashMap<String, f64>> {
-                self.inner.get_dimensionality().map(|dims| dims.0)
+            fn dimensionality(
+                &self,
+                registry: &UnitRegistry,
+            ) -> PyResult<Option<HashMap<String, f64>>> {
+                let registry = registry.get()?;
+                Ok(self.inner.get_dimensionality(&registry).map(|dims| dims.0))
             }
 
             #[getter(m)]
@@ -524,14 +635,17 @@ macro_rules! create_array_quantity_type {
                 Ok(PyArray::from_array(py, &arr))
             }
 
-            fn to_root_units(&self) -> Self {
+            fn to_root_units(&self, registry: &UnitRegistry) -> PyResult<Self> {
+                let registry = registry.get()?;
                 let mut new = self.clone();
-                new.inner.ito_root_units();
-                new
+                new.inner.ito_root_units(&registry);
+                Ok(new)
             }
 
-            fn ito_root_units(&mut self) {
-                self.inner.ito_root_units();
+            fn ito_root_units(&mut self, registry: &UnitRegistry) -> PyResult<()> {
+                let registry = registry.get()?;
+                self.inner.ito_root_units(&registry);
+                Ok(())
             }
 
             //==================================================
@@ -715,10 +829,17 @@ fn rdiv_unit(num: f64, unit: &Unit) -> F64Quantity {
 //     ArrayF64Quantity { inner: q.inner.clone().into() }
 // }
 
+//==================================================
+// Module construction
+//==================================================
 #[pymodule]
 fn smoot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Error types
     m.add("SmootError", m.py().get_type::<SmootError>())?;
+    m.add("SmootParseError", m.py().get_type::<SmootParseError>())?;
+
+    // Unit registry
+    m.add_class::<UnitRegistry>()?;
 
     // Core unit type
     m.add_class::<Unit>()?;
@@ -731,8 +852,6 @@ fn smoot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // m.add_class::<I64Quantity>()?;
     // m.add_class::<ArrayI64Quantity>()?;
 
-    let _ = m.add_function(wrap_pyfunction!(get_registry_size, m)?);
-    let _ = m.add_function(wrap_pyfunction!(get_all_registry_keys, m)?);
     // let _ = m.add_function(wrap_pyfunction!(i64_to_f64_quantity, m)?);
     // let _ = m.add_function(wrap_pyfunction!(array_i64_to_f64_quantity, m)?);
     let _ = m.add_function(wrap_pyfunction!(mul_unit, m)?);

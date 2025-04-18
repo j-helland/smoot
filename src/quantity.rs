@@ -54,8 +54,8 @@ where
         self.unit.is_dimensionless()
     }
 
-    pub fn get_dimensionality(&self) -> Option<Dimensionality> {
-        self.unit.get_dimensionality()
+    pub fn get_dimensionality(&self, registry: &Registry) -> Option<Dimensionality> {
+        self.unit.get_dimensionality(registry)
     }
 
     /// Return the underlying value of this quantity, converted to target units.
@@ -113,8 +113,8 @@ where
     /// Examples
     /// --------
     /// 1 kilometer / hour -> 3.6 meter / second
-    pub fn ito_root_units(&mut self) {
-        let factor = self.unit.ito_root_units();
+    pub fn ito_root_units(&mut self, registry: &Registry) {
+        let factor = self.unit.ito_root_units(registry);
         self.magnitude.iconvert(factor);
     }
 
@@ -865,20 +865,23 @@ mod test_quantity {
 
     use numpy::ndarray::Array;
 
-    use crate::{assert_is_close, base_unit::BaseUnit, registry::REGISTRY};
+    use crate::{assert_is_close, base_unit::BaseUnit, test_utils::TEST_REGISTRY};
 
     use super::*;
 
     static UNIT_METER: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("meter").expect("No unit 'meter'"));
-    static UNIT_KILOMETER: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("kilometer").expect("No unit 'kilometer'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("meter").expect("No unit 'meter'"));
+    static UNIT_KILOMETER: LazyLock<&BaseUnit> = LazyLock::new(|| {
+        TEST_REGISTRY
+            .get_unit("kilometer")
+            .expect("No unit 'kilometer'")
+    });
     static UNIT_SECOND: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("second").expect("No unit 'second`'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("second").expect("No unit 'second`'"));
     static UNIT_NEWTON: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("newton").expect("No unit 'newton`'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("newton").expect("No unit 'newton`'"));
     static UNIT_JOULE: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("joule").expect("No unit 'joule`'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("joule").expect("No unit 'joule`'"));
 
     #[test]
     fn test_quantity_ito_fractional_power() -> SmootResult<()> {
@@ -1281,7 +1284,7 @@ mod test_quantity {
             Unit::new(vec![UNIT_JOULE.clone()], vec![UNIT_NEWTON.clone()]),
         );
         let expected = Quantity::new(1.0, Unit::new(vec![UNIT_METER.clone()], vec![]));
-        q.ito_root_units();
+        q.ito_root_units(&TEST_REGISTRY);
         assert_eq!(q, expected);
     }
 

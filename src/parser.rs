@@ -2,9 +2,9 @@ use std::str::FromStr;
 
 use num_traits::Float;
 
-use crate::registry::{Registry, REGISTRY};
+use crate::registry::Registry;
 use crate::utils::{ApproxEq, Powf, Powi};
-use crate::{error::SmootError, quantity::Quantity, unit::Unit};
+use crate::{quantity::Quantity, unit::Unit};
 
 trait ParsableFloat: FromStr + Float {}
 impl ParsableFloat for f64 {}
@@ -41,8 +41,8 @@ peg::parser! {
                     .ok_or("Unknown unit")
             }
 
-        rule reciprocal_unit(unit_cache: &Registry) -> Unit
-            = d:decimal::<f64>() __ "/" __ u:unit_expression(unit_cache)
+        rule reciprocal_unit(registry: &Registry) -> Unit
+            = d:decimal::<f64>() __ "/" __ u:unit_expression(registry)
             {?
                 if !d.approx_eq(1.0)  {
                     return Err("Unit expression cannot have a scaling factor");
@@ -52,87 +52,66 @@ peg::parser! {
 
         /// Core parser with operator precedence.
         /// We only need to support a few basic operators; addition and subtraction don't make sense for units.
-        pub rule unit_expression(unit_cache: &Registry) -> Unit
+        pub rule unit_expression(registry: &Registry) -> Unit
             = precedence!
             {
                 u1:(@) __ "*" __ u2:@ { u1 * u2 }
                 u1:(@) __ "/" __ u2:@ { u1 / u2 }
-                u:reciprocal_unit(unit_cache) { u }
+                u:reciprocal_unit(registry) { u }
                 --
                 u:@ __ "**" __ n:integer() { u.powi(n) }
                 u:@ __ "^" __ n:integer() { u.powi(n) }
                 u:@ __ "**" __ n:decimal() { u.powf(n) }
                 u:@ __ "^" __ n:decimal() { u.powf(n) }
                 --
-                u:unit(unit_cache) { u }
-                "(" __ expr:unit_expression(unit_cache) __ ")" { expr }
+                u:unit(registry) { u }
+                "(" __ expr:unit_expression(registry) __ ")" { expr }
             }
 
-        rule quantity(unit_cache: &Registry) -> Quantity<f64, f64>
-            = n:decimal()? __ u:unit_expression(unit_cache)
+        rule quantity(registry: &Registry) -> Quantity<f64, f64>
+            = n:decimal()? __ u:unit_expression(registry)
             { Quantity::new(n.unwrap_or(1.0), u) }
 
         /// Add operator requires conditional parsing to handle incompatible units.
-        rule quantity_add(unit_cache: &Registry) -> Quantity<f64, f64>
-            = q1:quantity(unit_cache) __ "+" __ q2:expression(unit_cache)
+        rule quantity_add(registry: &Registry) -> Quantity<f64, f64>
+            = q1:quantity(registry) __ "+" __ q2:expression(registry)
             {? (q1 + q2).or(Err("Incompatible units")) }
 
         /// Subtract operator requires conditional parsing to handle incompatible units.
-        rule quantity_sub(unit_cache: &Registry) -> Quantity<f64, f64>
-            = q1:quantity(unit_cache) __ "-" __ q2:expression(unit_cache)
+        rule quantity_sub(registry: &Registry) -> Quantity<f64, f64>
+            = q1:quantity(registry) __ "-" __ q2:expression(registry)
             {? (q1 - q2).or(Err("Incompatible units")) }
 
-        pub rule expression(unit_cache: &Registry) -> Quantity<f64, f64>
+        pub rule expression(registry: &Registry) -> Quantity<f64, f64>
             = precedence!
             {
-                q:quantity_add(unit_cache) { q }
-                q:quantity_sub(unit_cache) { q }
+                q:quantity_add(registry) { q }
+                q:quantity_sub(registry) { q }
                 --
                 q1:(@) __ "*" __ q2:@ { q1 * q2 }
                 q1:(@) __ "/" __ q2:@ { q1 / q2 }
-                d:decimal::<f64>() __ "/" __ u:unit_expression(unit_cache) { d / u }
+                d:decimal::<f64>() __ "/" __ u:unit_expression(registry) { d / u }
                 --
                 q1:@ __ "**" __ n:integer() !['.'] { q1.powi(n) }
                 q1:@ __ "^" __ n:integer() !['.'] { q1.powi(n) }
                 q1:@ __ "**" __ n:decimal() { q1.powf(n) }
                 q1:@ __ "^" __ n:decimal() { q1.powf(n) }
                 --
-                q:quantity(unit_cache) { q }
-                "-" q:expression(unit_cache) { -q }
-                "(" __ expr:expression(unit_cache) __ ")" { expr }
+                q:quantity(registry) { q }
+                "-" q:expression(registry) { -q }
+                "(" __ expr:expression(registry) __ ")" { expr }
                 n:decimal() { Quantity::new_dimensionless(n) }
             }
     }
 }
 
-/// Implement `.parse()` for strings into units.
-impl FromStr for Unit {
-    type Err = SmootError;
-
-    fn from_str(s: &str) -> Result<Unit, Self::Err> {
-        // TODO(jwh): get cache from non-global scope
-        expression_parser::unit_expression(s, &REGISTRY)
-            .map_err(|_e| SmootError::ExpressionError(format!("Invalid unit expression {}", s)))
-    }
-}
-
-/// Implement `.parse()` for strings into quantities.
-impl FromStr for Quantity<f64, f64> {
-    type Err = SmootError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        expression_parser::expression(s, &REGISTRY)
-            .map(|mut q| {
-                q.ito_reduced_units();
-                q
-            })
-            .map_err(|_| SmootError::ExpressionError(format!("Invalid quantity expression {}", s)))
-    }
-}
-
 #[cfg(test)]
 mod test_expression_parser {
-    use crate::{base_unit::BaseUnit, error::SmootResult};
+    use crate::{
+        base_unit::BaseUnit,
+        error::{SmootError, SmootResult},
+        test_utils::TEST_REGISTRY,
+    };
 
     use super::*;
     use peg::{error::ParseError, str::LineCol};
@@ -140,19 +119,39 @@ mod test_expression_parser {
     use test_case::case;
 
     static UNIT_METER: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("meter").expect("No unit 'meter'"));
-    static UNIT_KILOMETER: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("kilometer").expect("No unit 'kilometer'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("meter").expect("No unit 'meter'"));
+    static UNIT_KILOMETER: LazyLock<&BaseUnit> = LazyLock::new(|| {
+        TEST_REGISTRY
+            .get_unit("kilometer")
+            .expect("No unit 'kilometer'")
+    });
     static UNIT_SECOND: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("second").expect("No unit 'second'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("second").expect("No unit 'second'"));
     static UNIT_GRAM: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("gram").expect("No unit 'gram'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("gram").expect("No unit 'gram'"));
     static UNIT_NEWTON: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("newton").expect("No unit 'newton'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("newton").expect("No unit 'newton'"));
     static UNIT_JOULE: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("joule").expect("No unit 'joule'"));
-    static UNIT_PERCENT: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("percent").expect("No unit 'percent'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("joule").expect("No unit 'joule'"));
+    static UNIT_PERCENT: LazyLock<&BaseUnit> = LazyLock::new(|| {
+        TEST_REGISTRY
+            .get_unit("percent")
+            .expect("No unit 'percent'")
+    });
+
+    fn parse_unit(s: &str, registry: &Registry) -> SmootResult<Unit> {
+        expression_parser::unit_expression(s, registry)
+            .map_err(|_e| SmootError::ExpressionError(format!("Invalid unit expression {}", s)))
+    }
+
+    fn parse_quantity(s: &str, registry: &Registry) -> SmootResult<Quantity<f64, f64>> {
+        expression_parser::expression(s, registry)
+            .map(|mut q| {
+                q.ito_reduced_units();
+                q
+            })
+            .map_err(|_| SmootError::ExpressionError(format!("Invalid quantity expression {}", s)))
+    }
 
     #[case("1", Some(1); "Basic")]
     #[case("100", Some(100); "Multiple digits")]
@@ -272,7 +271,7 @@ mod test_expression_parser {
         ; "Special symbol"
     )]
     fn test_unit_parsing(s: &str, expected: Option<Unit>) -> SmootResult<()> {
-        let result = s.parse::<Unit>();
+        let result = parse_unit(s, &TEST_REGISTRY);
         if let Some(expected) = expected {
             let result = result?;
             assert_eq!(result, expected, "{:#?} != {:#?}", result, expected);
@@ -454,7 +453,7 @@ mod test_expression_parser {
         ; "Reciprocal unit"
     )]
     fn test_expression_parsing(s: &str, expected: Option<Quantity<f64, f64>>) -> SmootResult<()> {
-        let result = s.parse::<Quantity<f64, f64>>();
+        let result = parse_quantity(s, &TEST_REGISTRY);
         if let Some(expected) = expected {
             let result = result?;
             assert_eq!(result, expected, "{:#?} != {:#?}", result, expected);

@@ -2,12 +2,20 @@ from __future__ import annotations
 import typing
 
 import pytest
-from smoot import UnitRegistry, Unit, Quantity as Q, SmootError
+from smoot import UnitRegistry, Unit, SmootError
+import smoot
+from smoot.smoot import SmootParseError
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def units() -> UnitRegistry:
     return UnitRegistry()
+
+
+def test_raw_quantity_instantiation_fails() -> None:
+    """Quantities can only be instantiated through a UnitRegistry."""
+    with pytest.raises(TypeError):
+        smoot.Quantity(1)
 
 
 def test_registry(units: UnitRegistry) -> None:
@@ -86,6 +94,7 @@ def test_units_multiply(units: UnitRegistry) -> None:
 
 
 def test_units_multiply_into_quantity(units: UnitRegistry) -> None:
+    Q = units.Quantity
     assert (units.meter * 1) == Q("1 meter")
     assert (1 * units.meter) == Q("1 meter")
 
@@ -100,6 +109,7 @@ def test_units_divide(units: UnitRegistry) -> None:
 
 
 def test_units_divide_into_quantity(units: UnitRegistry) -> None:
+    Q = units.Quantity
     assert (1 / units.meter) == Q("1 / meter")
     assert (units.meter / 1) == Q("1 meter")
 
@@ -111,3 +121,35 @@ def test_units_pow(units: UnitRegistry) -> None:
     u = units.meter
     u **= 2
     assert u == units["m ** 2"]
+
+
+def test_extend_registry() -> None:
+    """Unit registries can be customized with bespoke units."""
+    units = UnitRegistry()
+    units.load_definitions("""
+    extra_smol_- = 1e-1
+
+    my_special_little_unit = [my_big_fat_dimension] = mslu
+    """)
+
+    # Old units are still accessible
+    assert units.meter
+
+    # New units are accessible
+    assert units.my_special_little_unit
+    assert units.mslu
+    # Prefixes apply
+    assert units.kilomy_special_little_unit
+    assert units.extra_smol_my_special_little_unit
+
+
+def test_extend_registry_with_invalid_syntax() -> None:
+    """Unit registries can be customized with bespoke units."""
+    units = UnitRegistry()
+    with pytest.raises(SmootParseError):
+        units.load_definitions("""
+        INVALID UNIT DEFINITION
+        """)
+
+    # Did not corrupt previous units
+    assert units.meter

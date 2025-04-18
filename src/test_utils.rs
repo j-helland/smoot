@@ -1,3 +1,7 @@
+use std::sync::LazyLock;
+
+use crate::registry::Registry;
+
 /// Asserts that two floating point numbers are close to each other.
 ///
 /// The default tolerance is 1e-6.
@@ -17,3 +21,6 @@ macro_rules! assert_is_close {
         assert!((($a as f64 - $b as f64).abs() / $a as f64).abs() < $rel_tol);
     };
 }
+
+pub static TEST_REGISTRY: LazyLock<Registry> =
+    LazyLock::new(|| Registry::default().expect("Failed to load default registry"));

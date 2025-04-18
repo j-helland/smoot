@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import math
 import operator
+import pickle
 from typing import Any, Callable
 
 import numpy as np
@@ -11,7 +12,11 @@ import pytest
 import hypothesis
 import hypothesis.strategies as st
 
-from smoot import UnitRegistry, Quantity as Q
+from smoot import UnitRegistry
+
+
+units = UnitRegistry()
+Q = units.Quantity
 
 
 @hypothesis.given(st.floats())
@@ -32,7 +37,6 @@ def test_quantity_integers(value: int) -> None:
 def test_all_base_unit_strings() -> None:
     """Make sure smoot can parse all of its unit strings."""
     # Do this in a loop because there are too many unit combinations to parameterize.
-    units = UnitRegistry()
     for unit in dir(units):
         Q(1, unit)
 
@@ -348,3 +352,13 @@ def test_ufunc() -> None:
     expected = np.sqrt(np.array([1, 2, 3]))
     actual = np.sqrt(Q([1, 2, 3])).magnitude
     assert np.allclose(expected, actual)
+
+
+def test_pickle_roundtrip() -> None:
+    """Quantities survive a roundtrip through pickle."""
+    q = Q("1 meter")
+    q_: Q = pickle.loads(pickle.dumps(q))
+    assert q == q_
+
+    # methods requiring a unit registry still work
+    assert q.to_root_units() == q_.to_root_units()

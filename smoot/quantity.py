@@ -9,6 +9,8 @@ from typing_extensions import Self
 import numpy as np
 from numpy.typing import NDArray
 
+import smoot
+
 from .smoot import (
     Unit as InnerUnit,
     F64Quantity,
@@ -17,160 +19,7 @@ from .smoot import (
     # ArrayI64Quantity,
     # array_i64_to_f64_quantity,
     # i64_to_f64_quantity,
-    mul_unit,
-    div_unit,
-    rdiv_unit,
 )
-
-
-class Unit:
-    __slots__ = ("__inner",)
-
-    def __init__(self) -> None:
-        raise NotImplementedError
-
-    @staticmethod
-    def parse(s: str) -> Unit:
-        """Parse the given expression into a unit.
-
-        Examples
-        --------
-        ```python
-        assert Unit.parse("meter") == units.meter
-        assert Unit.parser("1 / meter") == (1 / units.meter)
-        ```
-        """
-        new = object.__new__(Unit)
-        # Ignore the reduction factor when directly returning units to users
-        # since the factor is only used internally.
-        _, new.__inner = InnerUnit.parse(s)
-        return new
-
-    @staticmethod
-    def _from(u: InnerUnit) -> Unit:
-        new = object.__new__(Unit)
-        new.__inner = u
-        return new
-
-    def is_compatible_with(self, other: Unit) -> bool:
-        """Return True if this unit is compatible with the other.
-
-        Examples
-        --------
-        ```python
-        assert units.meter.is_compatible_with(units.kilometer)
-        assert not units.meter.is_compatible_with(units.second)
-        ```
-        """
-        return self.__inner.is_compatible_with(other.__inner)
-
-    @property
-    def dimensionless(self) -> bool:
-        """Return True if this unit is dimensionless.
-
-        Examples
-        --------
-        ```python
-        assert units.dimensionless.dimensionless
-        assert not units.meter.dimensionless
-        assert (units.meter / units.meter).dimensionless
-        ```
-        """
-        return self.__inner.dimensionless
-
-    @property
-    def dimensionality(self) -> dict[str, float] | None:
-        """Returns the dimensionality of this unit.
-
-        Examples
-        --------
-        ```python
-        assert units.dimensionless.dimensionality is None
-        assert units.meter.dimensionality == {"[length]": 1.0}
-        assert units.newton.dimensionality == {"[length]": 1.0, "[mass]": 1.0, "[time]": -2.0}
-        ```
-        """
-        return self.__inner.dimensionality
-
-    def to_root_units(self) -> Unit:
-        """Return a simplified version of this unit with the minimum number of base units.
-
-        Examples
-        --------
-        ```python
-        assert str(units.meter.to_root_units()) == "meter"
-        assert str(units.kilometer.to_root_units()) == "meter
-        assert str(units.newton.to_root_units()) == "(gram * meter) / second ** 2"
-        ```
-        """
-        new = object.__new__(Unit)
-        new.__inner = self.__inner.to_root_units()
-        return new
-
-    def ito_root_units(self) -> Self:
-        self.__inner.ito_root_units()
-        return self
-
-    def __str__(self) -> str:
-        return self.__inner.__str__()
-
-    def __repr__(self) -> str:
-        return f"<Unit('{self}')>"
-
-    def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, Unit):
-            return False
-        return self.__inner == other.__inner
-
-    def __mul__(self, other: Unit | int | float) -> Unit | Quantity:
-        if type(other) in (int, float):
-            new = object.__new__(Quantity)
-            new._Quantity__inner = mul_unit(other, self.__inner)
-            return new
-
-        new = object.__new__(Unit)
-        new.__inner = self.__inner * other.__inner
-        return new
-
-    def __rmul__(self, other: Unit | int | float) -> Unit | Quantity:
-        return self * other
-
-    def __imul__(self, other: Unit) -> Self:
-        self.__inner *= other.__inner
-        return self
-
-    def __truediv__(self, other: Unit | int | float) -> Unit | Quantity:
-        if type(other) in (int, float):
-            new = object.__new__(Quantity)
-            new._Quantity__inner = div_unit(self.__inner, other)
-            return new
-
-        new = object.__new__(Unit)
-        new.__inner = self.__inner / other.__inner
-        return new
-
-    def __itruediv__(self, other: Unit) -> Self:
-        self.__inner /= other.__inner
-        return self
-
-    def __rtruediv__(self, other: Unit | int | float) -> Unit | Quantity:
-        if type(other) in (int, float):
-            new = object.__new__(Quantity)
-            new._Quantity__inner = rdiv_unit(other, self.__inner)
-            return new
-
-        new = object.__new__(Unit)
-        new.__inner = other.__inner__ / self.__inner
-        return new
-
-    def __pow__(self, p: int | float, modulo: int | float | None = None) -> Unit:
-        new = object.__new__(Unit)
-        new.__inner = self.__inner.__pow__(p, modulo)
-        return new
-
-    def __ipow__(self, p: int | float, modulo: int | float | None = None) -> Self:
-        self.__inner.__ipow__(p, modulo)
-        return self
 
 
 E = TypeVar("E", int, float, np.float64, np.float32, np.int64, np.int32)
@@ -192,13 +41,22 @@ T = TypeVar(
 )
 R = TypeVar("R", int, float, NDArray[np.float64], NDArray[np.int64])
 ValueLike = Union[str, T]
-UnitsLike = Union[str, Unit]
+UnitsLike = Union[str, smoot.Unit]
 
 
 class Quantity(Generic[T, R]):
-    __slots__ = ("__inner",)
+    __slots__ = ("__inner", "__registry")
 
     def __init__(self, value: ValueLike[T], units: UnitsLike | None = None) -> None:
+        try:
+            registry = self._Quantity__registry
+        except AttributeError:
+            msg = (
+                "Attempted to instantiate an abstract Quantity. "
+                "Please use a Quantity via UnitRegistry e.g. `UnitRegistry().Quantity`."
+            )
+            raise TypeError(msg)
+
         t = type(value)
         quantity: F64Quantity | ArrayF64Quantity
         if t is str:
@@ -206,7 +64,7 @@ class Quantity(Generic[T, R]):
             if units is not None:
                 msg = f"Cannot pass a string to parse with separate units {units}"
                 raise ValueError(msg)
-            quantity = F64Quantity.parse(value)
+            quantity = F64Quantity.parse(value, registry=registry)
         elif t in (int, float, np.int64, np.int32, np.float64, np.float32):
             factor, _units = (
                 self._get_units(units) if units is not None else (None, None)
@@ -257,7 +115,7 @@ class Quantity(Generic[T, R]):
         assert Quantity(1, "newton").dimensionality == {"[length]": 1.0, "[mass]": 1.0, "[time]": -2.0}
         ```
         """
-        return self.__inner.dimensionality
+        return self.__inner.dimensionality(self.__registry)
 
     @property
     def unitless(self) -> bool:
@@ -314,7 +172,7 @@ class Quantity(Generic[T, R]):
         return self.__inner.m_as(_units, factor=factor)
 
     @property
-    def units(self) -> Unit:
+    def units(self) -> smoot.Unit:
         """Return the units of this quantity.
 
         Examples
@@ -323,10 +181,10 @@ class Quantity(Generic[T, R]):
         assert Quantity("1 meter").units == units.meter
         ```
         """
-        return Unit._from(self.__inner.units)
+        return smoot.Unit._from(self.__inner.units)
 
     @property
-    def u(self) -> Unit:
+    def u(self) -> smoot.Unit:
         """Return the units of this quantity.
 
         Examples
@@ -335,9 +193,9 @@ class Quantity(Generic[T, R]):
         assert Quantity("1 meter").u == units.meter
         ```
         """
-        return Unit._from(self.__inner.u)
+        return smoot.Unit._from(self.__inner.u)
 
-    def to(self, units: str | Unit) -> Quantity[T, R]:
+    def to(self, units: str | smoot.Unit) -> Quantity[T, R]:
         """Return a copy of this quantity converted to the target units.
 
         Examples
@@ -351,7 +209,7 @@ class Quantity(Generic[T, R]):
         new.__inner = self.__inner.to(_units, factor=factor)
         return new
 
-    def ito(self, units: str | Unit) -> Quantity[T, R]:
+    def ito(self, units: str | smoot.Unit) -> Quantity[T, R]:
         """In-place convert this quantity to the target units.
 
         Examples
@@ -376,7 +234,7 @@ class Quantity(Generic[T, R]):
         ```
         """
         new = object.__new__(Quantity)
-        new.__inner = self.__inner.to_root_units()
+        new.__inner = self.__inner.to_root_units(self.__registry)
         return new
 
     def ito_root_units(self) -> None:
@@ -390,7 +248,7 @@ class Quantity(Generic[T, R]):
         assert q == Quantity("3.6 meter / second")
         ```
         """
-        self.__inner.ito_root_units()
+        self.__inner.ito_root_units(self.__registry)
 
     # ==================================================
     # Standard dunder methods
@@ -403,6 +261,23 @@ class Quantity(Generic[T, R]):
 
     def __hash__(self) -> int:
         return hash(self.__inner)
+
+    # ==================================================
+    # Pickle support
+    # ==================================================
+    @staticmethod
+    def _load(inner: F64Quantity | ArrayF64Quantity) -> Quantity[T, R]:
+        new = object.__new__(Quantity)
+        new.__inner = inner
+
+        # Use the currently set application registry.
+        # WARNING: This may not be the same as the registry the pickled quantity was created with.
+        new.__registry = smoot.ApplicationRegistry.get()._UnitRegistry__inner
+
+        return new
+
+    def __reduce__(self):
+        return (Quantity._load, (self.__inner,))
 
     # ==================================================
     # Operators
@@ -463,7 +338,7 @@ class Quantity(Generic[T, R]):
         # matmul may have produced a scalar
         magnitude = typing.cast(np.ndarray, inner.magnitude)
         if magnitude.shape == (1,):
-            return Quantity(magnitude[0], Unit._from(inner.units))
+            return self.__class__(magnitude[0], smoot.Unit._from(inner.units))
 
         new = object.__new__(Quantity)
         new.__inner = inner
@@ -592,9 +467,9 @@ class Quantity(Generic[T, R]):
         # two "unnecessary" copies of the underlying array, not suitable for large arrays.
         #
         # One benefit is that this handles type conversion (e.g. int -> float) seamlessly.
-        return Quantity(
+        return self.__class__(
             value=ufunc(*(q.magnitude for q in inputs), **kwargs),
-            units=Unit._from(self.__inner.units),
+            units=smoot.Unit._from(self.__inner.units),
         )
 
     # ==================================================
@@ -608,9 +483,9 @@ class Quantity(Generic[T, R]):
         # for compatible operators.
         is_array = type(self.__inner) is ArrayF64Quantity
         if is_array and type(other) not in (list, tuple, np.ndarray):
-            return Quantity([other])
+            return self.__class__([other])
 
-        return Quantity(other)
+        return self.__class__(other)
 
     def _get_inner(
         self,
@@ -636,11 +511,11 @@ class Quantity(Generic[T, R]):
         msg = f"No conversion exists between {t1} and {t2}"
         raise NotImplementedError(msg)
 
-    @staticmethod
-    def _get_units(units: UnitsLike | InnerUnit) -> tuple[float, InnerUnit]:
+    @classmethod
+    def _get_units(cls, units: UnitsLike | InnerUnit) -> tuple[float, InnerUnit]:
         t = type(units)
         if t is str:
-            return InnerUnit.parse(units)
+            return InnerUnit.parse(units, cls.__registry)
         if t is InnerUnit:
             return (1.0, units)
         return (1.0, units._Unit__inner)

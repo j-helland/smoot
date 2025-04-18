@@ -15,7 +15,7 @@ use crate::{
     error::{SmootError, SmootResult},
     hash::Hash,
     parser::expression_parser,
-    registry::{Registry, REGISTRY},
+    registry::Registry,
     utils::{float_eq_rel, ApproxEq},
 };
 
@@ -191,10 +191,10 @@ impl Unit {
     pub fn conversion_factor(&self, other: &Self) -> SmootResult<f64> {
         if !self.is_compatible_with(other) {
             return Err(SmootError::IncompatibleUnitTypes(
-                self.get_dimensionality_str()
+                self.get_units_string(true)
                     .unwrap_or("dimensionless".into()),
                 other
-                    .get_dimensionality_str()
+                    .get_units_string(true)
                     .unwrap_or("dimensionless".into()),
             ));
         }
@@ -230,7 +230,7 @@ impl Unit {
         }
     }
 
-    pub fn get_dimensionality(&self) -> Option<Dimensionality> {
+    pub fn get_dimensionality(&self, registry: &Registry) -> Option<Dimensionality> {
         if self.is_dimensionless() {
             return None;
         }
@@ -242,7 +242,7 @@ impl Unit {
             .enumerate()
             .filter(|(_, dim)| !dim.approx_eq(0.0))
             .for_each(|(idx, &dim)| {
-                let dim_str = REGISTRY.get_dimension(&(1 << idx));
+                let dim_str = registry.get_dimension(&(1 << idx));
                 dims.insert(dim_str.clone(), dim);
             });
 
@@ -252,7 +252,7 @@ impl Unit {
             .enumerate()
             .filter(|(_, dim)| !dim.approx_eq(0.0))
             .for_each(|(idx, &dim)| {
-                let dim_str = REGISTRY.get_dimension(&(1 << idx));
+                let dim_str = registry.get_dimension(&(1 << idx));
                 dims.entry(dim_str.clone())
                     .and_modify(|d| *d -= dim)
                     .or_insert(-dim);
@@ -261,8 +261,8 @@ impl Unit {
         Some(Dimensionality(dims))
     }
 
-    pub fn get_dimensionality_str(&self) -> Option<String> {
-        self.get_dimensionality().map(|dims| {
+    pub fn get_dimensionality_str(&self, registry: &Registry) -> Option<String> {
+        self.get_dimensionality(registry).map(|dims| {
             dims.0
                 .iter()
                 .sorted_by_key(|(k, _)| k.as_str())
@@ -515,7 +515,7 @@ impl Unit {
     /// `newton.ito_root_units()`
     ///
     /// => `1000 * (gram * meter / second ** 2)`
-    pub fn ito_root_units(&mut self) -> f64 {
+    pub fn ito_root_units(&mut self, registry: &Registry) -> f64 {
         let mut factor = 1.0;
 
         let mut numerator = Vec::with_capacity(self.numerator_units.len());
@@ -523,12 +523,12 @@ impl Unit {
 
         for u in self.numerator_units.iter() {
             factor *= u.get_multiplier();
-            Self::update_with_root_units(&mut numerator, &mut denominator, u);
+            Self::update_with_root_units(&mut numerator, &mut denominator, u, registry);
         }
         for u in self.denominator_units.iter() {
             factor /= u.get_multiplier();
             // Swap numerator and denominator because this is a division.
-            Self::update_with_root_units(&mut denominator, &mut numerator, u);
+            Self::update_with_root_units(&mut denominator, &mut numerator, u, registry);
         }
         self.numerator_units = numerator;
         self.denominator_units = denominator;
@@ -548,6 +548,7 @@ impl Unit {
         numerator: &mut Vec<BaseUnit>,
         denominator: &mut Vec<BaseUnit>,
         base: &BaseUnit,
+        registry: &Registry,
     ) {
         for (i, &dim) in base.dimensionality.iter().enumerate() {
             if dim.approx_eq(0.0) {
@@ -556,7 +557,7 @@ impl Unit {
             let dim_abs = dim.abs();
 
             let dim_type = 1 << i;
-            let root = REGISTRY.get_root_unit(&dim_type);
+            let root = registry.get_root_unit(&dim_type);
             let root = if dim_abs.approx_eq(1.0) {
                 root.clone()
             } else {
@@ -709,6 +710,8 @@ impl Sub for Unit {
 //==================================================
 #[cfg(test)]
 mod test_unit {
+    use crate::{assert_is_close, test_utils::TEST_REGISTRY};
+
     use super::*;
     use std::{
         f64,
@@ -717,28 +720,32 @@ mod test_unit {
     };
     use test_case::case;
 
-    use crate::{assert_is_close, registry::REGISTRY};
-
     static UNIT_METER: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("meter").expect("No unit 'meter'"));
-    static UNIT_KILOMETER: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("kilometer").expect("No unit 'kilometer'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("meter").expect("No unit 'meter'"));
+    static UNIT_KILOMETER: LazyLock<&BaseUnit> = LazyLock::new(|| {
+        TEST_REGISTRY
+            .get_unit("kilometer")
+            .expect("No unit 'kilometer'")
+    });
     static UNIT_SECOND: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("second").expect("No unit 'second'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("second").expect("No unit 'second'"));
     static UNIT_MINUTE: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("minute").expect("No unit 'minute'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("minute").expect("No unit 'minute'"));
     static UNIT_HOUR: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("hour").expect("No unit 'hour'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("hour").expect("No unit 'hour'"));
     static UNIT_GRAM: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("gram").expect("No unit 'gram'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("gram").expect("No unit 'gram'"));
     static UNIT_WATT: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("watt").expect("No unit 'watt'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("watt").expect("No unit 'watt'"));
     static UNIT_NEWTON: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("newton").expect("No unit 'newton'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("newton").expect("No unit 'newton'"));
     static UNIT_JOULE: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("joule").expect("No unit 'joule'"));
-    static UNIT_PERCENT: LazyLock<&BaseUnit> =
-        LazyLock::new(|| REGISTRY.get_unit("percent").expect("No unit 'percent'"));
+        LazyLock::new(|| TEST_REGISTRY.get_unit("joule").expect("No unit 'joule'"));
+    static UNIT_PERCENT: LazyLock<&BaseUnit> = LazyLock::new(|| {
+        TEST_REGISTRY
+            .get_unit("percent")
+            .expect("No unit 'percent'")
+    });
 
     #[case(
         Unit::new_dimensionless(),
@@ -882,7 +889,10 @@ mod test_unit {
         ; "Multidimensional base unit"
     )]
     fn test_get_dimensionality_string(u: Unit, expected: Option<&str>) {
-        assert_eq!(u.get_dimensionality_str(), expected.map(String::from));
+        assert_eq!(
+            u.get_dimensionality_str(&TEST_REGISTRY),
+            expected.map(String::from)
+        );
     }
 
     #[test]
@@ -1243,7 +1253,7 @@ mod test_unit {
         ; "Simplified"
     )]
     fn test_ito_root_unit(mut unit: Unit, expected: Unit, expected_factor: f64) {
-        assert_is_close!(unit.ito_root_units(), expected_factor);
+        assert_is_close!(unit.ito_root_units(&TEST_REGISTRY), expected_factor);
         assert_eq!(unit, expected);
     }
 
