@@ -26,3 +26,4 @@ dev = [
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
+sdist-include = ["smoot/data/*"]

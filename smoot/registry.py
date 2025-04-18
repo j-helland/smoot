@@ -1,9 +1,20 @@
 from __future__ import annotations
+import sys
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, Final
 
 import smoot
 from .smoot import UnitRegistry as InnerUnitRegistry
+
+
+if sys.version_info >= (3, 9):
+    from importlib.resources import files
+    _DEFAULT_UNIT_DEFINITIONS_PATH: Final[Path] = files("smoot.data").joinpath("default_en.txt")
+    _UNIT_CACHE_PATH: Final[Path] = files("smoot.data").joinpath(".registry_cache.smoot")
+else:
+    # TODO(jwh): Remove once support for Python 3.8 is dropped.
+    _DEFAULT_UNIT_DEFINITIONS_PATH: Final[Path] = Path(smoot.__file__).parent / "data" / "default_en.txt"
+    _UNIT_CACHE_PATH: Final[Path] = Path(smoot.__file__).parent / "data" / ".registry_cache.smoot"
 
 
 class ApplicationRegistry:
@@ -51,13 +62,16 @@ class UnitRegistry:
             raise ValueError(msg)
 
         if path:
-            self._UnitRegistry__inner = InnerUnitRegistry.new_from_file(path)
+            self._UnitRegistry__inner = InnerUnitRegistry.new_from_file(str(path))
         elif data:
             self._UnitRegistry__inner = InnerUnitRegistry.new_from_str(data)
         elif empty:
             self._UnitRegistry__inner = InnerUnitRegistry()
         else:
-            self._UnitRegistry__inner = InnerUnitRegistry.default()
+            self._UnitRegistry__inner = InnerUnitRegistry.new_from_cache_or_file(
+                cache_path=str(_UNIT_CACHE_PATH),
+                file_path=str(_DEFAULT_UNIT_DEFINITIONS_PATH),
+            )
 
         # Create a new Quantity class with a reference to this UnitRegistry instance.
         # TODO(jwh): Mark as a type alias after support for Python 3.8 is dropped

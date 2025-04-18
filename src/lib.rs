@@ -81,14 +81,6 @@ impl UnitRegistry {
     }
 
     #[staticmethod]
-    fn default() -> PyResult<Self> {
-        let inner = Registry::default()?;
-        Ok(Self {
-            inner: Arc::new(Mutex::new(inner)),
-        })
-    }
-
-    #[staticmethod]
     fn new_from_str(data: &str) -> PyResult<Self> {
         let inner = Registry::new_from_str(data)?;
         Ok(Self {
@@ -99,6 +91,14 @@ impl UnitRegistry {
     #[staticmethod]
     fn new_from_file(path: &str) -> PyResult<Self> {
         let inner = Registry::new_from_file(Path::new(path))?;
+        Ok(Self {
+            inner: Arc::new(Mutex::new(inner)),
+        })
+    }
+
+    #[staticmethod]
+    fn new_from_cache_or_file(cache_path: &str, file_path: &str) -> PyResult<Self> {
+        let inner = Registry::new_from_cache_or_file(Path::new(cache_path), Path::new(file_path))?;
         Ok(Self {
             inner: Arc::new(Mutex::new(inner)),
         })

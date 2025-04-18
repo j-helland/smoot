@@ -33,9 +33,6 @@ pub struct Registry {
     checksum: u64,
 }
 impl Registry {
-    const DEFAULT_UNITS_FILE: &str = "default_en.txt";
-    const REGISTRY_CACHE_FILE: &str = ".registry_cache.smoot";
-
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
@@ -60,12 +57,8 @@ impl Registry {
         Ok(new)
     }
 
-    /// Prefer to load from the cached file on disk. Parse the definitions file if no cache exists.
-    pub fn default() -> SmootResult<Self> {
-        std::fs::read(Self::REGISTRY_CACHE_FILE).map_or_else(
-            |_| Self::load_and_cache(Path::new(Self::DEFAULT_UNITS_FILE)),
-            |data| Self::load_cache_or(&data, Path::new(Self::DEFAULT_UNITS_FILE)),
-        )
+    pub fn new_from_cache_or_file(cache_path: &Path, file_path: &Path) -> SmootResult<Self> {
+        Self::load_cache_or(cache_path, file_path)
     }
 
     /// Extend this registry with additional definitions.
@@ -74,8 +67,8 @@ impl Registry {
     }
 
     /// Forcibly delete the local cache file if it exists.
-    pub fn clear_cache() {
-        std::fs::remove_file(Self::REGISTRY_CACHE_FILE).unwrap_or(())
+    pub fn clear_cache(path: &Path) {
+        std::fs::remove_file(path).unwrap_or(())
     }
 
     pub fn get_unit(&self, key: &str) -> Option<&BaseUnit> {
@@ -99,16 +92,16 @@ impl Registry {
     }
 
     /// Load a units file and cache it.
-    fn load_and_cache(path: &Path) -> SmootResult<Self> {
+    fn load_and_cache(path: &Path, cache_path: &Path) -> SmootResult<Self> {
         let mut new = Self::new();
         new.load_from_file(path)?;
 
-        std::fs::File::create(Self::REGISTRY_CACHE_FILE)
+        std::fs::File::create(cache_path)
             .and_then(|mut f| f.write(&bitcode::encode(&new)))
             .map_err(|e| {
                 SmootError::CacheError(format!(
                     "Failed to write cache file {}: {}",
-                    Self::REGISTRY_CACHE_FILE,
+                    cache_path.display(),
                     e
                 ))
             })
@@ -117,15 +110,23 @@ impl Registry {
 
     /// Load registry from cache data.
     /// If the cache data is invalid or does not match the specified file path, fall back to loading from the file instead.
-    fn load_cache_or(data: &[u8], path: &Path) -> SmootResult<Self> {
-        let registry = bitcode::decode::<Registry>(data).map_err(|e| {
-            SmootError::CacheError(format!(
-                "Failed to decode cache file {}: {}",
-                Self::REGISTRY_CACHE_FILE,
+    fn load_cache_or(cache_path: &Path, path: &Path) -> SmootResult<Self> {
+        let registry = std::fs::read(cache_path)
+            .map_err(|e| SmootError::CacheError(format!(
+                "Failed to read cache file {}: {}",
+                cache_path.display(),
                 e
-            ))
-        })?;
-
+            )))
+            .and_then(|data| {
+                bitcode::decode::<Registry>(&data).map_err(|e| {
+                        SmootError::CacheError(format!("Failed to decode cache: {}", e))
+                    })
+            });
+        if registry.is_err() {
+            // No cache, create a new one.
+            return Self::load_and_cache(path, cache_path);
+        }
+            
         let checksum = std::fs::read(path)
             .map_err(|e| {
                 SmootError::FileError(format!(
@@ -136,17 +137,18 @@ impl Registry {
             })
             .map(|data| Self::compute_checksum(&data))?;
 
-        // If the checksum doesn't match, there was a change to the units. Load from scratch.
-        if checksum != registry.checksum {
-            Self::load_and_cache(path)
+        // If the checksum doesn't match, there was a change to the units. Load from scratch and create a new cache.
+        if checksum != registry.as_ref().unwrap().checksum {
+            Self::load_and_cache(path, cache_path)
         } else {
-            Ok(registry)
+            registry
         }
     }
 
     /// Parse a unit definitions file, populating this registry.
     fn load_from_file(&mut self, path: &Path) -> SmootResult<()> {
-        let data = std::fs::read_to_string(path).unwrap();
+        let data = std::fs::read_to_string(path)
+            .map_err(|e| SmootError::FileError(format!("{}: {}", path.display(), e)))?;
         self.parse_definitions(&data)?;
         self.checksum = Self::compute_checksum(data.as_bytes());
         Ok(())
@@ -633,14 +635,17 @@ impl Registry {
 mod test_registry {
     use test_case::case;
 
+    use crate::test_utils::{DEFAULT_UNITS_FILE, TEST_CACHE_PATH};
+
     use super::*;
 
     #[test]
     fn test_registry_loads_default() -> SmootResult<()> {
-        Registry::clear_cache();
-        let _ = Registry::default()?;
+        let cache_path = Path::new(TEST_CACHE_PATH);
+        Registry::clear_cache(cache_path);
+        let _ = Registry::new_from_cache_or_file(cache_path, Path::new(DEFAULT_UNITS_FILE))?;
         // Second load from cached file
-        let _ = Registry::default()?;
+        let _ = Registry::new_from_cache_or_file(cache_path, Path::new(DEFAULT_UNITS_FILE))?;
         Ok(())
     }
 

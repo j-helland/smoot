@@ -1,4 +1,4 @@
-use std::sync::LazyLock;
+use std::{path::Path, sync::LazyLock};
 
 use crate::registry::Registry;
 
@@ -22,5 +22,9 @@ macro_rules! assert_is_close {
     };
 }
 
-pub static TEST_REGISTRY: LazyLock<Registry> =
-    LazyLock::new(|| Registry::default().expect("Failed to load default registry"));
+pub const DEFAULT_UNITS_FILE: &str = "smoot/data/default_en.txt";
+pub const TEST_CACHE_PATH: &str = "smoot/data/.registry_cache.smoot";
+
+pub static TEST_REGISTRY: LazyLock<Registry> = LazyLock::new(|| {
+    Registry::new_from_file(Path::new(DEFAULT_UNITS_FILE)).expect("Failed to load default registry")
+});
