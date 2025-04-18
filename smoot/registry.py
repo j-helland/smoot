@@ -5,10 +5,7 @@ from .quantity import Unit
 
 
 class UnitRegistry:
-    __slots__ = ("_cache",)
-
-    def __init__(self) -> None:
-        self._cache: dict[str, Unit] = {}
+    __slots__ = ()
 
     def __len__(self) -> int:
         return get_registry_size()
@@ -17,11 +14,7 @@ class UnitRegistry:
         return get_all_registry_keys()
 
     def __getitem__(self, expression: str) -> Unit:
-        if (res := self._cache.get(expression)) is not None:
-            return res
-
         res = Unit.parse(expression)
-        self._cache[expression] = res
         return res
 
     def __getattribute__(self, name: str) -> Unit:
