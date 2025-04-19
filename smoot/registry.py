@@ -9,12 +9,21 @@ from .smoot import UnitRegistry as InnerUnitRegistry
 
 if sys.version_info >= (3, 9):
     from importlib.resources import files
-    _DEFAULT_UNIT_DEFINITIONS_PATH: Final[Path] = files("smoot.data").joinpath("default_en.txt")
-    _UNIT_CACHE_PATH: Final[Path] = files("smoot.data").joinpath(".registry_cache.smoot")
+
+    _DEFAULT_UNIT_DEFINITIONS_PATH: Final[Path] = files("smoot.data").joinpath(
+        "default_en.txt"
+    )
+    _UNIT_CACHE_PATH: Final[Path] = files("smoot.data").joinpath(
+        ".registry_cache.smoot"
+    )
 else:
     # TODO(jwh): Remove once support for Python 3.8 is dropped.
-    _DEFAULT_UNIT_DEFINITIONS_PATH: Final[Path] = Path(smoot.__file__).parent / "data" / "default_en.txt"
-    _UNIT_CACHE_PATH: Final[Path] = Path(smoot.__file__).parent / "data" / ".registry_cache.smoot"
+    _DEFAULT_UNIT_DEFINITIONS_PATH: Final[Path] = (
+        Path(smoot.__file__).parent / "data" / "default_en.txt"
+    )
+    _UNIT_CACHE_PATH: Final[Path] = (
+        Path(smoot.__file__).parent / "data" / ".registry_cache.smoot"
+    )
 
 
 class ApplicationRegistry:

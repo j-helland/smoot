@@ -12,6 +12,11 @@ def units() -> UnitRegistry:
     return UnitRegistry()
 
 
+def test_smoot_exists(units: UnitRegistry) -> None:
+    """Extremely important test for street cred."""
+    assert units.smoot
+
+
 def test_raw_quantity_instantiation_fails() -> None:
     """Quantities can only be instantiated through a UnitRegistry."""
     with pytest.raises(TypeError):
@@ -98,6 +103,10 @@ def test_units_multiply_into_quantity(units: UnitRegistry) -> None:
     assert (units.meter * 1) == Q("1 meter")
     assert (1 * units.meter) == Q("1 meter")
 
+    # array
+    assert (([1, 2] * units.meter) == Q([1, 2], units.meter)).all()
+    assert ((units.meter * [1, 2]) == Q([1, 2], units.meter)).all()
+
 
 def test_units_divide(units: UnitRegistry) -> None:
     assert (units.meter / units.meter) == units.dimensionless
@@ -112,6 +121,10 @@ def test_units_divide_into_quantity(units: UnitRegistry) -> None:
     Q = units.Quantity
     assert (1 / units.meter) == Q("1 / meter")
     assert (units.meter / 1) == Q("1 meter")
+
+    # array
+    assert (([1, 2] / units.meter) == Q([1, 2], 1 / units.meter)).all()
+    assert ((units.meter / [1, 2]) == Q([1, 0.5], units.meter)).all()
 
 
 def test_units_pow(units: UnitRegistry) -> None:

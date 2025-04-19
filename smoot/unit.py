@@ -1,10 +1,21 @@
 # mypy: ignore-errors
 from __future__ import annotations
-from typing import Any
+from typing import Any, Iterable, Union
+import numpy as np
 from typing_extensions import Self
 
 import smoot
-from .smoot import Unit as InnerUnit, div_unit, mul_unit, rdiv_unit
+from .smoot import (
+    Unit as InnerUnit,
+    div_unit,
+    mul_unit,
+    rdiv_unit,
+    arr_mul_unit,
+    arr_div_unit,
+    arr_rdiv_unit,
+)
+
+OperatorUnitLike = Union["Unit", float, int, Iterable[float], Iterable[int]]
 
 
 class Unit:
@@ -118,51 +129,63 @@ class Unit:
             return False
         return self.__inner == other.__inner
 
-    def __mul__(self, other: Unit | int | float) -> Unit | smoot.Quantity:
+    def __mul__(self, other: OperatorUnitLike) -> Unit | smoot.Quantity:
         if type(other) in (int, float):
             new = object.__new__(smoot.Quantity)
             new._Quantity__inner = mul_unit(num=other, unit=self.__inner)
             new._Quantity__registry = self.__registry
-            return new
-
-        new = object.__new__(Unit)
-        new.__inner = self.__inner * other.__inner
-        new.__registry = self.__registry
+        elif isinstance(other, Iterable):
+            new = object.__new__(smoot.Quantity)
+            arr = np.array(other, dtype=np.float64)
+            new._Quantity__inner = arr_mul_unit(arr=arr, unit=self.__inner)
+            new._Quantity__registry = self.__registry
+        else:
+            new = object.__new__(Unit)
+            new.__inner = self.__inner * other.__inner
+            new.__registry = self.__registry
         return new
 
-    def __rmul__(self, other: Unit | int | float) -> Unit | smoot.Quantity:
+    def __rmul__(self, other: OperatorUnitLike) -> Unit | smoot.Quantity:
         return self * other
 
     def __imul__(self, other: Unit) -> Self:
         self.__inner *= other.__inner
         return self
 
-    def __truediv__(self, other: Unit | int | float) -> Unit | smoot.Quantity:
+    def __truediv__(self, other: OperatorUnitLike) -> Unit | smoot.Quantity:
         if type(other) in (int, float):
             new = object.__new__(smoot.Quantity)
             new._Quantity__inner = div_unit(unit=self.__inner, num=other)
             new._Quantity__registry = self.__registry
-            return new
-
-        new = object.__new__(Unit)
-        new.__inner = self.__inner / other.__inner
-        new.__registry = self.__registry
+        elif isinstance(other, Iterable):
+            new = object.__new__(smoot.Quantity)
+            arr = np.array(other, dtype=np.float64)
+            new._Quantity__inner = arr_div_unit(unit=self.__inner, arr=arr)
+            new._Quantity__registry = self.__registry
+        else:
+            new = object.__new__(Unit)
+            new.__inner = self.__inner / other.__inner
+            new.__registry = self.__registry
         return new
 
     def __itruediv__(self, other: Unit) -> Self:
         self.__inner /= other.__inner
         return self
 
-    def __rtruediv__(self, other: Unit | int | float) -> Unit | smoot.Quantity:
+    def __rtruediv__(self, other: OperatorUnitLike) -> Unit | smoot.Quantity:
         if type(other) in (int, float):
             new = object.__new__(smoot.Quantity)
             new._Quantity__inner = rdiv_unit(num=other, unit=self.__inner)
             new._Quantity__registry = self.__registry
-            return new
-
-        new = object.__new__(Unit)
-        new.__inner = other.__inner__ / self.__inner
-        new.__registry = self.__registry
+        elif isinstance(other, Iterable):
+            new = object.__new__(smoot.Quantity)
+            arr = np.array(other, dtype=np.float64)
+            new._Quantity__inner = arr_rdiv_unit(arr=arr, unit=self.__inner)
+            new._Quantity__registry = self.__registry
+        else:
+            new = object.__new__(Unit)
+            new.__inner = other.__inner__ / self.__inner
+            new.__registry = self.__registry
         return new
 
     def __pow__(self, p: int | float, modulo: int | float | None = None) -> Unit:

@@ -47,7 +47,9 @@ UnitsLike = Union[str, smoot.Unit]
 class Quantity(Generic[T, R]):
     __slots__ = ("__inner", "__registry")
 
-    def __init__(self, value: ValueLike[T], units: UnitsLike | None = None) -> None:
+    def __init__(
+        self, value: ValueLike[T], units: UnitsLike | Quantity[T, R] | None = None
+    ) -> None:
         try:
             registry = self._Quantity__registry
         except AttributeError:
@@ -512,12 +514,16 @@ class Quantity(Generic[T, R]):
         raise NotImplementedError(msg)
 
     @classmethod
-    def _get_units(cls, units: UnitsLike | InnerUnit) -> tuple[float, InnerUnit]:
+    def _get_units(
+        cls, units: UnitsLike | InnerUnit | Quantity[T, R]
+    ) -> tuple[float, InnerUnit]:
         t = type(units)
         if t is str:
             return InnerUnit.parse(units, cls.__registry)
         if t is InnerUnit:
             return (1.0, units)
+        if t is Quantity:
+            return (1.0, units._Quantity__inner.units)
         return (1.0, units._Unit__inner)
 
     @staticmethod
