@@ -746,11 +746,8 @@ mod test_unit {
             .get_unit("percent")
             .expect("No unit 'percent'")
     });
-    static UNIT_RADIAN: LazyLock<&BaseUnit> = LazyLock::new(|| {
-        TEST_REGISTRY
-            .get_unit("radian")
-            .expect("No unit 'radian'")
-    });
+    static UNIT_RADIAN: LazyLock<&BaseUnit> =
+        LazyLock::new(|| TEST_REGISTRY.get_unit("radian").expect("No unit 'radian'"));
 
     #[case(
         Unit::new_dimensionless(),

@@ -112,21 +112,22 @@ impl Registry {
     /// If the cache data is invalid or does not match the specified file path, fall back to loading from the file instead.
     fn load_cache_or(cache_path: &Path, path: &Path) -> SmootResult<Self> {
         let registry = std::fs::read(cache_path)
-            .map_err(|e| SmootError::CacheError(format!(
-                "Failed to read cache file {}: {}",
-                cache_path.display(),
-                e
-            )))
+            .map_err(|e| {
+                SmootError::CacheError(format!(
+                    "Failed to read cache file {}: {}",
+                    cache_path.display(),
+                    e
+                ))
+            })
             .and_then(|data| {
-                bitcode::decode::<Registry>(&data).map_err(|e| {
-                        SmootError::CacheError(format!("Failed to decode cache: {}", e))
-                    })
+                bitcode::decode::<Registry>(&data)
+                    .map_err(|e| SmootError::CacheError(format!("Failed to decode cache: {}", e)))
             });
         if registry.is_err() {
             // No cache, create a new one.
             return Self::load_and_cache(path, cache_path);
         }
-            
+
         let checksum = std::fs::read(path)
             .map_err(|e| {
                 SmootError::FileError(format!(

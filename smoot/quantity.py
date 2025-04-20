@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from numbers import Real
-from typing import Any, Generic, Iterable, TypeVar, Union
+from typing import Any, Callable, Generic, Iterable, TypeVar, Union
 import typing
 from typing_extensions import Self
 
@@ -10,6 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 import smoot
+from smoot.numpy_functions import NP_HANDLED_FUNCTIONS, NP_HANDLED_UFUNCS
 
 from .smoot import (
     Unit as InnerUnit,
@@ -19,8 +20,8 @@ from .smoot import (
     # ArrayI64Quantity,
     # array_i64_to_f64_quantity,
     # i64_to_f64_quantity,
+    UnitRegistry,
 )
-
 
 E = TypeVar("E", int, float, np.float64, np.float32, np.int64, np.int32)
 _BaseArrayLike = Union[E, Iterable[E]]
@@ -48,44 +49,51 @@ class Quantity(Generic[T, R]):
     __slots__ = ("__inner", "__registry")
 
     def __init__(
-        self, value: ValueLike[T], units: UnitsLike | Quantity[T, R] | None = None
+        self,
+        value: ValueLike[T],
+        units: UnitsLike | Quantity[T, R] | None = None,
+        *,
+        registry: UnitRegistry | None = None,
     ) -> None:
-        try:
-            registry = self._Quantity__registry
-        except AttributeError:
-            msg = (
-                "Attempted to instantiate an abstract Quantity. "
-                "Please use a Quantity via UnitRegistry e.g. `UnitRegistry().Quantity`."
-            )
-            raise TypeError(msg)
+        # Retrieve the registry.
+        # If it doesn't exist, this means that the user tried to instantiate this class
+        # without an associated UnitRegistry, which is a hard error.
+        if registry is None:
+            try:
+                registry = self._Quantity__registry
+            except AttributeError:
+                msg = (
+                    "Attempted to instantiate an abstract Quantity. "
+                    "Please use a Quantity via UnitRegistry e.g. `UnitRegistry().Quantity`."
+                )
+                raise TypeError(msg)
 
         t = type(value)
         quantity: F64Quantity | ArrayF64Quantity
         if t is str:
-            # parsable
+            # String containing a quantity expression e.g. '1 meter'
             if units is not None:
                 msg = f"Cannot pass a string to parse with separate units {units}"
                 raise ValueError(msg)
             quantity = F64Quantity.parse(value, registry=registry)
+
         elif t in (int, float, np.int64, np.int32, np.float64, np.float32):
+            # Numeric value and a unit.
+            # The unit itself may be a string expression.
             factor, _units = (
                 self._get_units(units) if units is not None else (None, None)
             )
             quantity = F64Quantity(value=value, units=_units, factor=factor)
-        # elif t in (int, np.int64, np.int32):
-        #     factor, _units = (
-        #         self._get_units(units) if units is not None else (None, None)
-        #     )
-        #     quantity = I64Quantity(value=value, units=_units, factor=factor)
+
         elif t in (list, tuple, np.ndarray):
-            # arraylike
+            # Array value and a unit.
+            # The unit itself may be a string expression.
             factor, _units = (
                 self._get_units(units) if units is not None else (None, None)
             )
             arr = np.array(value, dtype=np.float64)
-            # QType = ArrayI64Quantity if (arr.dtype == np.int64) else ArrayF64Quantity
-            # quantity = QType(value=arr, units=_units, factor=factor)
             quantity = ArrayF64Quantity(value=arr, units=_units, factor=factor)
+
         else:
             msg = f"Unsupported type {t}"
             raise NotImplementedError(msg)
@@ -156,7 +164,7 @@ class Quantity(Generic[T, R]):
         """
         return self.__inner.m
 
-    def m_as(self, units: UnitsLike) -> R:
+    def m_as(self, units: UnitsLike | Quantity) -> R:
         """Convert the quantity to the specified units and return its magnitude.
 
         Parameters
@@ -197,7 +205,7 @@ class Quantity(Generic[T, R]):
         """
         return smoot.Unit._from(self.__inner.u)
 
-    def to(self, units: str | smoot.Unit) -> Quantity[T, R]:
+    def to(self, units: str | smoot.Unit | Quantity) -> Quantity[T, R]:
         """Return a copy of this quantity converted to the target units.
 
         Examples
@@ -212,7 +220,7 @@ class Quantity(Generic[T, R]):
         new.__registry = self.__registry
         return new
 
-    def ito(self, units: str | smoot.Unit) -> Quantity[T, R]:
+    def ito(self, units: str | smoot.Unit | Quantity) -> Quantity[T, R]:
         """In-place convert this quantity to the target units.
 
         Examples
@@ -346,7 +354,11 @@ class Quantity(Generic[T, R]):
         # matmul may have produced a scalar
         magnitude = typing.cast(np.ndarray, inner.magnitude)
         if magnitude.shape == (1,):
-            return self.__class__(magnitude[0], smoot.Unit._from(inner.units))
+            return self.__class__(
+                magnitude[0],
+                smoot.Unit._from(inner.units),
+                registry=self.__registry,
+            )
 
         new = object.__new__(Quantity)
         new.__inner = inner
@@ -468,7 +480,7 @@ class Quantity(Generic[T, R]):
         return int(self.__inner)
 
     # ==================================================
-    # numpy ufunc support
+    # numpy support
     # ==================================================
     def __array_ufunc__(
         self,
@@ -476,18 +488,22 @@ class Quantity(Generic[T, R]):
         method: str,
         *inputs: Self,
         **kwargs: Any,
-    ) -> None | type(NotImplemented) | Quantity[T, R]:
-        if method != "__call__":
+    ) -> Quantity[T, R] | type(NotImplemented):
+        if (func := NP_HANDLED_UFUNCS.get(ufunc.__name__)) is None:
             return NotImplemented
+        return func(*inputs, **kwargs)
 
-        # Extract the numpy array and invoke the ufunc on the Python side. This results in
-        # two "unnecessary" copies of the underlying array, not suitable for large arrays.
-        #
-        # One benefit is that this handles type conversion (e.g. int -> float) seamlessly.
-        return self.__class__(
-            value=ufunc(*(q.magnitude for q in inputs), **kwargs),
-            units=smoot.Unit._from(self.__inner.units),
-        )
+    def __array_function__(
+        self,
+        func: Callable,
+        types: tuple[type, ...],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> Quantity[T, R] | type(NotImplemented):
+        func_name = ".".join(func.__module__.split(".")[1:] + [func.__name__])
+        if (func := NP_HANDLED_FUNCTIONS.get(func_name)) is None:
+            return NotImplemented
+        return func(*args, **kwargs)
 
     # ==================================================
     # private utils
@@ -500,9 +516,9 @@ class Quantity(Generic[T, R]):
         # for compatible operators.
         is_array = type(self.__inner) is ArrayF64Quantity
         if is_array and type(other) not in (list, tuple, np.ndarray):
-            return self.__class__([other])
+            return self.__class__([other], registry=self.__registry)
 
-        return self.__class__(other)
+        return self.__class__(other, registry=self.__registry)
 
     def _get_inner(
         self,
@@ -539,7 +555,7 @@ class Quantity(Generic[T, R]):
             return InnerUnit.parse(units, self.__registry)
         if t is InnerUnit:
             return (1.0, units)
-        if t is Quantity:
+        if isinstance(units, Quantity):
             return (1.0, units._Quantity__inner.units)
         return (1.0, units._Unit__inner)
 

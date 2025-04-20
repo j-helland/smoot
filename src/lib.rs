@@ -806,7 +806,9 @@ fn mul_unit(num: f64, unit: &Unit) -> F64Quantity {
 fn arr_mul_unit(arr: Bound<'_, PyArrayDyn<f64>>, unit: &Unit) -> ArrayF64Quantity {
     // let arr = unsafe { arr.as_array_mut() };
     let arr = arr.to_owned_array();
-    ArrayF64Quantity { inner: Quantity::new(arr, unit.inner.clone()) }
+    ArrayF64Quantity {
+        inner: Quantity::new(arr, unit.inner.clone()),
+    }
 }
 
 #[pyfunction]
@@ -819,7 +821,9 @@ fn div_unit(unit: &Unit, num: f64) -> F64Quantity {
 #[pyfunction]
 fn arr_div_unit(unit: &Unit, arr: Bound<'_, PyArrayDyn<f64>>) -> ArrayF64Quantity {
     let arr = arr.to_owned_array();
-    ArrayF64Quantity { inner: Quantity::new(1.0 / arr, unit.inner.clone()) }
+    ArrayF64Quantity {
+        inner: Quantity::new(1.0 / arr, unit.inner.clone()),
+    }
 }
 
 #[pyfunction]
@@ -832,7 +836,9 @@ fn rdiv_unit(num: f64, unit: &Unit) -> F64Quantity {
 #[pyfunction]
 fn arr_rdiv_unit(arr: Bound<'_, PyArrayDyn<f64>>, unit: &Unit) -> ArrayF64Quantity {
     let arr = arr.to_owned_array();
-    ArrayF64Quantity { inner: Quantity::new(arr, unit.inner.powi(-1)) }
+    ArrayF64Quantity {
+        inner: Quantity::new(arr, unit.inner.powi(-1)),
+    }
 }
 
 // create_quantity_type!(Unit, I64Quantity, i64, i64);

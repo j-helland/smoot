@@ -352,11 +352,184 @@ def test_matmul_produces_scalar() -> None:
     assert (Q([1, 2, 3]) @ Q([3, 2, 1])) == Q(10)
 
 
-def test_ufunc() -> None:
+@pytest.mark.parametrize(
+    argnames=("value", "ufunc", "expected"),
+    argvalues=(
+        # ufuncs
+        (Q([1, 2, 3], "meter"), np.negative, Q([-1, -2, -3], "meter")),
+        (Q([1, 2, 3], "meter"), np.positive, Q([1, 2, 3], "meter")),
+        (Q([-1, -2, -3], "meter"), np.absolute, Q([1, 2, 3], "meter")),
+        (Q([-1, -2, -3], "meter"), np.fabs, Q([1, 2, 3], "meter")),
+        (Q([1.1, 1.5], "meter"), np.rint, Q([1, 2], "meter")),
+        (Q([-2, 2], "meter"), np.sign, Q([-1, 1], "meter")),
+        (Q([1, 2, 3]), np.exp, Q(np.exp([1, 2, 3]))),
+        (Q([1, 2, 3]), np.exp2, Q(np.exp2([1, 2, 3]))),
+        (Q([1, 2, 3]), np.log, Q(np.log([1, 2, 3]))),
+        (Q([1, 2, 3]), np.log2, Q(np.log2([1, 2, 3]))),
+        (Q([1, 2, 3]), np.log10, Q(np.log10([1, 2, 3]))),
+        (Q([1, 2, 3]), np.expm1, Q(np.expm1([1, 2, 3]))),
+        (Q([1, 2, 3]), np.log1p, Q(np.log1p([1, 2, 3]))),
+        (Q([1, 2, 3], "meter"), np.sqrt, Q(np.sqrt([1, 2, 3]), "meter ** 0.5")),
+        (Q([1, 2, 3], "meter"), np.square, Q(np.square([1, 2, 3]), "meter ** 2.0")),
+        (Q([1, 2, 3], "meter"), np.cbrt, Q(np.cbrt([1, 2, 3]), units.meter ** (1 / 3))),
+        (Q([1, 2, 3], "meter"), np.reciprocal, Q([1, 1 / 2, 1 / 3], 1 / units.meter)),
+        (Q([1, 2, 3], "radian"), np.sin, Q(np.sin([1, 2, 3]))),
+        (Q([1, 2, 3], "radian"), np.cos, Q(np.cos([1, 2, 3]))),
+        (Q([1, 2, 3], "radian"), np.tan, Q(np.tan([1, 2, 3]))),
+        (Q([0.1, 0.2, 0.3], "radian"), np.arcsin, Q(np.arcsin([0.1, 0.2, 0.3]))),
+        (Q([0.1, 0.2, 0.3], "radian"), np.arccos, Q(np.arccos([0.1, 0.2, 0.3]))),
+        (Q([0.1, 0.2, 0.3], "radian"), np.arctan, Q(np.arctan([0.1, 0.2, 0.3]))),
+        (Q([1, 2, 3], "radian"), np.sinh, Q(np.sinh([1, 2, 3]))),
+        (Q([1, 2, 3], "radian"), np.cosh, Q(np.cosh([1, 2, 3]))),
+        (Q([1, 2, 3], "radian"), np.tanh, Q(np.tanh([1, 2, 3]))),
+        (Q([0.1, 0.2, 0.3], "radian"), np.arcsinh, Q(np.arcsinh([0.1, 0.2, 0.3]))),
+        (Q([1, 2, 3], "radian"), np.arccosh, Q(np.arccosh([1, 2, 3]))),
+        (Q([0.1, 0.2, 0.3], "radian"), np.arctanh, Q(np.arctanh([0.1, 0.2, 0.3]))),
+        (Q([1, 2, 3], "radian"), np.degrees, Q(np.degrees([1, 2, 3]), "degree")),
+        (Q([1, 2, 3], "degree"), np.radians, Q(np.radians([1, 2, 3]), "radian")),
+        (Q([1, 2, 3], "degree"), np.deg2rad, Q(np.deg2rad([1, 2, 3]), "radian")),
+        (Q([1, 2, 3], "radian"), np.rad2deg, Q(np.rad2deg([1, 2, 3]), "degree")),
+        (Q([1, 2, 3], "meter"), np.isfinite, np.array([True, True, True])),
+        (Q([1, 2, 3], "meter"), np.isinf, np.array([False, False, False])),
+        (Q([1, 2, 3], "meter"), np.isnan, np.array([False, False, False])),
+        (Q([1, 2, 3], "meter"), np.floor, Q(np.floor([1, 2, 3]), "meter")),
+        (Q([1, 2, 3], "meter"), np.ceil, Q(np.ceil([1, 2, 3]), "meter")),
+        (Q([1, 2, 3], "meter"), np.trunc, Q(np.trunc([1, 2, 3]), "meter")),
+        # higher order array functions
+        (Q([1, 2, 3], "meter"), np.sum, Q(6, "meter")),
+        # (Q([1, 2, 3], "meter"), np.cumsum, Q([1, 3, 6], "meter")),
+        # (Q([1, 2, 3], "meter"), np.cumprod, Q([1, 2, 6], "meter ** 3")),
+    ),
+)
+def test_unary_array_funcs(value: Q, ufunc: np.ufunc, expected: Q | np.ndarray) -> None:
     """Arbitrary numpy ufuncs can be invoked with expected results."""
-    expected = np.sqrt(np.array([1, 2, 3]))
-    actual = np.sqrt(Q([1, 2, 3])).magnitude
-    assert np.allclose(expected, actual)
+    actual = ufunc(value)
+    eq = actual == expected
+    is_eq = eq.all() if isinstance(eq, np.ndarray) else eq
+    assert is_eq, f"{actual} != {expected}"
+
+
+@pytest.mark.parametrize(
+    argnames=("value1", "func", "value2", "expected"),
+    argvalues=(
+        (Q([1, 2, 3], "meter"), np.add, Q([3, 2, 1], "meter"), Q([4, 4, 4], "meter")),
+        (
+            Q([1, 2, 3], "meter"),
+            np.subtract,
+            Q([3, 2, 1], "meter"),
+            Q([-2, 0, 2], "meter"),
+        ),
+        (
+            Q([1, 2, 3], "meter"),
+            np.multiply,
+            Q([3, 2, 1], "meter"),
+            Q([3, 4, 3], "meter ** 2"),
+        ),
+        (Q([1, 2, 3], "meter"), np.matmul, Q([3, 2, 1], "meter"), Q(10, "meter ** 2")),
+        (Q([1, 2, 3], "meter"), np.divide, Q([3, 2, 1], "meter"), Q([1 / 3, 1, 3])),
+        (
+            Q([1, 2, 3]),
+            np.logaddexp,
+            Q([3, 2, 1]),
+            Q(np.logaddexp([1, 2, 3], [3, 2, 1])),
+        ),
+        (
+            Q([1, 2, 3]),
+            np.logaddexp2,
+            Q([3, 2, 1]),
+            Q(np.logaddexp2([1, 2, 3], [3, 2, 1])),
+        ),
+        (Q([1, 2, 3]), np.power, Q([3, 2, 1]), Q(np.power([1, 2, 3], [3, 2, 1]))),
+        (
+            Q([1, 2, 3]),
+            np.float_power,
+            Q([3, 2, 1]),
+            Q(np.float_power([1, 2, 3], [3, 2, 1])),
+        ),
+        (
+            Q([1, 2, 3], "meter"),
+            np.remainder,
+            Q([3, 2, 1], "meter"),
+            Q([1, 0, 0], "meter"),
+        ),
+        (Q([1, 2, 3], "meter"), np.mod, Q([3, 2, 1], "meter"), Q([1, 0, 0], "meter")),
+        (Q([1, 2, 3], "meter"), np.fmod, Q([3, 2, 1], "meter"), Q([1, 0, 0], "meter")),
+        (
+            Q([0.1, 0.2, 0.3], "radian"),
+            np.arctan2,
+            Q([0.3, 0.2, 0.1], "radian"),
+            Q(np.arctan2([0.1, 0.2, 0.3], [0.3, 0.2, 0.1])),
+        ),
+        (
+            Q([1, 2, 3], "meter"),
+            np.hypot,
+            Q([3, 2, 1], "meter"),
+            Q(np.hypot([1, 2, 3], [3, 2, 1]), "meter"),
+        ),
+        (
+            Q([1, 2, 3], "meter"),
+            np.greater,
+            Q([3, 2, 1], "km"),
+            np.array([False, False, False]),
+        ),
+        (
+            Q([1, 2, 3], "meter"),
+            np.greater_equal,
+            Q([3, 2, 1], "km"),
+            np.array([False, False, False]),
+        ),
+        (
+            Q([1, 2, 3], "meter"),
+            np.less,
+            Q([3, 2, 1], "km"),
+            np.array([True, True, True]),
+        ),
+        (
+            Q([1, 2, 3], "meter"),
+            np.less_equal,
+            Q([3, 2, 1], "km"),
+            np.array([True, True, True]),
+        ),
+        (
+            Q([1, 2, 3], "meter"),
+            np.not_equal,
+            Q([3, 2, 1], "km"),
+            np.array([True, True, True]),
+        ),
+        (
+            Q([1, 2, 3], "meter"),
+            np.equal,
+            Q([3, 2, 1], "km"),
+            np.array([False, False, False]),
+        ),
+        (
+            Q([1, 2, 3], "meter"),
+            np.maximum,
+            Q([3, 2, 1], "km"),
+            Q([3e3, 2e3, 1e3], "meter"),
+        ),
+        (Q([1, 2, 3], "meter"), np.minimum, Q([3, 2, 1], "km"), Q([1, 2, 3], "meter")),
+        (
+            Q([1, 2, 3], "meter"),
+            np.copysign,
+            Q([-3, -2, -1], "km"),
+            Q([-1, -2, -3], "meter"),
+        ),
+        (
+            Q([1, 2, 3], "meter"),
+            np.nextafter,
+            Q([3, 2, 1], "km"),
+            Q([1, 2, 3], "meter"),
+        ),
+    ),
+)
+def test_binary_array_funcs(
+    value1: Q, value2: Q, func: Callable, expected: Q | np.ndarray
+) -> None:
+    actual = func(value1, value2)
+    eq = actual == expected
+    is_eq = eq.all() if isinstance(eq, np.ndarray) else eq
+    assert is_eq, f"{actual} != {expected}"
 
 
 def test_pickle_roundtrip() -> None:
