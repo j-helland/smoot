@@ -60,7 +60,7 @@ class Quantity(Generic[T, R]):
         # without an associated UnitRegistry, which is a hard error.
         if registry is None:
             try:
-                registry = self._Quantity__registry
+                registry = self._Quantity__registry._UnitRegistry__inner
             except AttributeError:
                 msg = (
                     "Attempted to instantiate an abstract Quantity. "
@@ -125,7 +125,7 @@ class Quantity(Generic[T, R]):
         assert Quantity(1, "newton").dimensionality == {"[length]": 1.0, "[mass]": 1.0, "[time]": -2.0}
         ```
         """
-        return self.__inner.dimensionality(self.__registry)
+        return self.__inner.dimensionality(self.__registry._UnitRegistry__inner)
 
     @property
     def unitless(self) -> bool:
@@ -191,7 +191,7 @@ class Quantity(Generic[T, R]):
         assert Quantity("1 meter").units == units.meter
         ```
         """
-        return smoot.Unit._from(self.__inner.units)
+        return self.__registry._from(self.__inner.units)
 
     @property
     def u(self) -> smoot.Unit:
@@ -203,7 +203,7 @@ class Quantity(Generic[T, R]):
         assert Quantity("1 meter").u == units.meter
         ```
         """
-        return smoot.Unit._from(self.__inner.u)
+        return self.__registry._from(self.__inner.u)
 
     def to(self, units: str | smoot.Unit | Quantity) -> Quantity[T, R]:
         """Return a copy of this quantity converted to the target units.
@@ -215,9 +215,8 @@ class Quantity(Generic[T, R]):
         ```
         """
         factor, _units = self._get_units(units)
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = self.__inner.to(_units, factor=factor)
-        new.__registry = self.__registry
         return new
 
     def ito(self, units: str | smoot.Unit | Quantity) -> Quantity[T, R]:
@@ -244,9 +243,8 @@ class Quantity(Generic[T, R]):
         assert Quantity("1 kilometer / hour").to_root_units() == Quantity("3.6 meter / second")
         ```
         """
-        new = object.__new__(Quantity)
-        new.__inner = self.__inner.to_root_units(self.__registry)
-        new.__registry = self.__registry
+        new = object.__new__(self.__class__)
+        new.__inner = self.__inner.to_root_units(self.__registry._UnitRegistry__inner)
         return new
 
     def ito_root_units(self) -> None:
@@ -260,7 +258,7 @@ class Quantity(Generic[T, R]):
         assert q == Quantity("3.6 meter / second")
         ```
         """
-        self.__inner.ito_root_units(self.__registry)
+        self.__inner.ito_root_units(self.__registry._UnitRegistry__inner)
 
     # ==================================================
     # Standard dunder methods
@@ -279,13 +277,10 @@ class Quantity(Generic[T, R]):
     # ==================================================
     @staticmethod
     def _load(inner: F64Quantity | ArrayF64Quantity) -> Quantity[T, R]:
-        new = object.__new__(Quantity)
-        new.__inner = inner
-
         # Use the currently set application registry.
         # WARNING: This may not be the same as the registry the pickled quantity was created with.
-        new.__registry = smoot.ApplicationRegistry.get()._UnitRegistry__inner
-
+        new = object.__new__(smoot.ApplicationRegistry.get().Quantity)
+        new.__inner = inner
         return new
 
     def __reduce__(self):
@@ -298,16 +293,14 @@ class Quantity(Generic[T, R]):
         return self.__inner == self._get_inner(other)
 
     def __neg__(self) -> Quantity[T, R]:
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = -self.__inner
-        new.__registry = self.__registry
         return new
 
     def __add__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         q1, q2 = self._upcast(self._get_quantity(other))
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = q1.__inner + q2.__inner
-        new.__registry = self.__registry
         return new
 
     def __radd__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -320,9 +313,8 @@ class Quantity(Generic[T, R]):
 
     def __sub__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         q1, q2 = self._upcast(self._get_quantity(other))
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = q1.__inner - q2.__inner
-        new.__registry = self.__registry
         return new
 
     def __rsub__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -335,9 +327,8 @@ class Quantity(Generic[T, R]):
 
     def __mul__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         q1, q2 = self._upcast(self._get_quantity(other))
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = q1.__inner * q2.__inner
-        new.__registry = self.__registry
         return new
 
     def __rmul__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -354,15 +345,10 @@ class Quantity(Generic[T, R]):
         # matmul may have produced a scalar
         magnitude = typing.cast(np.ndarray, inner.magnitude)
         if magnitude.shape == (1,):
-            return self.__class__(
-                magnitude[0],
-                smoot.Unit._from(inner.units),
-                registry=self.__registry,
-            )
+            return self.__class__(magnitude[0], self.__registry._from(inner.units))
 
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = inner
-        new.__registry = self.__registry
         return new
 
     def __rmatmul__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -374,9 +360,8 @@ class Quantity(Generic[T, R]):
 
     def __truediv__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         q1, q2 = self._upcast(self._get_quantity(other))
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = q1.__inner / q2.__inner
-        new.__registry = self.__registry
         return new
 
     def __rtruediv__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -389,9 +374,8 @@ class Quantity(Generic[T, R]):
 
     def __floordiv__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         q1, q2 = self._upcast(self._get_quantity(other))
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = q1.__inner // q2.__inner
-        new.__registry = self.__registry
         return new
 
     def __rfloordiv__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -404,9 +388,8 @@ class Quantity(Generic[T, R]):
 
     def __mod__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         q1, q2 = self._upcast(self._get_quantity(other))
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = q1.__inner % q2.__inner
-        new.__registry = self.__registry
         return new
 
     def __rmod__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -425,12 +408,11 @@ class Quantity(Generic[T, R]):
             msg = f"Expected dimensionless exponent but got: {other_inner.units}"
             raise ValueError(msg)
 
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         if type(self.__inner) is ArrayF64Quantity:
             new.__inner = self.__inner.arr_pow(other_inner)
         else:
             new.__inner = self.__inner.__pow__(other_inner.magnitude, modulo)
-        new.__registry = self.__registry
         return new
 
     def __rpow__(
@@ -447,27 +429,23 @@ class Quantity(Generic[T, R]):
         return self
 
     def __floor__(self) -> Quantity[T, R]:
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = self.__inner.__floor__()
-        new.__registry = self.__registry
         return new
 
     def __ceil__(self) -> Quantity[T, R]:
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = self.__inner.__ceil__()
-        new.__registry = self.__registry
         return new
 
     def __round__(self, ndigits: int | None = None) -> Quantity[T, R]:
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = round(self.__inner, ndigits=ndigits)
-        new.__registry = self.__registry
         return new
 
     def __abs__(self) -> Quantity[T, R]:
-        new = object.__new__(Quantity)
+        new = object.__new__(self.__class__)
         new.__inner = self.__inner.__abs__()
-        new.__registry = self.__registry
         return new
 
     def __trunc__(self) -> int:
@@ -516,9 +494,9 @@ class Quantity(Generic[T, R]):
         # for compatible operators.
         is_array = type(self.__inner) is ArrayF64Quantity
         if is_array and type(other) not in (list, tuple, np.ndarray):
-            return self.__class__([other], registry=self.__registry)
+            return self.__class__([other])
 
-        return self.__class__(other, registry=self.__registry)
+        return self.__class__(other)
 
     def _get_inner(
         self,
@@ -533,14 +511,12 @@ class Quantity(Generic[T, R]):
             return self, other
 
         if t1 is F64Quantity:
-            new = object.__new__(Quantity)
+            new = object.__new__(self.__class__)
             new.__inner = ArrayF64Quantity(np.array([self.m]), self.__inner.units)
-            new.__registry = self.__registry
             return new, other
         if t2 is F64Quantity:
-            new = object.__new__(Quantity)
+            new = object.__new__(self.__class__)
             new.__inner = ArrayF64Quantity(np.array([other.m]), other.__inner.units)
-            new.__registry = self.__registry
             return self, new
 
         msg = f"No conversion exists between {t1} and {t2}"
@@ -552,7 +528,7 @@ class Quantity(Generic[T, R]):
     ) -> tuple[float, InnerUnit]:
         t = type(units)
         if t is str:
-            return InnerUnit.parse(units, self.__registry)
+            return InnerUnit.parse(units, self.__registry._UnitRegistry__inner)
         if t is InnerUnit:
             return (1.0, units)
         if isinstance(units, Quantity):

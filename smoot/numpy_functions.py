@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from enum import Enum, auto
-from typing import Callable, Final
+from typing import Any, Callable, Final
 
 import numpy as np
 from numpy.typing import NDArray
@@ -38,6 +38,20 @@ def _implements(func_name: str, func_type: _FunctionType) -> Callable:
 # ==================================================
 # Automated function implementations
 # ==================================================
+def _upcast(
+    x: smoot.Quantity | Any, y: smoot.Quantity
+) -> tuple[smoot.Quantity, smoot.Quantity]:
+    """Assumes that x and y cannot both be non-Quantity types."""
+    x_is_quantity = isinstance(x, smoot.Quantity)
+    y_is_quantity = isinstance(y, smoot.Quantity)
+
+    if x_is_quantity and y_is_quantity:
+        return (x, y)
+    if x_is_quantity:
+        return (x, x.__class__(y))
+    return (y.__class__(x), y)
+
+
 def _unary_unchanged_units(func_name: str, func_type: _FunctionType) -> None:
     func = getattr(np, func_name)
 
@@ -46,7 +60,6 @@ def _unary_unchanged_units(func_name: str, func_type: _FunctionType) -> None:
         return x.__class__(
             value=func(x.magnitude, *args, **kwargs),
             units=x.units,
-            registry=x._Quantity__registry,
         )
 
 
@@ -63,7 +76,6 @@ def _unary_requires_unit(
         return x.__class__(
             value=func(x.m_as(in_units), *args, **kwargs),
             units=out_units,
-            registry=x._Quantity__registry,
         )
 
 
@@ -83,13 +95,18 @@ def _binary_unchanged_units(
     func = getattr(np, func_name)
 
     @_implements(func_name, func_type)
-    def impl(x1: smoot.Quantity, x2: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
+    def impl(
+        x1: smoot.Quantity | Any,
+        x2: smoot.Quantity | Any,
+        *args,
+        **kwargs,
+    ) -> smoot.Quantity:
+        x1, x2 = _upcast(x1, x2)
         m2 = x2.m_as(x1) if requires_compatible_units else x2.magnitude
 
         return x1.__class__(
             value=func(x1.magnitude, m2, *args, **kwargs),
             units=x1.units,
-            registry=x1._Quantity__registry,
         )
 
 
@@ -103,10 +120,10 @@ def _binary_requires_units(
 
     @_implements(func_name, func_type)
     def impl(x1: smoot.Quantity, x2: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
+        x1, x2 = _upcast(x1, x2)
         return x1.__class__(
             value=func(x1.m_as(in_unit), x2.m_as(in_unit), *args, **kwargs),
             units=out_unit,
-            registry=x1._Quantity__registry,
         )
 
 
@@ -117,6 +134,7 @@ def _binary_boolean_output(func_name: str, func_type: _FunctionType) -> None:
     def impl(
         x1: smoot.Quantity, x2: smoot.Quantity, *args, **kwargs
     ) -> NDArray[np.bool]:
+        x1, x2 = _upcast(x1, x2)
         return func(x1.magnitude, x2.m_as(x1), *args, **kwargs)
 
 
@@ -219,28 +237,28 @@ for func_name, func_type in (
 def _multiply(
     x1: smoot.Quantity, x2: smoot.Quantity, *args, **kwargs
 ) -> smoot.Quantity:
+    x1, x2 = _upcast(x1, x2)
     return x1.__class__(
         value=np.multiply(x1.m, x2.m_as(x1), *args, **kwargs),
         units=x1.u * x2.u,
-        registry=x1._Quantity__registry,
     )
 
 
 @_implements("matmul", _FunctionType.ufunc)
 def _matmul(x1: smoot.Quantity, x2: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
+    x1, x2 = _upcast(x1, x2)
     return x1.__class__(
         value=np.matmul(x1.m, x2.m_as(x1), *args, **kwargs),
         units=x1.u * x2.u,
-        registry=x1._Quantity__registry,
     )
 
 
 @_implements("divide", _FunctionType.ufunc)
 def _divide(x1: smoot.Quantity, x2: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
+    x1, x2 = _upcast(x1, x2)
     return x1.__class__(
         value=np.divide(x1.m, x2.m_as(x1), *args, **kwargs),
         units=x1.u / x2.u,
-        registry=x1._Quantity__registry,
     )
 
 
@@ -248,10 +266,10 @@ def _divide(x1: smoot.Quantity, x2: smoot.Quantity, *args, **kwargs) -> smoot.Qu
 def _true_divide(
     x1: smoot.Quantity, x2: smoot.Quantity, *args, **kwargs
 ) -> smoot.Quantity:
+    x1, x2 = _upcast(x1, x2)
     return x1.__class__(
         value=np.true_divide(x1.m, x2.m_as(x1), *args, **kwargs),
         units=x1.u / x2.u,
-        registry=x1._Quantity__registry,
     )
 
 
@@ -259,10 +277,10 @@ def _true_divide(
 def _floor_divide(
     x1: smoot.Quantity, x2: smoot.Quantity, *args, **kwargs
 ) -> smoot.Quantity:
+    x1, x2 = _upcast(x1, x2)
     return x1.__class__(
         value=np.true_divide(x1.m, x2.m_as(x1), *args, **kwargs),
         units=x1.u / x2.u,
-        registry=x1._Quantity__registry,
     )
 
 
@@ -271,7 +289,6 @@ def _sqrt(x: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
     return x.__class__(
         value=np.sqrt(x.m, *args, **kwargs),
         units=x.units**0.5,
-        registry=x._Quantity__registry,
     )
 
 
@@ -280,7 +297,6 @@ def _square(x: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
     return x.__class__(
         value=np.square(x.m, *args, **kwargs),
         units=x.units**2,
-        registry=x._Quantity__registry,
     )
 
 
@@ -289,7 +305,6 @@ def _cbrt(x: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
     return x.__class__(
         value=np.cbrt(x.m, *args, **kwargs),
         units=x.units ** (1 / 3),
-        registry=x._Quantity__registry,
     )
 
 
@@ -298,25 +313,24 @@ def _reciprocal(x: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
     return x.__class__(
         value=np.reciprocal(x.m, *args, **kwargs),
         units=1 / x.units,
-        registry=x._Quantity__registry,
     )
 
 
 @_implements("maximum", _FunctionType.ufunc)
 def _maximum(x1: smoot.Quantity, x2: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
+    x1, x2 = _upcast(x1, x2)
     return x1.__class__(
         value=np.maximum(x1.m, x2.m_as(x1), *args, **kwargs),
         units=x1.units,
-        registry=x1._Quantity__registry,
     )
 
 
 @_implements("minimum", _FunctionType.ufunc)
 def _minimum(x1: smoot.Quantity, x2: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
+    x1, x2 = _upcast(x1, x2)
     return x1.__class__(
         value=np.minimum(x1.m, x2.m_as(x1), *args, **kwargs),
         units=x1.units,
-        registry=x1._Quantity__registry,
     )
 
 

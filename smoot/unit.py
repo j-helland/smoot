@@ -36,7 +36,7 @@ class Unit:
         ```
         """
         try:
-            registry = cls.__registry  # type: ignore[attr-defined]
+            registry = cls.__registry._UnitRegistry__inner  # type: ignore[attr-defined]
         except AttributeError:
             msg = (
                 "Attempted to instantiate an abstract Unit. "
@@ -44,18 +44,10 @@ class Unit:
             )
             raise TypeError(msg)
 
-        new = object.__new__(Unit)
+        new = object.__new__(cls.__registry.Unit)
         # Ignore the reduction factor when directly returning units to users
         # since the factor is only used internally.
         _, new.__inner = InnerUnit.parse(s, registry=registry)
-        new.__registry = registry
-        return new
-
-    @classmethod
-    def _from(cls, u: InnerUnit) -> Unit:
-        new = object.__new__(Unit)
-        new.__inner = u
-        new.__registry = cls.__registry
         return new
 
     def is_compatible_with(self, other: Unit) -> bool:
@@ -96,7 +88,7 @@ class Unit:
         assert units.newton.dimensionality == {"[length]": 1.0, "[mass]": 1.0, "[time]": -2.0}
         ```
         """
-        return self.__inner.dimensionality(self.__registry)
+        return self.__inner.dimensionality(self.__registry._UnitRegistry__inner)
 
     def to_root_units(self) -> Unit:
         """Return a simplified version of this unit with the minimum number of base units.
@@ -109,13 +101,12 @@ class Unit:
         assert str(units.newton.to_root_units()) == "(gram * meter) / second ** 2"
         ```
         """
-        new = object.__new__(Unit)
-        new.__inner = self.__inner.to_root_units(self.__registry)
-        new.__registry = self.__registry
+        new = object.__new__(self.__class__)
+        new.__inner = self.__inner.to_root_units(self.__registry._UnitRegistry__inner)
         return new
 
     def ito_root_units(self) -> Self:
-        self.__inner.ito_root_units(self.__registry)
+        self.__inner.ito_root_units(self.__registry._UnitRegistry__inner)
         return self
 
     def __str__(self) -> str:
@@ -131,18 +122,15 @@ class Unit:
 
     def __mul__(self, other: OperatorUnitLike) -> Unit | smoot.Quantity:
         if type(other) in (int, float):
-            new = object.__new__(smoot.Quantity)
+            new = object.__new__(self.__registry.Quantity)
             new._Quantity__inner = mul_unit(num=other, unit=self.__inner)
-            new._Quantity__registry = self._Unit__registry
         elif isinstance(other, Iterable):
-            new = object.__new__(smoot.Quantity)
+            new = object.__new__(self.__registry.Quantity)
             arr = np.array(other, dtype=np.float64)
             new._Quantity__inner = arr_mul_unit(arr=arr, unit=self.__inner)
-            new._Quantity__registry = self._Unit__registry
         else:
-            new = object.__new__(Unit)
+            new = object.__new__(self.__class__)
             new.__inner = self.__inner * other.__inner
-            new.__registry = self.__registry
         return new
 
     def __rmul__(self, other: OperatorUnitLike) -> Unit | smoot.Quantity:
@@ -154,18 +142,15 @@ class Unit:
 
     def __truediv__(self, other: OperatorUnitLike) -> Unit | smoot.Quantity:
         if type(other) in (int, float):
-            new = object.__new__(smoot.Quantity)
+            new = object.__new__(self.__registry.Quantity)
             new._Quantity__inner = div_unit(unit=self.__inner, num=other)
-            new._Quantity__registry = self.__registry
         elif isinstance(other, Iterable):
-            new = object.__new__(smoot.Quantity)
+            new = object.__new__(self.__registry.Quantity)
             arr = np.array(other, dtype=np.float64)
             new._Quantity__inner = arr_div_unit(unit=self.__inner, arr=arr)
-            new._Quantity__registry = self.__registry
         else:
-            new = object.__new__(Unit)
+            new = object.__new__(self.__class__)
             new.__inner = self.__inner / other.__inner
-            new.__registry = self.__registry
         return new
 
     def __itruediv__(self, other: Unit) -> Self:
@@ -174,24 +159,20 @@ class Unit:
 
     def __rtruediv__(self, other: OperatorUnitLike) -> Unit | smoot.Quantity:
         if type(other) in (int, float):
-            new = object.__new__(smoot.Quantity)
+            new = object.__new__(self.__registry.Quantity)
             new._Quantity__inner = rdiv_unit(num=other, unit=self.__inner)
-            new._Quantity__registry = self.__registry
         elif isinstance(other, Iterable):
-            new = object.__new__(smoot.Quantity)
+            new = object.__new__(self.__registry.Quantity)
             arr = np.array(other, dtype=np.float64)
             new._Quantity__inner = arr_rdiv_unit(arr=arr, unit=self.__inner)
-            new._Quantity__registry = self.__registry
         else:
-            new = object.__new__(Unit)
-            new.__inner = other.__inner__ / self.__inner
-            new.__registry = self.__registry
+            new = object.__new__(self.__class__)
+            new.__inner = other.__inner / self.__inner
         return new
 
     def __pow__(self, p: int | float, modulo: int | float | None = None) -> Unit:
-        new = object.__new__(Unit)
+        new = object.__new__(self.__class__)
         new.__inner = self.__inner.__pow__(p, modulo)
-        new.__registry = self.__registry
         return new
 
     def __ipow__(self, p: int | float, modulo: int | float | None = None) -> Self:

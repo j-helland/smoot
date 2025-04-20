@@ -131,6 +131,7 @@ def test_eq() -> None:
     assert Q(math.nan) != Q(math.nan)
 
 
+# fmt: off
 @pytest.mark.parametrize(
     argnames=("x", "op", "y", "expected"),
     argvalues=(
@@ -187,6 +188,7 @@ def test_eq() -> None:
         (Q(1, "km"), operator.mod, Q(1, "meter"), Q(1 % 1e-3, "km")),
     ),
 )
+# fmt: on
 def test_binary_operators(
     x: Q | int,
     op: Callable[[Q | int, Q | int], Q],
@@ -251,6 +253,7 @@ def test_binary_inplace_operators(
     assert x == expected
 
 
+# fmt: off
 @pytest.mark.parametrize(
     argnames=("x", "op", "y", "expected"),
     argvalues=(
@@ -258,19 +261,9 @@ def test_binary_inplace_operators(
         ([1, 2, 3], operator.eq, Q([1, 0, 3]), np.array([True, False, True])),
         (Q([1, 2, 3]), operator.eq, [1, 0, 3], np.array([True, False, True])),
         # compatible units
-        (
-            Q([1000, 2000, 3000], "meter"),
-            operator.eq,
-            Q([1, 2, 3], "km"),
-            np.array([True, True, True]),
-        ),
+        (Q([1000, 2000, 3000], "meter"), operator.eq, Q([1, 2, 3], "km"), np.array([True, True, True])),
         # incompatible units
-        (
-            Q([1, 2, 3], "meter"),
-            operator.eq,
-            Q([1, 2, 3], "gram"),
-            np.array([False, False, False]),
-        ),
+        (Q([1, 2, 3], "meter"), operator.eq, Q([1, 2, 3], "gram"), np.array([False, False, False])),
         (Q([1, 2, 3]), operator.add, Q([3, 2, 1]), Q([4, 4, 4])),
         ([1, 2, 3], operator.add, Q([3, 2, 1]), Q([4, 4, 4])),
         (Q([1, 2, 3]), operator.add, [3, 2, 1], Q([4, 4, 4])),
@@ -278,18 +271,8 @@ def test_binary_inplace_operators(
         (Q([1, 2, 3]), operator.add, 1, Q([2, 3, 4])),
         (1, operator.add, Q([1, 2, 3]), Q([2, 3, 4])),
         # compatible units
-        (
-            Q([1000, 2000, 3000], "meter"),
-            operator.add,
-            Q([3, 2, 1], "km"),
-            Q([4000, 4000, 4000], "meter"),
-        ),
-        (
-            Q([1, 2, 3], "km"),
-            operator.add,
-            Q([3000, 2000, 1000], "meter"),
-            Q([4, 4, 4], "km"),
-        ),
+        (Q([1000, 2000, 3000], "meter"), operator.add, Q([3, 2, 1], "km"), Q([4000, 4000, 4000], "meter")),
+        (Q([1, 2, 3], "km"), operator.add, Q([3000, 2000, 1000], "meter"), Q([4, 4, 4], "km")),
         (Q([1, 2, 3]), operator.sub, Q([3, 2, 1]), Q([-2, 0, 2])),
         ([1, 2, 3], operator.sub, Q([3, 2, 1]), Q([-2, 0, 2])),
         (Q([1, 2, 3]), operator.sub, [3, 2, 1], Q([-2, 0, 2])),
@@ -299,26 +282,12 @@ def test_binary_inplace_operators(
         (Q([1, 2, 3]), operator.pow, Q([3, 2, 1]), Q([1, 4, 3])),
         ([1, 2, 3], operator.pow, Q([3, 2, 1]), Q([1, 4, 3])),
         (Q([1, 2, 3]), operator.pow, [3, 2, 1], Q([1, 4, 3])),
-        (
-            Q([[1], [2], [3]]),
-            operator.matmul,
-            Q([[3, 2, 1]]),
-            Q([[3, 2, 1], [6, 4, 2], [9, 6, 3]]),
-        ),
-        (
-            [[1], [2], [3]],
-            operator.matmul,
-            Q([[3, 2, 1]]),
-            Q([[3, 2, 1], [6, 4, 2], [9, 6, 3]]),
-        ),
-        (
-            Q([[1], [2], [3]]),
-            operator.matmul,
-            [[3, 2, 1]],
-            Q([[3, 2, 1], [6, 4, 2], [9, 6, 3]]),
-        ),
+        (Q([[1], [2], [3]]), operator.matmul, Q([[3, 2, 1]]), Q([[3, 2, 1], [6, 4, 2], [9, 6, 3]])),
+        ([[1], [2], [3]], operator.matmul, Q([[3, 2, 1]]), Q([[3, 2, 1], [6, 4, 2], [9, 6, 3]])),
+        (Q([[1], [2], [3]]), operator.matmul, [[3, 2, 1]], Q([[3, 2, 1], [6, 4, 2], [9, 6, 3]])),
     ),
 )
+# fmt: on
 def test_binary_array_operators(
     x: Q | NDArray[np.int64],
     op: Callable[[Q | NDArray[np.int64], Q | NDArray[np.int64]], Q],
@@ -352,10 +321,11 @@ def test_matmul_produces_scalar() -> None:
     assert (Q([1, 2, 3]) @ Q([3, 2, 1])) == Q(10)
 
 
+# fmt: off
 @pytest.mark.parametrize(
     argnames=("value", "ufunc", "expected"),
     argvalues=(
-        # ufuncs
+        #### ufuncs
         (Q([1, 2, 3], "meter"), np.negative, Q([-1, -2, -3], "meter")),
         (Q([1, 2, 3], "meter"), np.positive, Q([1, 2, 3], "meter")),
         (Q([-1, -2, -3], "meter"), np.absolute, Q([1, 2, 3], "meter")),
@@ -395,12 +365,13 @@ def test_matmul_produces_scalar() -> None:
         (Q([1, 2, 3], "meter"), np.floor, Q(np.floor([1, 2, 3]), "meter")),
         (Q([1, 2, 3], "meter"), np.ceil, Q(np.ceil([1, 2, 3]), "meter")),
         (Q([1, 2, 3], "meter"), np.trunc, Q(np.trunc([1, 2, 3]), "meter")),
-        # higher order array functions
+        #### higher order array functions
         (Q([1, 2, 3], "meter"), np.sum, Q(6, "meter")),
         # (Q([1, 2, 3], "meter"), np.cumsum, Q([1, 3, 6], "meter")),
         # (Q([1, 2, 3], "meter"), np.cumprod, Q([1, 2, 6], "meter ** 3")),
     ),
 )
+# fmt: on
 def test_unary_array_funcs(value: Q, ufunc: np.ufunc, expected: Q | np.ndarray) -> None:
     """Arbitrary numpy ufuncs can be invoked with expected results."""
     actual = ufunc(value)
@@ -409,120 +380,57 @@ def test_unary_array_funcs(value: Q, ufunc: np.ufunc, expected: Q | np.ndarray) 
     assert is_eq, f"{actual} != {expected}"
 
 
+# fmt: off
 @pytest.mark.parametrize(
     argnames=("value1", "func", "value2", "expected"),
     argvalues=(
         (Q([1, 2, 3], "meter"), np.add, Q([3, 2, 1], "meter"), Q([4, 4, 4], "meter")),
-        (
-            Q([1, 2, 3], "meter"),
-            np.subtract,
-            Q([3, 2, 1], "meter"),
-            Q([-2, 0, 2], "meter"),
-        ),
-        (
-            Q([1, 2, 3], "meter"),
-            np.multiply,
-            Q([3, 2, 1], "meter"),
-            Q([3, 4, 3], "meter ** 2"),
-        ),
+        ([1, 2, 3], np.add, Q([3, 2, 1]), Q([4, 4, 4])),
+        (Q([1, 2, 3]), np.add, [3, 2, 1], Q([4, 4, 4])),
+        (Q([1, 2, 3], "meter"), np.subtract, Q([3, 2, 1], "meter"), Q([-2, 0, 2], "meter")),
+        ([1, 2, 3], np.subtract, Q([3, 2, 1]), Q([-2, 0, 2])),
+        (Q([1, 2, 3]), np.subtract, [3, 2, 1], Q([-2, 0, 2])),
+        (Q([1, 2, 3], "meter"), np.multiply, Q([3, 2, 1], "meter"), Q([3, 4, 3], "meter ** 2")),
+        ([1, 2, 3], np.multiply, Q([3, 2, 1]), Q([3, 4, 3])),
+        (Q([1, 2, 3]), np.multiply, [3, 2, 1], Q([3, 4, 3])),
         (Q([1, 2, 3], "meter"), np.matmul, Q([3, 2, 1], "meter"), Q(10, "meter ** 2")),
+        ([1, 2, 3], np.matmul, Q([3, 2, 1]), Q(10)),
+        (Q([1, 2, 3]), np.matmul, [3, 2, 1], Q(10)),
         (Q([1, 2, 3], "meter"), np.divide, Q([3, 2, 1], "meter"), Q([1 / 3, 1, 3])),
-        (
-            Q([1, 2, 3]),
-            np.logaddexp,
-            Q([3, 2, 1]),
-            Q(np.logaddexp([1, 2, 3], [3, 2, 1])),
-        ),
-        (
-            Q([1, 2, 3]),
-            np.logaddexp2,
-            Q([3, 2, 1]),
-            Q(np.logaddexp2([1, 2, 3], [3, 2, 1])),
-        ),
+        ([1, 2, 3], np.divide, Q([3, 2, 1]), Q([1 / 3, 1, 3])),
+        (Q([1, 2, 3]), np.divide, [3, 2, 1], Q([1 / 3, 1, 3])),
+        (Q([1, 2, 3], "meter"), np.true_divide, Q([3, 2, 1], "meter"), Q([1 / 3, 1, 3])),
+        ([1, 2, 3], np.true_divide, Q([3, 2, 1]), Q([1 / 3, 1, 3])),
+        (Q([1, 2, 3]), np.true_divide, [3, 2, 1], Q([1 / 3, 1, 3])),
+        (Q([1, 2, 3], "meter"), np.floor_divide, Q([3, 2, 1], "meter"), Q([1 / 3, 1, 3])),
+        ([1, 2, 3], np.floor_divide, Q([3, 2, 1]), Q([1 / 3, 1, 3])),
+        (Q([1, 2, 3]), np.floor_divide, [3, 2, 1], Q([1 / 3, 1, 3])),
+        (Q([1, 2, 3]), np.logaddexp, Q([3, 2, 1]), Q(np.logaddexp([1, 2, 3], [3, 2, 1]))),
+        (Q([1, 2, 3]), np.logaddexp2, Q([3, 2, 1]), Q(np.logaddexp2([1, 2, 3], [3, 2, 1]))),
         (Q([1, 2, 3]), np.power, Q([3, 2, 1]), Q(np.power([1, 2, 3], [3, 2, 1]))),
-        (
-            Q([1, 2, 3]),
-            np.float_power,
-            Q([3, 2, 1]),
-            Q(np.float_power([1, 2, 3], [3, 2, 1])),
-        ),
-        (
-            Q([1, 2, 3], "meter"),
-            np.remainder,
-            Q([3, 2, 1], "meter"),
-            Q([1, 0, 0], "meter"),
-        ),
+        (Q([1, 2, 3]), np.float_power, Q([3, 2, 1]), Q(np.float_power([1, 2, 3], [3, 2, 1]))),
+        (Q([1, 2, 3], "meter"), np.remainder, Q([3, 2, 1], "meter"), Q([1, 0, 0], "meter")),
         (Q([1, 2, 3], "meter"), np.mod, Q([3, 2, 1], "meter"), Q([1, 0, 0], "meter")),
         (Q([1, 2, 3], "meter"), np.fmod, Q([3, 2, 1], "meter"), Q([1, 0, 0], "meter")),
-        (
-            Q([0.1, 0.2, 0.3], "radian"),
-            np.arctan2,
-            Q([0.3, 0.2, 0.1], "radian"),
-            Q(np.arctan2([0.1, 0.2, 0.3], [0.3, 0.2, 0.1])),
-        ),
-        (
-            Q([1, 2, 3], "meter"),
-            np.hypot,
-            Q([3, 2, 1], "meter"),
-            Q(np.hypot([1, 2, 3], [3, 2, 1]), "meter"),
-        ),
-        (
-            Q([1, 2, 3], "meter"),
-            np.greater,
-            Q([3, 2, 1], "km"),
-            np.array([False, False, False]),
-        ),
-        (
-            Q([1, 2, 3], "meter"),
-            np.greater_equal,
-            Q([3, 2, 1], "km"),
-            np.array([False, False, False]),
-        ),
-        (
-            Q([1, 2, 3], "meter"),
-            np.less,
-            Q([3, 2, 1], "km"),
-            np.array([True, True, True]),
-        ),
-        (
-            Q([1, 2, 3], "meter"),
-            np.less_equal,
-            Q([3, 2, 1], "km"),
-            np.array([True, True, True]),
-        ),
-        (
-            Q([1, 2, 3], "meter"),
-            np.not_equal,
-            Q([3, 2, 1], "km"),
-            np.array([True, True, True]),
-        ),
-        (
-            Q([1, 2, 3], "meter"),
-            np.equal,
-            Q([3, 2, 1], "km"),
-            np.array([False, False, False]),
-        ),
-        (
-            Q([1, 2, 3], "meter"),
-            np.maximum,
-            Q([3, 2, 1], "km"),
-            Q([3e3, 2e3, 1e3], "meter"),
-        ),
+        (Q([0.1, 0.2, 0.3], "radian"), np.arctan2, Q([0.3, 0.2, 0.1], "radian"), Q(np.arctan2([0.1, 0.2, 0.3], [0.3, 0.2, 0.1]))),
+        (Q([1, 2, 3], "meter"), np.hypot, Q([3, 2, 1], "meter"), Q(np.hypot([1, 2, 3], [3, 2, 1]), "meter")),
+        (Q([1, 2, 3], "meter"), np.greater, Q([3, 2, 1], "km"), np.array([False, False, False])),
+        (Q([1, 2, 3], "meter"), np.greater_equal, Q([3, 2, 1], "km"), np.array([False, False, False])),
+        (Q([1, 2, 3], "meter"), np.less, Q([3, 2, 1], "km"), np.array([True, True, True])),
+        (Q([1, 2, 3], "meter"), np.less_equal, Q([3, 2, 1], "km"), np.array([True, True, True])),
+        (Q([1, 2, 3], "meter"), np.not_equal, Q([3, 2, 1], "km"), np.array([True, True, True])),
+        (Q([1, 2, 3], "meter"), np.equal, Q([3, 2, 1], "km"), np.array([False, False, False])),
+        (Q([1, 2, 3], "meter"), np.maximum, Q([3, 2, 1], "km"), Q([3e3, 2e3, 1e3], "meter")),
+        ([1, 2, 3], np.maximum, Q([3, 2, 1]), Q([3, 2, 3])),
+        (Q([1, 2, 3]), np.maximum, [3, 2, 1], Q([3, 2, 3])),
         (Q([1, 2, 3], "meter"), np.minimum, Q([3, 2, 1], "km"), Q([1, 2, 3], "meter")),
-        (
-            Q([1, 2, 3], "meter"),
-            np.copysign,
-            Q([-3, -2, -1], "km"),
-            Q([-1, -2, -3], "meter"),
-        ),
-        (
-            Q([1, 2, 3], "meter"),
-            np.nextafter,
-            Q([3, 2, 1], "km"),
-            Q([1, 2, 3], "meter"),
-        ),
+        ([1, 2, 3], np.minimum, Q([3, 2, 1]), Q([1, 2, 1])),
+        (Q([1, 2, 3]), np.minimum, [3, 2, 1], Q([1, 2, 1])),
+        (Q([1, 2, 3], "meter"), np.copysign, Q([-3, -2, -1], "km"), Q([-1, -2, -3], "meter")),
+        (Q([1, 2, 3], "meter"), np.nextafter, Q([3, 2, 1], "km"), Q([1, 2, 3], "meter")),
     ),
 )
+# fmt: on
 def test_binary_array_funcs(
     value1: Q, value2: Q, func: Callable, expected: Q | np.ndarray
 ) -> None:
