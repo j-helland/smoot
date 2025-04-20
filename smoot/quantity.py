@@ -209,6 +209,7 @@ class Quantity(Generic[T, R]):
         factor, _units = self._get_units(units)
         new = object.__new__(Quantity)
         new.__inner = self.__inner.to(_units, factor=factor)
+        new.__registry = self.__registry
         return new
 
     def ito(self, units: str | smoot.Unit) -> Quantity[T, R]:
@@ -237,6 +238,7 @@ class Quantity(Generic[T, R]):
         """
         new = object.__new__(Quantity)
         new.__inner = self.__inner.to_root_units(self.__registry)
+        new.__registry = self.__registry
         return new
 
     def ito_root_units(self) -> None:
@@ -290,12 +292,14 @@ class Quantity(Generic[T, R]):
     def __neg__(self) -> Quantity[T, R]:
         new = object.__new__(Quantity)
         new.__inner = -self.__inner
+        new.__registry = self.__registry
         return new
 
     def __add__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
         q1, q2 = self._upcast(self._get_quantity(other))
         new = object.__new__(Quantity)
         new.__inner = q1.__inner + q2.__inner
+        new.__registry = self.__registry
         return new
 
     def __radd__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -310,6 +314,7 @@ class Quantity(Generic[T, R]):
         q1, q2 = self._upcast(self._get_quantity(other))
         new = object.__new__(Quantity)
         new.__inner = q1.__inner - q2.__inner
+        new.__registry = self.__registry
         return new
 
     def __rsub__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -324,6 +329,7 @@ class Quantity(Generic[T, R]):
         q1, q2 = self._upcast(self._get_quantity(other))
         new = object.__new__(Quantity)
         new.__inner = q1.__inner * q2.__inner
+        new.__registry = self.__registry
         return new
 
     def __rmul__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -344,6 +350,7 @@ class Quantity(Generic[T, R]):
 
         new = object.__new__(Quantity)
         new.__inner = inner
+        new.__registry = self.__registry
         return new
 
     def __rmatmul__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -357,6 +364,7 @@ class Quantity(Generic[T, R]):
         q1, q2 = self._upcast(self._get_quantity(other))
         new = object.__new__(Quantity)
         new.__inner = q1.__inner / q2.__inner
+        new.__registry = self.__registry
         return new
 
     def __rtruediv__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -371,6 +379,7 @@ class Quantity(Generic[T, R]):
         q1, q2 = self._upcast(self._get_quantity(other))
         new = object.__new__(Quantity)
         new.__inner = q1.__inner // q2.__inner
+        new.__registry = self.__registry
         return new
 
     def __rfloordiv__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -385,6 +394,7 @@ class Quantity(Generic[T, R]):
         q1, q2 = self._upcast(self._get_quantity(other))
         new = object.__new__(Quantity)
         new.__inner = q1.__inner % q2.__inner
+        new.__registry = self.__registry
         return new
 
     def __rmod__(self, other: Quantity[T, R] | T) -> Quantity[T, R]:
@@ -408,6 +418,7 @@ class Quantity(Generic[T, R]):
             new.__inner = self.__inner.arr_pow(other_inner)
         else:
             new.__inner = self.__inner.__pow__(other_inner.magnitude, modulo)
+        new.__registry = self.__registry
         return new
 
     def __rpow__(
@@ -426,21 +437,25 @@ class Quantity(Generic[T, R]):
     def __floor__(self) -> Quantity[T, R]:
         new = object.__new__(Quantity)
         new.__inner = self.__inner.__floor__()
+        new.__registry = self.__registry
         return new
 
     def __ceil__(self) -> Quantity[T, R]:
         new = object.__new__(Quantity)
         new.__inner = self.__inner.__ceil__()
+        new.__registry = self.__registry
         return new
 
     def __round__(self, ndigits: int | None = None) -> Quantity[T, R]:
         new = object.__new__(Quantity)
         new.__inner = round(self.__inner, ndigits=ndigits)
+        new.__registry = self.__registry
         return new
 
     def __abs__(self) -> Quantity[T, R]:
         new = object.__new__(Quantity)
         new.__inner = self.__inner.__abs__()
+        new.__registry = self.__registry
         return new
 
     def __trunc__(self) -> int:
@@ -504,22 +519,24 @@ class Quantity(Generic[T, R]):
         if t1 is F64Quantity:
             new = object.__new__(Quantity)
             new.__inner = ArrayF64Quantity(np.array([self.m]), self.__inner.units)
+            new.__registry = self.__registry
             return new, other
         if t2 is F64Quantity:
             new = object.__new__(Quantity)
             new.__inner = ArrayF64Quantity(np.array([other.m]), other.__inner.units)
+            new.__registry = self.__registry
             return self, new
 
         msg = f"No conversion exists between {t1} and {t2}"
         raise NotImplementedError(msg)
 
-    @classmethod
     def _get_units(
-        cls, units: UnitsLike | InnerUnit | Quantity[T, R]
+        self,
+        units: UnitsLike | InnerUnit | Quantity[T, R],
     ) -> tuple[float, InnerUnit]:
         t = type(units)
         if t is str:
-            return InnerUnit.parse(units, cls.__registry)
+            return InnerUnit.parse(units, self.__registry)
         if t is InnerUnit:
             return (1.0, units)
         if t is Quantity:

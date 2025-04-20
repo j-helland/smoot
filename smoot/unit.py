@@ -133,12 +133,12 @@ class Unit:
         if type(other) in (int, float):
             new = object.__new__(smoot.Quantity)
             new._Quantity__inner = mul_unit(num=other, unit=self.__inner)
-            new._Quantity__registry = self.__registry
+            new._Quantity__registry = self._Unit__registry
         elif isinstance(other, Iterable):
             new = object.__new__(smoot.Quantity)
             arr = np.array(other, dtype=np.float64)
             new._Quantity__inner = arr_mul_unit(arr=arr, unit=self.__inner)
-            new._Quantity__registry = self.__registry
+            new._Quantity__registry = self._Unit__registry
         else:
             new = object.__new__(Unit)
             new.__inner = self.__inner * other.__inner

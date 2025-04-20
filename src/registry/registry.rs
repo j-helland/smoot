@@ -397,14 +397,6 @@ impl Registry {
         let mut dimensions = HashMap::new();
 
         dim_defs.into_iter().for_each(|def| {
-            let unit = BaseUnit::new(def.name.into(), 1.0, next_dimension);
-            self.insert_root_unit(unit.clone());
-            // Plural
-            // No aliases needed since non-plural covers it
-            self.insert_def(def.name.to_string() + "s", &vec![], unit.clone());
-            // Non-plural
-            self.insert_def(def.name.to_string(), &def.aliases, unit);
-
             let dim = if def.is_dimensionless() {
                 DIMENSIONLESS_TYPE
             } else {
@@ -412,6 +404,15 @@ impl Registry {
                 next_dimension <<= 1;
                 dim
             };
+
+            let unit = BaseUnit::new(def.name.into(), 1.0, dim);
+
+            self.insert_root_unit(unit.clone());
+            // Plural unit
+            // No aliases needed since non-plural covers it
+            self.insert_def(def.name.to_string() + "s", &vec![], unit.clone());
+            // Non-plural
+            self.insert_def(def.name.to_string(), &def.aliases, unit);
 
             dimensions.insert(def.dimension, dim);
             self.dimensions.insert(dim, def.dimension.to_string());
@@ -686,6 +687,16 @@ mod test_registry {
             ("unit2s".to_string(), BaseUnit::new("unit2".to_string(), 2.0, 0)),
         ]))
         ; "Derived units can be defined in any order"
+    )]
+    #[case(
+        "radian = []\nsteradian = radian ** 2",
+        Some(HashMap::from([
+            ("radian".to_string(), BaseUnit::new("radian".to_string(), 1.0, 0)),
+            ("radians".to_string(), BaseUnit::new("radian".to_string(), 1.0, 0)),
+            ("steradian".to_string(), BaseUnit::new("steradian".to_string(), 1.0, 0)),
+            ("steradians".to_string(), BaseUnit::new("steradian".to_string(), 1.0, 0)),
+        ]))
+        ; "Derived dimensionless units stay unitless"
     )]
     fn test_registry_load_from_str(
         data: &str,

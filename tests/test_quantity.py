@@ -45,6 +45,9 @@ def test_all_base_unit_strings() -> None:
     argnames=("quantity", "expected"),
     argvalues=(
         (Q(1), None),
+        (Q("1 radian"), None),
+        (Q("1 steradian"), None),
+        (Q("1 kiloradian"), None),
         (Q("1 meter"), {"[length]": 1.0}),
         (Q([1, 2, 3], "meter"), {"[length]": 1.0}),
         (Q("1 newton"), {"[length]": 1.0, "[mass]": 1.0, "[time]": -2.0}),
@@ -81,6 +84,8 @@ def test_str(
     argvalues=(
         (Q("1 km"), "meter", Q("1000 meter")),
         (Q("1000 meter"), "km", Q("1 km")),
+        (Q(2), "radian", Q("2 radian")),
+        (Q("2 radian"), "dimensionless", Q("2")),
     ),
 )
 def test_conversion(
@@ -362,3 +367,20 @@ def test_pickle_roundtrip() -> None:
 
     # methods requiring a unit registry still work
     assert q.to_root_units() == q_.to_root_units()
+
+
+def test_quantity_from_unit() -> None:
+    """Quantities built from unit expressions work like regular quantities."""
+    q = 1 * units.km
+    assert q == Q("1 km")
+    assert q.to(units.meter) == Q("1000 meter")
+
+    # dimensionless
+    q = 1 * units.radian
+    assert q == Q("1 radian")
+    assert q.to("dimensionless") == Q(1)
+
+    # array
+    q = [1, 2] * units.meter
+    assert (q == Q([1, 2], "meter")).all()
+    assert (q.to("km") == Q([1e-3, 2e-3], "km")).all()

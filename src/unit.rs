@@ -746,6 +746,11 @@ mod test_unit {
             .get_unit("percent")
             .expect("No unit 'percent'")
     });
+    static UNIT_RADIAN: LazyLock<&BaseUnit> = LazyLock::new(|| {
+        TEST_REGISTRY
+            .get_unit("radian")
+            .expect("No unit 'radian'")
+    });
 
     #[case(
         Unit::new_dimensionless(),
@@ -1090,6 +1095,18 @@ mod test_unit {
         ; "Trivial"
     )]
     #[case(
+        Unit::new_dimensionless(),
+        Unit::new(vec![UNIT_PERCENT.clone()], vec![]),
+        true
+        ; "Dimensionless <> named dimensionless"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_RADIAN.clone()], vec![]),
+        Unit::new(vec![UNIT_PERCENT.clone()], vec![]),
+        true
+        ; "Named dimensionless <> dimensionless"
+    )]
+    #[case(
         Unit::new(vec![UNIT_METER.clone()], vec![]),
         Unit::new(vec![UNIT_METER.clone()], vec![]),
         true
@@ -1138,6 +1155,7 @@ mod test_unit {
         ; "Composite incompatible units"
     )]
     fn test_is_compatible_with(u1: Unit, u2: Unit, expected: bool) {
+        println!("{:#?}", u1);
         assert_eq!(u1.is_compatible_with(&u2), expected);
     }
 
