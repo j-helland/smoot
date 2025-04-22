@@ -1,6 +1,7 @@
 from __future__ import annotations
 import typing
 
+import numpy as np
 import pytest
 from smoot import UnitRegistry, Unit, SmootError
 import smoot
@@ -103,9 +104,11 @@ def test_units_multiply_into_quantity(units: UnitRegistry) -> None:
     assert (units.meter * 1) == Q("1 meter")
     assert (1 * units.meter) == Q("1 meter")
 
-    # array
+    # array, multiplication is associative
     assert (([1, 2] * units.meter) == Q([1, 2], units.meter)).all()
     assert ((units.meter * [1, 2]) == Q([1, 2], units.meter)).all()
+    assert (np.array([1, 2, 3]) * units.meter == Q([1, 2, 3], units.meter)).all()
+    assert (units.meter * np.array([1, 2, 3]) == Q([1, 2, 3], units.meter)).all()
 
 
 def test_units_divide(units: UnitRegistry) -> None:

@@ -21,6 +21,11 @@ OperatorUnitLike = Union["Unit", float, int, Iterable[float], Iterable[int]]
 class Unit:
     __slots__ = ("__inner", "__registry")
 
+    # Make unit multiplication higher priority than numpy array multiplication.
+    # This is needed to ensure that expressions like `np.array([1, 2, 3]) * units.meter`
+    # result in a quantity-wrapped array rather than an array of quantities.
+    __array_priority__ = 10
+
     def __init__(self) -> None:
         raise NotImplementedError
 
@@ -128,9 +133,12 @@ class Unit:
             new = object.__new__(self.__registry.Quantity)
             arr = np.array(other, dtype=np.float64)
             new._Quantity__inner = arr_mul_unit(arr=arr, unit=self.__inner)
-        else:
+        elif isinstance(other, Unit):
             new = object.__new__(self.__class__)
             new.__inner = self.__inner * other.__inner
+        else:
+            msg = f"Type {type(other)} cannot multiply a unit"
+            raise NotImplementedError(msg)
         return new
 
     def __rmul__(self, other: OperatorUnitLike) -> Unit | smoot.Quantity:
