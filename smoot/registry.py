@@ -50,6 +50,7 @@ class UnitRegistry:
     )
     __functions__ = (
         "load_definitions",
+        "parse_units",
         "_from",
         # pickle routines
         "__reduce__",
@@ -110,6 +111,9 @@ class UnitRegistry:
 
     def load_definitions(self, data: str) -> None:
         self._UnitRegistry__inner.extend(data)
+
+    def parse_units(self, input_string: str) -> smoot.Unit:
+        return self[input_string]
 
     def __len__(self) -> int:
         return self._UnitRegistry__inner.get_registry_size()

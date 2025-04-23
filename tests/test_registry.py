@@ -18,6 +18,10 @@ def test_smoot_exists(units: UnitRegistry) -> None:
     assert units.smoot
 
 
+def test_parse_units(units: UnitRegistry) -> None:
+    assert units.parse_units("meter") == units.meter
+
+
 def test_raw_quantity_instantiation_fails() -> None:
     """Quantities can only be instantiated through a UnitRegistry."""
     with pytest.raises(TypeError):

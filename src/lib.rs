@@ -651,6 +651,10 @@ macro_rules! create_array_quantity_type {
             //==================================================
             // standard dunder methods
             //==================================================
+            fn __len__(&self) -> usize {
+                self.inner.magnitude.len()
+            }
+
             fn __str__(&self) -> String {
                 format!(
                     "{} {}",

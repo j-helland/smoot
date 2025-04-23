@@ -213,6 +213,19 @@ class Quantity(Generic[T, R]):
         """
         return self.__registry._from(self.__inner.u)
 
+    def is_compatible_with(self, units: str | smoot.Unit | Quantity) -> bool:
+        """Return True if this unit is compatible with the other.
+
+        Examples
+        --------
+        ```python
+        assert Quantity("1 meter").is_compatible_with(units.kilometer)
+        assert Quantity("1 meter").is_compatible_with(Quantity("1 kilometer"))
+        assert not Quantity("1 meter").is_compatible_with(units.second)
+        ```
+        """
+        return self.units.is_compatible_with(units)
+
     def to(self, units: str | smoot.Unit | Quantity) -> Quantity[T, R]:
         """Return a copy of this quantity converted to the target units.
 
@@ -271,6 +284,13 @@ class Quantity(Generic[T, R]):
     # ==================================================
     # Standard dunder methods
     # ==================================================
+    def __len__(self) -> int:
+        try:
+            return self.__inner.__len__()
+        except AttributeError:
+            msg = f"object of type '{Quantity.__name__}' has not len()"
+            raise TypeError(msg)
+
     def __str__(self) -> str:
         return self.__inner.__str__()
 

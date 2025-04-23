@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import contextlib
 import inspect
 import math
 import operator
 import pickle
 from typing import Any, Callable
+import warnings
 
 import numpy as np
 from numpy.typing import NDArray
@@ -59,6 +59,12 @@ def test_dimensionality(
     expected: dict[str, float] | None,
 ) -> None:
     assert quantity.dimensionality == expected
+
+
+def test_len() -> None:
+    assert len(Q([1, 2, 3])) == 3
+    with pytest.raises(TypeError):
+        len(Q(1))
 
 
 @pytest.mark.parametrize(
@@ -119,6 +125,13 @@ def test_to_root_units(value: Q, expected: Q) -> None:
     # in-place
     value.ito_root_units()
     assert value == expected
+
+
+def test_is_compatible_with() -> None:
+    assert Q("1 meter").is_compatible_with("km")
+    assert Q("1 meter").is_compatible_with(units.km)
+    assert Q("1 meter").is_compatible_with(Q("1 km"))
+    assert not Q("1 meter").is_compatible_with(units.gram)
 
 
 def test_eq() -> None:
@@ -503,7 +516,9 @@ def test_copyto() -> None:
     assert (q1 == Q([1000, 2000, 3000], "meter")).all()
 
     arr = np.array([0.0, 0.0, 0.0])
-    np.copyto(arr, q2)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        np.copyto(arr, q2)
     assert (arr == np.array([1.0, 2.0, 3.0])).all()
 
 
