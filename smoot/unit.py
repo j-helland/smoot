@@ -55,7 +55,7 @@ class Unit:
         _, new.__inner = InnerUnit.parse(s, registry=registry)
         return new
 
-    def is_compatible_with(self, other: Unit) -> bool:
+    def is_compatible_with(self, other: str | Unit | smoot.Quantity) -> bool:
         """Return True if this unit is compatible with the other.
 
         Examples
@@ -65,7 +65,8 @@ class Unit:
         assert not units.meter.is_compatible_with(units.second)
         ```
         """
-        return self.__inner.is_compatible_with(other.__inner)
+        units = self._get_units(other)
+        return self.__inner.is_compatible_with(units)
 
     @property
     def dimensionless(self) -> bool:
@@ -198,3 +199,17 @@ class Unit:
     def __ipow__(self, p: int | float, modulo: int | float | None = None) -> Self:
         self.__inner.__ipow__(p, modulo)
         return self
+
+    def _get_units(
+        self,
+        units: str | Unit | InnerUnit | smoot.Quantity,
+    ) -> InnerUnit:
+        t = type(units)
+        if t is str:
+            _, result = InnerUnit.parse(units, self.__registry._UnitRegistry__inner)
+            return result
+        if t is InnerUnit:
+            return units
+        if isinstance(units, smoot.Quantity):
+            return units._Quantity__inner.units
+        return units._Unit__inner
