@@ -489,6 +489,8 @@ class Quantity(Generic[T, R]):
     def _get_quantity(self, other: Any) -> Quantity:
         if isinstance(other, Quantity):
             return other
+        if isinstance(other, smoot.Unit):
+            return self.__class__(1, other)
 
         # We might be an array type, in which case other needs to be wrapped as an array
         # for compatible operators.

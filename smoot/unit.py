@@ -136,6 +136,8 @@ class Unit:
         elif isinstance(other, Unit):
             new = object.__new__(self.__class__)
             new.__inner = self.__inner * other.__inner
+        elif isinstance(other, smoot.Quantity):
+            new = self.__registry.Quantity(1, self) * other
         else:
             msg = f"Type {type(other)} cannot multiply a unit"
             raise NotImplementedError(msg)
@@ -156,9 +158,14 @@ class Unit:
             new = object.__new__(self.__registry.Quantity)
             arr = np.array(other, dtype=np.float64)
             new._Quantity__inner = arr_div_unit(unit=self.__inner, arr=arr)
-        else:
+        elif isinstance(other, Unit):
             new = object.__new__(self.__class__)
             new.__inner = self.__inner / other.__inner
+        elif isinstance(other, smoot.Quantity):
+            new = self.__registry.Quantity(1, self) / other
+        else:
+            msg = f"Type {type(other)} cannot divide a unit"
+            raise NotImplementedError(msg)
         return new
 
     def __itruediv__(self, other: Unit) -> Self:
@@ -173,9 +180,14 @@ class Unit:
             new = object.__new__(self.__registry.Quantity)
             arr = np.array(other, dtype=np.float64)
             new._Quantity__inner = arr_rdiv_unit(arr=arr, unit=self.__inner)
-        else:
+        elif isinstance(other, Unit):
             new = object.__new__(self.__class__)
             new.__inner = other.__inner / self.__inner
+        elif isinstance(other, smoot.Quantity):
+            new = other / self.__registry.Quantity(1, self)
+        else:
+            msg = f"Unit cannot divide type {type(other)}"
+            raise NotImplementedError(msg)
         return new
 
     def __pow__(self, p: int | float, modulo: int | float | None = None) -> Unit:

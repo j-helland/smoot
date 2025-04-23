@@ -465,3 +465,23 @@ def test_quantity_from_unit() -> None:
     q = [1, 2] * units.meter
     assert (q == Q([1, 2], "meter")).all()
     assert (q.to("km") == Q([1e-3, 2e-3], "km")).all()
+
+
+@pytest.mark.parametrize(
+    argnames=("quantity", "op", "unit", "expected"),
+    argvalues=(
+        (Q(1, "gram"), operator.mul, units.c ** 2, Q(1, "gram * c ** 2")),
+        (Q(1, "meter"), operator.truediv, units.meter, Q(1)),
+        (Q(1, "meter"), operator.sub, units.meter, Q(0, "meter")),
+        (Q(1, "meter"), operator.add, units.meter, Q(2, "meter")),
+    ),
+)
+def test_quantity_x_unit_operations(
+    quantity: Q,
+    op: Callable,
+    unit: units.Unit,
+    expected: Q,
+) -> None:
+    """Units and quantities must interop."""
+    assert op(quantity, unit) == expected
+    assert op(unit, quantity) == expected
