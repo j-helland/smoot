@@ -50,17 +50,25 @@ class Quantity(Generic[T, R]):
 
     def __init__(
         self,
-        value: ValueLike[T],
+        value: ValueLike[T] | Quantity[T, R],
         units: UnitsLike | Quantity[T, R] | None = None,
         *,
         registry: UnitRegistry | None = None,
     ) -> None:
+        if isinstance(value, Quantity):
+            if units is None:
+                self.__inner = value.__inner
+            else:
+                self.__inner = value.to(units).__inner
+            self.__registry = value.__registry
+            return
+
         # Retrieve the registry.
         # If it doesn't exist, this means that the user tried to instantiate this class
         # without an associated UnitRegistry, which is a hard error.
         if registry is None:
             try:
-                registry = self._Quantity__registry._UnitRegistry__inner
+                registry = self.__registry._UnitRegistry__inner
             except AttributeError:
                 msg = (
                     "Attempted to instantiate an abstract Quantity. "

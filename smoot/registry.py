@@ -105,6 +105,7 @@ class UnitRegistry:
     def _from(self, u: InnerUnit) -> smoot.Unit:
         new = object.__new__(self.Unit)
         new._Unit__inner = u
+        new._Unit__registry = self
         return new
 
     def load_definitions(self, data: str) -> None:

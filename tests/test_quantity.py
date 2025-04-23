@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import inspect
 import math
 import operator
@@ -366,13 +367,30 @@ def test_matmul_produces_scalar() -> None:
         (Q([1, 2, 3], "meter"), np.ceil, Q(np.ceil([1, 2, 3]), "meter")),
         (Q([1, 2, 3], "meter"), np.trunc, Q(np.trunc([1, 2, 3]), "meter")),
         #### higher order array functions
+        (Q([1, 2, 3], "meter"), np.all, True),
+        (Q([0, 1, 0], "meter"), np.any, True),
+        (Q([1, 2, 3], "meter"), np.amax, Q(3, "meter")),
+        (Q([1, 2, 3], "meter"), np.amin, Q(1, "meter")),
+        (Q([1, 2, 3], "meter"), np.argmax, 2),
+        (Q([1, 2, 3], "meter"), np.argmin, 0),
+        (Q([3, 2, 1], "meter"), np.argsort, np.array([2, 1, 0])),
+        (Q([0, 1, 2], "meter"), np.argwhere, np.array([[1], [2]])),
+        (Q([0.1, 1.1, 2.5], "meter"), np.around, Q(np.around([0.1, 1.1, 2.5]), "meter")),
+        (Q([1, 2, 3], "meter"), np.array2string, "[1. 2. 3.]"),
+        (Q([1, 2, 3], "meter"), np.array_repr, "array([1., 2., 3.])"),
+        (Q([1, 2, 3], "meter"), np.array_str, "[1. 2. 3.]"),
+        (Q(1, "meter"), np.atleast_1d, Q([1], "meter")),
+        (Q(1, "meter"), np.atleast_2d, Q([[1]], "meter")),
+        (Q(1, "meter"), np.atleast_3d, Q([[[1]]], "meter")),
+        (Q([1, 2, 3], "meter"), np.average, Q(np.average([1, 2, 3]), "meter")),
+        ([Q([1, 2]), np.array([3, 4])], np.block, Q([1, 2, 3, 4])),
         (Q([1, 2, 3], "meter"), np.sum, Q(6, "meter")),
         # (Q([1, 2, 3], "meter"), np.cumsum, Q([1, 3, 6], "meter")),
         # (Q([1, 2, 3], "meter"), np.cumprod, Q([1, 2, 6], "meter ** 3")),
     ),
 )
 # fmt: on
-def test_unary_array_funcs(value: Q, ufunc: np.ufunc, expected: Q | np.ndarray) -> None:
+def test_unary_array_funcs(value: Q, ufunc: np.ufunc, expected: Any) -> None:
     """Arbitrary numpy ufuncs can be invoked with expected results."""
     actual = ufunc(value)
     eq = actual == expected
@@ -384,6 +402,7 @@ def test_unary_array_funcs(value: Q, ufunc: np.ufunc, expected: Q | np.ndarray) 
 @pytest.mark.parametrize(
     argnames=("value1", "func", "value2", "expected"),
     argvalues=(
+        #### ufuncs
         (Q([1, 2, 3], "meter"), np.add, Q([3, 2, 1], "meter"), Q([4, 4, 4], "meter")),
         ([1, 2, 3], np.add, Q([3, 2, 1]), Q([4, 4, 4])),
         (Q([1, 2, 3]), np.add, [3, 2, 1], Q([4, 4, 4])),
@@ -428,6 +447,15 @@ def test_unary_array_funcs(value: Q, ufunc: np.ufunc, expected: Q | np.ndarray) 
         (Q([1, 2, 3]), np.minimum, [3, 2, 1], Q([1, 2, 1])),
         (Q([1, 2, 3], "meter"), np.copysign, Q([-3, -2, -1], "km"), Q([-1, -2, -3], "meter")),
         (Q([1, 2, 3], "meter"), np.nextafter, Q([3, 2, 1], "km"), Q([1, 2, 3], "meter")),
+        #### higher order array functions
+        (Q([1, 2, 3], "m"), np.allclose, Q([1, 2, 3], "km"), False),
+        ([1, 2, 3], np.append, [Q(4)], Q([1, 2, 3, 4])),
+        (Q([1, 2, 3]), np.append, Q(4), Q([1, 2, 3, 4])),
+        (Q([1, 2, 3]), np.append, [Q(4)], Q([1, 2, 3, 4])),
+        (Q([[1, 2, 3]]), np.append, [Q(4), Q(5), Q(6)], Q([1, 2, 3, 4, 5, 6])),
+        (Q([1, 2, 3], "meter"), np.append, Q(4, "km"), Q([1, 2, 3, 4000], "meter")),
+        (Q([1, 2, 3], "meter"), np.array_equal, Q([1, 2, 3], "km"), np.array([False, False, False])),
+        (Q([[1], [2], [3]], "meter"), np.array_equiv, Q([1, 2, 3], "km"), np.array([False, False, False])),
     ),
 )
 # fmt: on
@@ -438,6 +466,45 @@ def test_binary_array_funcs(
     eq = actual == expected
     is_eq = eq.all() if isinstance(eq, np.ndarray) else eq
     assert is_eq, f"{actual} != {expected}"
+
+
+def test_broadcast_arrays() -> None:
+    actual = np.broadcast_arrays(Q([1, 2], "meter"), [[3], [4]])
+    expected = (
+        Q([[1, 2], [1, 2]], "meter"),
+        np.array([[3, 3], [4, 4]])
+    )
+    for a, e in zip(actual, expected):
+        assert (a == e).all()
+
+
+def test_broadcast_to() -> None:
+    actual = np.broadcast_to(Q([1, 2], "meter"), (2,2))
+    expected = Q([[1, 2], [1, 2]], "meter")
+    assert (actual == expected).all()
+
+
+def test_clip() -> None:
+    actual = np.clip(Q([1, 2, 3], "km"), Q(0, "m"), Q(1000, "m"))
+    expected = Q([1, 1, 1], "km")
+    assert (actual == expected).all()
+
+
+def test_einsum() -> None:
+    actual = np.einsum("i,i", Q([1, 2, 3], "meter"), Q([1, 2, 3], "km"))
+    expected = Q(14000, "meter")
+    assert actual == expected
+
+
+def test_copyto() -> None:
+    q1 = Q([1, 2, 3], "meter")
+    q2 = Q([1, 2, 3], "km")
+    np.copyto(q1, q2)
+    assert (q1 == Q([1000, 2000, 3000], "meter")).all()
+
+    arr = np.array([0.0, 0.0, 0.0])
+    np.copyto(arr, q2)
+    assert (arr == np.array([1.0, 2.0, 3.0])).all()
 
 
 def test_pickle_roundtrip() -> None:
