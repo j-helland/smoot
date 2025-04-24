@@ -11,12 +11,12 @@ use itertools::{EitherOrBoth, Itertools};
 use num_traits::ToPrimitive;
 
 use crate::{
-    base_unit::{BaseUnit, DimensionType, DIMENSIONLESS_TYPE},
+    base_unit::{BaseUnit, DIMENSIONLESS_TYPE, DimensionType},
     error::{SmootError, SmootResult},
     hash::Hash,
     parser::expression_parser,
     registry::Registry,
-    utils::{float_eq_rel, ApproxEq},
+    utils::{ApproxEq, float_eq_rel},
 };
 
 type UnitDimensionality<N> = Vec<N>;
@@ -252,7 +252,12 @@ impl Unit {
         }
 
         // Numerator
-        let mut dims = HashMap::new();
+        let mut dims = HashMap::with_capacity(
+            self.numerator_dimensionality
+                .len()
+                .max(self.denominator_dimensionality.len()),
+        );
+
         self.numerator_dimensionality
             .iter()
             .enumerate()
@@ -1084,10 +1089,11 @@ mod test_unit {
         let _ = u.simplify(true);
 
         assert_eq!(u.denominator_dimension, DIMENSIONLESS_TYPE);
-        assert!(u
-            .denominator_dimensionality
-            .iter()
-            .all(|d| d.approx_eq(0.0)));
+        assert!(
+            u.denominator_dimensionality
+                .iter()
+                .all(|d| d.approx_eq(0.0))
+        );
         assert_eq!(u.numerator_dimension, UNIT_SECOND.unit_type);
         assert_eq!(u.numerator_dimensionality, UNIT_SECOND.dimensionality);
     }

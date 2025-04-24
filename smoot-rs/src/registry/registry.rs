@@ -1,19 +1,19 @@
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt::Debug;
-use std::hash::Hash;
+use std::hash::{BuildHasher, Hash};
 use std::io::Write;
 use std::path::Path;
 
 use bitcode::{Decode, Encode};
-use xxhash_rust::xxh3::xxh3_64;
+use xxhash_rust::xxh3::{Xxh3Builder, xxh3_64};
 
-use crate::base_unit::{BaseUnit, DimensionType, DIMENSIONLESS_TYPE};
+use crate::base_unit::{BaseUnit, DIMENSIONLESS_TYPE, DimensionType};
 use crate::error::{SmootError, SmootResult};
 
 use super::registry_parser::{
-    registry_parser, DimensionDefinition, NodeData, Operator, ParseTree, PrefixDefinition,
-    UnitDefinition,
+    DimensionDefinition, NodeData, Operator, ParseTree, PrefixDefinition, UnitDefinition,
+    registry_parser,
 };
 
 /// Registry holds all BaseUnit definitions.
@@ -27,10 +27,10 @@ pub struct Registry {
     /// A root unit is the canonical unit for a particular dimension (e.g. [length] -> meter).
     // Don't bother with sharing memory with units because there's relatively few dimensions,
     // making this cheap.
-    root_units: HashMap<DimensionType, BaseUnit>,
-    dimensions: HashMap<DimensionType, String>,
-    prefix_definitions: HashMap<String, PrefixDefinition>,
-    symbols: HashMap<String, String>,
+    root_units: HashMap<DimensionType, BaseUnit, Xxh3Builder>,
+    dimensions: HashMap<DimensionType, String, Xxh3Builder>,
+    prefix_definitions: HashMap<String, PrefixDefinition, Xxh3Builder>,
+    symbols: HashMap<String, String, Xxh3Builder>,
     checksum: u64,
 }
 impl Registry {
@@ -38,10 +38,10 @@ impl Registry {
     pub fn new() -> Self {
         Self {
             units: HashMap::new(),
-            root_units: HashMap::new(),
-            dimensions: HashMap::new(),
-            prefix_definitions: HashMap::new(),
-            symbols: HashMap::new(),
+            root_units: HashMap::default(),
+            dimensions: HashMap::default(),
+            prefix_definitions: HashMap::default(),
+            symbols: HashMap::default(),
             checksum: 0,
         }
     }
@@ -208,8 +208,7 @@ impl Registry {
                     } else {
                         return Err(SmootError::DimensionError(format!(
                             "line:{} Derived dimension expression {} does not assign to a dimension",
-                            lineno,
-                            line
+                            lineno, line
                         )));
                     }
                 }
@@ -530,15 +529,16 @@ impl Registry {
 
     /// Insert a value into a map, returning an error on conflict without clobbering the value.
     /// This differs from the builtin hashmap insertion, which clobbers existing values.
-    fn try_insert<K, V>(
+    fn try_insert<K, V, S>(
         lineno: usize,
-        map: &mut HashMap<K, V>,
+        map: &mut HashMap<K, V, S>,
         key: K,
         val: V,
     ) -> Result<&mut V, SmootError>
     where
         K: Eq + Hash + Debug,
         V: Debug,
+        S: BuildHasher,
     {
         match map.entry(key) {
             Entry::Vacant(entry) => Ok(entry.insert(val)),
@@ -554,10 +554,11 @@ impl Registry {
 
     /// Insert a value into a map, silently ignoring conflicts (no clobbering of existing values).
     #[inline(always)]
-    fn insert_or_warn<K, V>(_lineno: usize, map: &mut HashMap<K, V>, key: K, val: V)
+    fn insert_or_warn<K, V, S>(_lineno: usize, map: &mut HashMap<K, V, S>, key: K, val: V)
     where
         K: Eq + Hash + Debug,
         V: Debug,
+        S: BuildHasher,
     {
         match map.entry(key) {
             Entry::Vacant(entry) => {
@@ -877,15 +878,14 @@ mod test_registry {
             speed_of_light = 299792458 m/s = c = c_0\n\
             angstrom = 1e-10 * meter = Å = ångström",
         )?;
-        assert_eq!(
-            registry.symbols,
-            HashMap::from([
-                ("meter".to_string(), "m".to_string()),
-                ("second".to_string(), "s".to_string()),
-                ("speed_of_light".to_string(), "c".to_string()),
-                ("angstrom".to_string(), "Å".to_string()),
-            ])
-        );
+        assert_eq!(registry.symbols, {
+            let mut h = HashMap::default();
+            h.insert("meter".to_string(), "m".to_string());
+            h.insert("second".to_string(), "s".to_string());
+            h.insert("speed_of_light".to_string(), "c".to_string());
+            h.insert("angstrom".to_string(), "Å".to_string());
+            h
+        });
         Ok(())
     }
 
