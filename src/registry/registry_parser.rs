@@ -13,6 +13,7 @@ pub(crate) struct PrefixDefinition {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DimensionDefinition<'a> {
     pub(crate) name: &'a str,
+    pub(crate) symbol: Option<&'a str>,
     pub(crate) dimension: &'a str,
     pub(crate) modifiers: Vec<(&'a str, f64)>,
     pub(crate) aliases: Vec<&'a str>,
@@ -27,6 +28,7 @@ impl DimensionDefinition<'_> {
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct UnitDefinition<'a> {
     pub(crate) name: String,
+    pub(crate) symbol: Option<&'a str>,
     pub(crate) expression: ParseTree,
     pub(crate) modifiers: Vec<(&'a str, f64)>,
     pub(crate) aliases: Vec<&'a str>,
@@ -168,7 +170,10 @@ peg::parser! {
             = __ ";" __ modifier:symbol() ":" __ value:numeric_expression()
             { (modifier, value) }
 
-        rule aliases() -> &'input str = eq() s:symbol() { s }
+        rule alias() -> &'input str = eq() s:symbol() { s }
+        rule alias_symbol() -> Option<&'input str>
+            = s:alias()?
+            { s.filter(|&text| text != "_") }
 
         /// Matches comments of the form `# comment comment comment`.
         pub rule comment() -> &'input str
@@ -198,11 +203,13 @@ peg::parser! {
         pub rule unit_with_aliases(lineno: usize) -> UnitDefinition<'input>
             = name:symbol() eq() unit:unit_expression()
                 modifiers:(modifiers()*)
-                aliases:(aliases()*)
+                symbol:alias_symbol()
+                aliases:(alias()*)
                 comment()?
             {
                 UnitDefinition {
                     name: name.into(),
+                    symbol,
                     expression: ParseTree::new(
                         Operator::Assign.into(),
                         NodeData::Symbol(name.into()).into(),
@@ -217,11 +224,12 @@ peg::parser! {
         pub rule dimension_definition(lineno: usize) -> DimensionDefinition<'input>
             = name:symbol() eq() dimension:dimension()
                 modifiers:(modifiers()*)
-                aliases:(aliases()*)
+                symbol:alias_symbol()
+                aliases:(alias()*)
                 comment()?
             {
                 let dimension = dimension.unwrap_or(DIMENSIONLESS);
-                DimensionDefinition { name, dimension, modifiers, aliases, lineno }
+                DimensionDefinition { name, symbol, dimension, modifiers, aliases, lineno }
             }
 
         pub rule derived_dimension() -> ParseTree
@@ -238,7 +246,7 @@ peg::parser! {
         pub rule prefix_definition(lineno: usize) -> PrefixDefinition
             = name:symbol() "-" eq() multiplier:decimal()
                 // Prefix aliases are special: they have a `-` suffix.
-                aliases:((eq() s:symbol() "-"? { s })*)
+                aliases:((s:alias() "-"? { s })*)
                 comment()?
             {
                 PrefixDefinition {
@@ -379,6 +387,7 @@ mod test_unit_parser {
         "speed_of_light = 299792458 m/s = c = c_0",
         Some(UnitDefinition {
             name: "speed_of_light".into(),
+            symbol: "c".into(),
             expression: ParseTree::new(
                 Operator::Assign.into(),
                 "speed_of_light".into(),
@@ -393,7 +402,7 @@ mod test_unit_parser {
                 )
             ),
             modifiers: vec![],
-            aliases: vec!["c", "c_0"],
+            aliases: vec!["c_0"],
             lineno: 0,
         })
         ; "Assignment operator is handled and aliases are parsed"
@@ -402,6 +411,7 @@ mod test_unit_parser {
         "tansec = 4.8481368111333441675396429478852851658848753880815e-6  # comment",
         Some(UnitDefinition {
             name: "tansec".into(),
+            symbol: None,
             expression: ParseTree::new(
                 Operator::Assign.into(),
                 "tansec".into(),
@@ -417,13 +427,14 @@ mod test_unit_parser {
         "decibel = 1 ; logbase: 10; logfactor: 10 = dB",
         Some(UnitDefinition {
             name: "decibel".into(),
+            symbol: "dB".into(),
             expression: ParseTree::new(
                 Operator::Assign.into(),
                 "decibel".into(),
                 1.into(),
             ),
             modifiers: vec![("logbase", 10.0), ("logfactor", 10.0)],
-            aliases: vec!["dB"],
+            aliases: vec![],
             lineno: 0,
         })
         ; "Modifiers"
@@ -432,6 +443,7 @@ mod test_unit_parser {
         "x =  1e-21",
         Some(UnitDefinition {
             name: "x".into(),
+            symbol: None,
             expression: ParseTree::new(
                 Operator::Assign.into(),
                 "x".into(),
@@ -443,6 +455,22 @@ mod test_unit_parser {
         })
         ; "Scientific notation"
     )]
+    #[case(
+        "x = 1 = _ = alias",
+        Some(UnitDefinition {
+            name: "x".into(),
+            symbol: None,
+            expression: ParseTree::new(
+                Operator::Assign.into(),
+                "x".into(),
+                1.into(),
+            ),
+            modifiers: vec![],
+            aliases: vec!["alias"],
+            lineno: 0,
+        })
+        ; "No symbol with alias"
+    )]
     fn unit_with_aliases(
         expression: &str,
         expected: Option<UnitDefinition>,
@@ -452,6 +480,31 @@ mod test_unit_parser {
             assert_eq!(result?, expected);
         } else {
             assert!(result.is_err(), "Expected error but got:\n{:#?}", result);
+        }
+        Ok(())
+    }
+
+    #[case(
+        "second = [time] = s = sec",
+        Some(DimensionDefinition {
+            name: "second",
+            symbol: Some("s"),
+            dimension: "[time]",
+            modifiers: vec![],
+            aliases: vec!["sec"],
+            lineno: 0,
+        })
+        ; "Dimension definition with symbol and alias"
+    )]
+    fn test_dimension_definition(
+        expression: &str,
+        expected: Option<DimensionDefinition>,
+    ) -> Result<(), ParseError<LineCol>> {
+        let result = registry_parser::dimension_definition(expression, 0);
+        if let Some(expected) = expected {
+            assert_eq!(result?, expected);
+        } else {
+            assert!(result.is_err());
         }
         Ok(())
     }
@@ -504,6 +557,7 @@ mod test_unit_parser {
             aliases: vec!["_", "demi"].into_iter().map(String::from).collect(),
             lineno: 0,
         })
+        ; "Prefix definition with alias but no symbol"
     )]
     fn test_prefix_definition(
         expression: &str,
