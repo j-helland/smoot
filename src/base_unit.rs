@@ -93,6 +93,12 @@ impl BaseUnit {
         (self.unit_type >> l) > 1
     }
 
+    /// Return true if this unit is a constant value e.g. `1`.
+    /// Constant values can result from parsing unit expressions like `2 / meter`.
+    pub fn is_constant(&self) -> bool {
+        self.name.is_empty()
+    }
+
     /// Get the multiplicative factor associated with this base unit.
     pub fn get_multiplier(&self) -> f64 {
         self.power

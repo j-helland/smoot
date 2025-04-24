@@ -146,7 +146,7 @@ peg::parser! {
         rule sign() = ['-' | '+']
         rule digits() = [c if c.is_ascii_digit()]+
         rule integer() -> i32
-            = num:$("-"?digits()) !['.' | 'e' | 'E']
+            = num:$(sign()?digits()) !['.' | 'e' | 'E']
             {? num.parse::<i32>().or(Err("Invalid integer number")) }
         rule decimal() -> f64
             = num:$(sign()?(digits()".")?digits()(['e' | 'E']sign()?digits())?)

@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     fmt::{self},
     mem::swap,
-    ops::{Add, Div, DivAssign, Mul, MulAssign, Sub},
+    ops::{Add, BitOr, Div, DivAssign, Mul, MulAssign, Sub},
 };
 
 use bitcode::{Decode, Encode};
@@ -50,6 +50,10 @@ impl Unit {
 
     pub fn new_dimensionless() -> Self {
         Self::new(vec![], vec![])
+    }
+
+    pub fn new_constant(multiplier: f64) -> Self {
+        Self::new(vec![BaseUnit::new_constant(multiplier)], vec![])
     }
 
     /// Integer power operation that creates a new unit.
@@ -136,6 +140,18 @@ impl Unit {
         if n < 0.0 {
             swap(&mut self.numerator_units, &mut self.denominator_units);
         }
+    }
+
+    /// Scale this unit by a constant multiplier.
+    pub fn scale(&self, n: f64) -> Self {
+        let mut new = self.clone();
+        new.iscale(n);
+        new
+    }
+
+    /// In-place scale this unit by a constant multiplier.
+    pub fn iscale(&mut self, n: f64) {
+        self.numerator_units.push(BaseUnit::new_constant(n));
     }
 
     /// Return true if this unit is dimensionless (i.e. has no associated base units).
@@ -334,14 +350,49 @@ impl Unit {
     ///
     /// This is invoked automatically during unit reduction / simplification.
     fn update_dimensionality(&mut self) {
-        self.numerator_dimension = Self::get_dimension_mask(&self.numerator_units);
-        Self::get_dimensionality_vec(&mut self.numerator_dimensionality, &self.numerator_units);
+        // Use bitmask to get the largest dimension index.
+        // If we bitwise or all masks together, the index of the MSB indicates the largest size we need.
+        let max_dim = DimensionType::BITS
+            - Self::get_dimension_mask(&self.numerator_units)
+                .bitor(Self::get_dimension_mask(&self.denominator_units))
+                .leading_zeros();
+        let max_dim = max_dim as usize;
 
-        self.denominator_dimension = Self::get_dimension_mask(&self.denominator_units);
-        Self::get_dimensionality_vec(
-            &mut self.denominator_dimensionality,
-            &self.denominator_units,
-        );
+        // Reset
+        self.numerator_dimension = 0;
+        self.denominator_dimension = 0;
+
+        self.numerator_dimensionality.fill(0.0);
+        self.numerator_dimensionality.resize(max_dim, 0.0);
+        self.denominator_dimensionality.fill(0.0);
+        self.denominator_dimensionality.resize(max_dim, 0.0);
+
+        // Update
+        // A negative dimension in the numerator corresponds to a positive dimension in the denominator.
+        for u in self.numerator_units.iter() {
+            for (i, &dim) in u.dimensionality.iter().enumerate() {
+                let b = u.unit_type & (1 << i);
+                if dim < 0.0 {
+                    self.denominator_dimension |= b;
+                    self.denominator_dimensionality[i] += dim.abs();
+                } else {
+                    self.numerator_dimension |= b;
+                    self.numerator_dimensionality[i] += dim;
+                }
+            }
+        }
+        for u in self.denominator_units.iter() {
+            for (i, &dim) in u.dimensionality.iter().enumerate() {
+                let b = u.unit_type & (1 << i);
+                if dim < 0.0 {
+                    self.numerator_dimension |= b;
+                    self.numerator_dimensionality[i] += dim.abs();
+                } else {
+                    self.denominator_dimension |= b;
+                    self.denominator_dimensionality[i] += dim;
+                }
+            }
+        }
     }
 
     /// Merge compatible units e.g. `meter * km -> meter ** 2`.
@@ -359,6 +410,16 @@ impl Unit {
         let mut reduce_func = |units: &mut Vec<BaseUnit>, is_denom: bool| {
             let mut units_reduced: Vec<BaseUnit> = Vec::new();
             units.drain(..).for_each(|next| {
+                if next.is_constant() {
+                    if is_denom {
+                        result_conversion_factor /= next.get_multiplier();
+                    } else {
+                        result_conversion_factor *= next.get_multiplier();
+                    }
+                    // Dimensionless constants can be immediately removed.
+                    return;
+                }
+
                 if let Some(last) = units_reduced.last_mut() {
                     if last.unit_type == next.unit_type {
                         // Aggregate conversion factors
@@ -575,24 +636,6 @@ impl Unit {
     fn get_dimension_mask(units: &[BaseUnit]) -> DimensionType {
         units.iter().fold(0, |d, u| d | u.unit_type)
     }
-
-    fn get_dimensionality_vec(dimensionality: &mut UnitDimensionality<f64>, units: &[BaseUnit]) {
-        dimensionality.fill(0.0);
-        dimensionality.resize(
-            units
-                .iter()
-                .map(|u| u.dimensionality.len())
-                .max()
-                .unwrap_or(0),
-            0.0,
-        );
-        units
-            .iter()
-            .flat_map(|u| u.dimensionality.iter().enumerate())
-            .for_each(|(i, d)| {
-                dimensionality[i] += *d;
-            });
-    }
 }
 
 impl Unit {
@@ -748,6 +791,13 @@ mod test_unit {
     });
     static UNIT_RADIAN: LazyLock<&BaseUnit> =
         LazyLock::new(|| TEST_REGISTRY.get_unit("radian").expect("No unit 'radian'"));
+    static UNIT_MOLE: LazyLock<&BaseUnit> =
+        LazyLock::new(|| TEST_REGISTRY.get_unit("mole").expect("No unit 'mole'"));
+    static UNIT_AVOGADRO_CONSTANT: LazyLock<&BaseUnit> = LazyLock::new(|| {
+        TEST_REGISTRY
+            .get_unit("avogadro_constant")
+            .expect("No unit 'avogadro_constant'")
+    });
 
     #[case(
         Unit::new_dimensionless(),
@@ -1034,7 +1084,10 @@ mod test_unit {
         let _ = u.simplify(true);
 
         assert_eq!(u.denominator_dimension, DIMENSIONLESS_TYPE);
-        assert!(u.denominator_dimensionality.is_empty());
+        assert!(u
+            .denominator_dimensionality
+            .iter()
+            .all(|d| d.approx_eq(0.0)));
         assert_eq!(u.numerator_dimension, UNIT_SECOND.unit_type);
         assert_eq!(u.numerator_dimensionality, UNIT_SECOND.dimensionality);
     }
@@ -1151,9 +1204,20 @@ mod test_unit {
         false
         ; "Composite incompatible units"
     )]
+    #[case(
+        Unit::new(vec![UNIT_AVOGADRO_CONSTANT.clone()], vec![]),
+        Unit::new(vec![], vec![UNIT_MOLE.clone()]),
+        true
+        ; "Composite unit avogadro_constant is equivalent to 1 / mole"
+    )]
     fn test_is_compatible_with(u1: Unit, u2: Unit, expected: bool) {
-        println!("{:#?}", u1);
-        assert_eq!(u1.is_compatible_with(&u2), expected);
+        assert_eq!(
+            u1.is_compatible_with(&u2),
+            expected,
+            "{:#?}\nnot compatible with\n{:#?}",
+            u1,
+            u2
+        );
     }
 
     #[test]
@@ -1218,6 +1282,18 @@ mod test_unit {
         Unit::new(vec![UNIT_METER.powf(1.5)], vec![]),
         1000.0
         ; "Units with fractional powers 2"
+    )]
+    #[case(
+        Unit::new(vec![BaseUnit::new_constant(2.0), UNIT_METER.clone()], vec![]),
+        Unit::new(vec![UNIT_METER.clone()], vec![]),
+        2.0
+        ; "Constants are removed from numerator"
+    )]
+    #[case(
+        Unit::new(vec![], vec![BaseUnit::new_constant(2.0), UNIT_METER.clone()]),
+        Unit::new(vec![], vec![UNIT_METER.clone()]),
+        1.0 / 2.0
+        ; "Constants are removed from denominator"
     )]
     fn test_reduce(mut unit: Unit, expected: Unit, expected_factor: f64) {
         assert_is_close!(unit.reduce(), expected_factor);

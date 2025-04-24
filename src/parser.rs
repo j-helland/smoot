@@ -3,7 +3,7 @@ use std::str::FromStr;
 use num_traits::Float;
 
 use crate::registry::Registry;
-use crate::utils::{ApproxEq, Powf, Powi};
+use crate::utils::{Powf, Powi};
 use crate::{quantity::Quantity, unit::Unit};
 
 trait ParsableFloat: FromStr + Float {}
@@ -23,7 +23,7 @@ peg::parser! {
         rule digits() = [c if c.is_ascii_digit()]+
 
         pub rule integer() -> i32
-            = num:$("-"?digits()) !['.']
+            = num:$(sign()?digits()) !['.' | 'e' | 'E']
             {? num.parse::<i32>().or(Err("Invalid integer number")) }
 
         pub rule decimal<N: ParsableFloat>() -> N
@@ -43,11 +43,10 @@ peg::parser! {
 
         rule reciprocal_unit(registry: &Registry) -> Unit
             = d:decimal::<f64>() __ "/" __ u:unit_expression(registry)
-            {?
-                if !d.approx_eq(1.0)  {
-                    return Err("Unit expression cannot have a scaling factor");
-                }
-                Ok(u.powi(-1))
+            {
+                let mut u = u.powi(-1);
+                u.iscale(d);
+                u
             }
 
         /// Core parser with operator precedence.
@@ -55,14 +54,20 @@ peg::parser! {
         pub rule unit_expression(registry: &Registry) -> Unit
             = precedence!
             {
+                // multiplication
                 u1:(@) __ "*" __ u2:@ { u1 * u2 }
+                u1:(@) __ u2:@ { u1 * u2 }
+                d:decimal() __ "*" __ u:@ { Unit::new_constant(d) * u }
+                d:decimal() __ u:@ { Unit::new_constant(d) * u }
+                u:@ __ "*" __ d:decimal() { u * Unit::new_constant(d) }
+                u:@ __ d:decimal() { u * Unit::new_constant(d) }
+                // division
                 u1:(@) __ "/" __ u2:@ { u1 / u2 }
-                u:reciprocal_unit(registry) { u }
+                d:decimal() __ "/" __ u:@ { Unit::new_constant(d) / u }
+                u:@ __ "/" __ d:decimal() { u / Unit::new_constant(d) }
                 --
-                u:@ __ "**" __ n:integer() { u.powi(n) }
-                u:@ __ "^" __ n:integer() { u.powi(n) }
-                u:@ __ "**" __ n:decimal() { u.powf(n) }
-                u:@ __ "^" __ n:decimal() { u.powf(n) }
+                u:@ __ ("**" / "^") __ n:integer() { u.powi(n) }
+                u:@ __ ("**" / "^") __ n:decimal() { u.powf(n) }
                 --
                 u:unit(registry) { u }
                 "(" __ expr:unit_expression(registry) __ ")" { expr }
@@ -206,11 +211,17 @@ mod test_expression_parser {
     #[case("gram", Some(Unit::new(vec![UNIT_GRAM.clone()], vec![])); "Gram")]
     #[case("meter / second", Some(Unit::new(vec![UNIT_METER.clone()], vec![UNIT_SECOND.clone()])); "Division")]
     #[case("meter * second", Some(Unit::new(vec![UNIT_METER.clone(), UNIT_SECOND.clone()], vec![])); "Multiplication")]
+    #[case("meter second", Some(Unit::new(vec![UNIT_METER.clone(), UNIT_SECOND.clone()], vec![])); "Implicit multiplication")]
     #[case("meter ** 2", Some(Unit::new(vec![UNIT_METER.powf(2.0)], vec![])); "Exponentiation")]
     #[case(
         "meter^2",
         Some(Unit::new(vec![UNIT_METER.powf(2.0)], vec![]))
         ; "Exponentiation alternate notation"
+    )]
+    #[case(
+        "meter^-1",
+        Some(Unit::new(vec![], vec![UNIT_METER.clone()]))
+        ; "Reciprocal power"
     )]
     #[case("meter ** 0.5", Some(Unit::new(vec![UNIT_METER.powf(0.5)], vec![])); "Fractional power")]
     #[case("meter + meter", None; "Invalid operator plus")]
@@ -252,18 +263,23 @@ mod test_expression_parser {
     )]
     #[case(
         "1 / meter",
-        Some(Unit::new(vec![], vec![UNIT_METER.clone()]))
+        Some(Unit::new(vec![BaseUnit::new_constant(1.0)], vec![UNIT_METER.clone()]))
         ; "Reciprocal unit"
     )]
     #[case(
         "2 / meter",
-        None
-        ; "Invalid reciprocal unit"
+        Some(Unit::new(vec![BaseUnit::new_constant(2.0)], vec![UNIT_METER.clone()]))
+        ; "Scaled reciprocal unit"
+    )]
+    #[case(
+        "2 * meter",
+        Some(Unit::new(vec![BaseUnit::new_constant(2.0), UNIT_METER.clone()], vec![]))
+        ; "Scaled unit with operator"
     )]
     #[case(
         "2 meter",
-        None
-        ; "Invalid scaling factor"
+        Some(Unit::new(vec![BaseUnit::new_constant(2.0), UNIT_METER.clone()], vec![]))
+        ; "Scaled unit with implicit operator"
     )]
     #[case(
         "%",
