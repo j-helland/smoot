@@ -89,6 +89,10 @@ impl Registry {
         self.units.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.units.is_empty()
+    }
+
     pub fn all_keys(&self) -> Vec<String> {
         self.units.keys().cloned().collect()
     }
@@ -476,6 +480,9 @@ impl Registry {
                 }
             }
         }
+
+        self.dimensions.reserve(dim_defs.len());
+        self.units.reserve(unit_defs.len() + dim_defs.len());
 
         //==================================================
         // Define dimensions

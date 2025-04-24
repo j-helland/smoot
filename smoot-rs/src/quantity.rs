@@ -5,10 +5,7 @@ use std::{
 
 use bitcode::{Decode, Encode};
 use hashable::Hashable;
-use numpy::{
-    ndarray::{Array, ArrayD, Zip},
-    Ix1, Ix2,
-};
+use ndarray::{Array, ArrayD, Ix1, Ix2, Zip};
 
 use crate::{
     error::{SmootError, SmootResult},
@@ -862,8 +859,6 @@ mod test_quantity {
         hash::{DefaultHasher, Hasher},
         sync::LazyLock,
     };
-
-    use numpy::ndarray::Array;
 
     use crate::{assert_is_close, base_unit::BaseUnit, test_utils::TEST_REGISTRY};
 

@@ -1,8 +1,8 @@
 use std::fmt::Debug;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
+use ndarray::ScalarOperand;
 use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
-use numpy::ndarray::ScalarOperand;
 
 use crate::utils::{ApproxEq, Powf};
 

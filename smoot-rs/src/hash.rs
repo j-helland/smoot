@@ -3,7 +3,7 @@ use std::{
     marker::PhantomData,
 };
 
-use numpy::ndarray::ArrayD;
+use ndarray::ArrayD;
 
 pub trait Hash {
     fn hash<H: Hasher>(&self, state: &mut H);

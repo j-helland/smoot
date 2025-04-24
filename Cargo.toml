@@ -1,9 +1,8 @@
 [package]
 name = "smoot"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "smoot"
 crate-type = ["cdylib"]
@@ -15,16 +14,7 @@ strip = true
 
 [dependencies]
 bitcode = { version = "0.6.5", features = ["serde"] }
-itertools = "0.14.0"
 mimalloc = "0.1.43"
-num-traits = "0.2.19"
 numpy = "0.24.0"
-peg = "0.8.5"
 pyo3 = "0.24.1"
-thiserror = "2.0.11"
-hashable = { path = "./hashable" }
-xxhash-rust = { version = "0.8.15", features = ["xxh3"] }
-
-[dev-dependencies]
-test-case = "3.3.1"
-tempfile = "3.19.0"
+smoot-rs = { path = "./smoot-rs" }

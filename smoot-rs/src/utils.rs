@@ -1,5 +1,5 @@
+use ndarray::ArrayD;
 use num_traits::{Float, PrimInt};
-use numpy::ndarray::ArrayD;
 
 /// Compute approximate equality between floating point numbers using a
 /// relative tolerance bound.
