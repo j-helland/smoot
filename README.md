@@ -1,7 +1,7 @@
 ![](artifacts/smoot-logo.png)
 
 > [!CAUTION]
-> Smoot is an early-stages project that has not reached a stable release. Bugs and missing features are common.
+> Smoot is an early-stages project that has not reached a stable release. Bugs and missing features are a common occurrence. Breaking API changes can happen without notice. Features and bugs will be prioritized at the author's discretion.
 
 
 ## Smoot: A fast dimensional analysis library for Python
@@ -339,3 +339,98 @@ Smoot loads unit definitions from disk about 5x faster than Pint. This means tha
 | ----           |  ---------   | ----------         | --------------     | ---               |
 | load units     | from file    | 159.242  | 28.505  | **5.586** |
 | load units     | from cache   |  23.762  |  4.731  | **5.022** |
+
+
+## Project Internals
+
+### Structure & Design
+
+Smoot is a PyO3 project organized into multiple layers. Simply put, Smoot has a Python frontend, which wraps its Rust backend. The frontend and backend are glued together by a PyO3 interop layer.
+
+These three layers are kept separate for the sake of modularity. 
+
+```shell
+.
+├── smoot       # Python frontend
+│   └── data    # Unit definitions and cache files
+├── smoot-rs    # Rust backend
+├── src         # PyO3 interop layer
+└── tests       # Python tests
+```
+
+#### Python Frontend
+
+The Python frontend layer is mostly just a wrapper around the Rust backend. The data structures are similar, with a bit of code to handle type conversions from dynamically typed Python into the strongly-typed Rust backend.
+
+Note that the concept of `BaseUnit` is not exposed in the frontend.
+
+```shell
+smoot
+├── data
+│   └── default_en.txt      # Unit definitions
+├── numpy_functions.py      # Numpy integration layer (ufuncs)
+├── quantity.py             # Quantity wrapper
+├── registry.py             # UnitRegistry wrapper
+└── unit.py                 # Unit wrapper
+```
+
+#### Rust Backend
+
+> [!NOTE]
+> The backend is not as egonomically polished as the frontend. This will improve as Smoot matures and use-cases for the library broaden.
+
+```text
+smoot-rs
+└── src
+    ├── quantity.rs         # Quantity
+    ├── base_unit.rs        # BaseUnit
+    ├── unit.rs             # Unit
+    └── registry
+        └── registry.rs     # Registry
+```
+
+`Quantity` always contains a `Unit`, and `Unit` contains potentially multiple `BaseUnit`s. 
+
+`BaseUnit` always corresponds to a unit definition e.g. `meter = [length]`. Note that `BaseUnit` can be a composite of multiple other "units" e.g. `avogadro_constant = avogadro_number * mol^-1`.
+
+`Registry` contains all `BaseUnit` instances parsed from a unit definitions file.
+
+#### Python <> Rust Interop Layer
+
+The frontend and backend are glued together by [PyO3](https://github.com/PyO3/pyo3). Keeping this layer separate means that the Rust backend doesn't need PyO3 as a (heavy) dependency and could be suitable as a dependency in other Rust projects.
+
+```shell
+src
+└── lib.rs
+```
+
+> [!NOTE]
+> `mimalloc` is set as the global allocator in this layer to give more control to Rust users who just want to use the backend crate.
+> That being said, `mimalloc` gives a nontrivial performance improvement for Smoot over Rust's default allocator and is worth considering for any project.
+
+
+### Dependencies
+
+> [!CAUTION]
+> Smoot currently has Numpy as a required Python dependency. This will eventually change to make the library lighter-weight.
+
+Smoot aims to have minimal Python dependencies.
+
+All Python dependencies:
+- numpy 
+    * ___will not be required soon___
+- typing_extensions 
+    * ___compat between Python 3.8 and newer versions___
+
+Notable Rust dependencies:
+- pyo3 
+    * ___Python <> Rust interop___
+- bitcode
+    * ___zero-copy deserialization for `UnitRegistry` and Pickle support for `Quantity`, `Unit`___
+- ndarray
+    * ___Numpy support___
+- peg
+    * ___Parser for unit definitions, quantity / unit expressions___
+- xxhash-rust
+    * ___Better performing hash function for `Registry` internals___
+
