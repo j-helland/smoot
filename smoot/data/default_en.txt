@@ -314,7 +314,7 @@ ppm = 1e-6
 # Length
 smoot = 1.7018 * meter  # 5'7"
 angstrom = 1e-10 * meter = Å = ångström # = Å
-micron = micrometer = µ = μ
+micron = micrometer = µ #= μ
 fermi = femtometer = fm
 light_year = speed_of_light * julian_year = ly = lightyear
 astronomical_unit = 149597870700 * meter = au  # since Aug 2012
