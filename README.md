@@ -218,7 +218,7 @@ It is also possible to create a unit registry from scratch containing only your 
 ## Performance
 
 > [!NOTE]
-> All benchmark results were obtained on a MacBook Pro M4 Max using Python 3.8.20. Results are similar for Python 3.13.2.
+> All benchmark results were obtained on a MacBook Pro M4 Max using Python 3.8.20 and Pint 0.21.1. Results are similar for Python 3.13.2 and Pint 0.24.4.
 
 Smoot typically outperforms [Pint](https://github.com/hgrecco/pint). Across all measured operations, Smoot averages (geometric mean) about 10x faster than Pint.
 
@@ -323,3 +323,19 @@ Smoot quantities are about 18x faster at arithmetic than Pint.
 | `math.isnan`   |  4.821     | 0.076      | **63.202**     |
 | `math.isinf`   |  4.730     | 0.080      | **58.891**     |
 | `np.sqrt`      |  6.224     | 1.881      |  **3.308**     |
+
+
+### Load Times
+
+Smoot loads unit definitions from disk about 5x faster than Pint. This means that Smoot's import time is notably faster than Pint.
+
+| Average (geometric) | Median | Max | Min |
+| ---                 | ---    | --- | --- |
+| 5.297 +/- 1.078 | 5.304 +/- 0.282 | 5.586 |  5.022 |
+
+![](artifacts/smoot-load.png)
+
+| function       |  description | pint (ms)          | smoot (ms)         | speedup factor    |
+| ----           |  ---------   | ----------         | --------------     | ---               |
+| load units     | from file    | 159.242  | 28.505  | **5.586** |
+| load units     | from cache   |  23.762  |  4.731  | **5.022** |
