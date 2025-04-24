@@ -247,7 +247,7 @@ where
 
         // Rescale the result to simplified units.
         let mut unit = self.unit * other.unit.clone();
-        let factor = unit.simplify(true);
+        let factor = unit.simplify(false);
         magnitude.iconvert(factor);
 
         Ok(Self::new(magnitude, unit))
@@ -366,7 +366,7 @@ where
 {
     fn mul_assign(&mut self, rhs: Self) {
         self.unit *= &rhs.unit;
-        let factor = self.unit.simplify(true);
+        let factor = self.unit.simplify(false);
         self.magnitude *= rhs.magnitude.convert(factor);
     }
 }
@@ -376,7 +376,7 @@ where
 {
     fn mul_assign(&mut self, rhs: &Self) {
         self.unit *= &rhs.unit;
-        let factor = self.unit.simplify(true);
+        let factor = self.unit.simplify(false);
         self.magnitude *= rhs.magnitude.convert(factor);
     }
 }
@@ -444,7 +444,7 @@ where
 
     fn mul(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
         self.unit.mul_assign(&rhs.unit);
-        let factor = self.unit.simplify(true);
+        let factor = self.unit.simplify(false);
         self.magnitude = self.magnitude * rhs.magnitude.convert(factor);
         self
     }
@@ -709,7 +709,7 @@ where
     fn div_assign(&mut self, rhs: Self) {
         self.magnitude /= rhs.magnitude;
         self.unit.div_assign(&rhs.unit);
-        let factor = self.unit.simplify(true);
+        let factor = self.unit.simplify(false);
         self.magnitude.iconvert(factor);
     }
 }
@@ -720,7 +720,7 @@ where
     fn div_assign(&mut self, rhs: &Self) {
         self.magnitude /= rhs.magnitude.clone();
         self.unit.div_assign(&rhs.unit);
-        let factor = self.unit.simplify(true);
+        let factor = self.unit.simplify(false);
         self.magnitude.iconvert(factor);
     }
 }
@@ -755,7 +755,7 @@ where
     fn div(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
         self.magnitude = self.magnitude / rhs.magnitude.clone();
         self.unit.div_assign(&rhs.unit);
-        let factor = self.unit.simplify(true);
+        let factor = self.unit.simplify(false);
         self.magnitude.iconvert(factor);
         self
     }

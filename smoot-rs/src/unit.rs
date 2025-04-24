@@ -952,6 +952,20 @@ mod test_unit {
         );
     }
 
+    #[case(
+        Unit::new_dimensionless(),
+        true
+        ; "Trivially dimensionless"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.clone()], vec![]),
+        false
+        ; "Trivially not dimensionless"
+    )]
+    fn test_is_dimensionless(u: Unit, expected: bool) {
+        assert_eq!(u.is_dimensionless(), expected);
+    }
+
     #[test]
     fn test_mul_numerator() {
         let u1 = Unit::new(vec![UNIT_SECOND.clone()], vec![]);
