@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput, GenericParam, Generics};
+use syn::{Data, DeriveInput, GenericParam, Generics, parse_macro_input};
 
 #[proc_macro_derive(Hashable)]
 pub fn derive_hashable(input: TokenStream) -> TokenStream {

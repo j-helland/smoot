@@ -415,7 +415,7 @@ mod test_unit_parser {
             expression: ParseTree::new(
                 Operator::Assign.into(),
                 "tansec".into(),
-                4.8481368111333441675396429478852851658848753880815e-6.into(),
+                4.848_136_811_133_344e-6.into(),
             ),
             modifiers: vec![],
             aliases: vec![],

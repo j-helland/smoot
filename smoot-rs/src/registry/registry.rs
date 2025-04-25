@@ -1,11 +1,9 @@
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
-use std::fmt::Debug;
-use std::hash::{BuildHasher, Hash};
+use std::collections::{HashMap, hash_map};
 use std::io::Write;
 use std::path::Path;
 
 use bitcode::{Decode, Encode};
+use linked_hash_map::LinkedHashMap;
 use rustc_hash::FxBuildHasher;
 use xxhash_rust::xxh3::xxh3_64;
 
@@ -16,6 +14,32 @@ use super::registry_parser::{
     DimensionDefinition, NodeData, Operator, ParseTree, PrefixDefinition, UnitDefinition,
     registry_parser,
 };
+
+/// Insert a value into a map, returning an error on conflict without clobbering the value.
+/// This differs from the builtin hashmap insertion, which clobbers existing values.
+macro_rules! try_insert {
+    ($entry_type:ident, $lineno:expr, $map:expr, $key:expr, $val:expr) => {
+        match $map.entry($key) {
+            $entry_type::Entry::Vacant(entry) => Ok(entry.insert($val)),
+            $entry_type::Entry::Occupied(entry) => Err(SmootError::ExpressionError(format!(
+                "line:{} Attempted to overwrite value {:?}\nwith {:?}:{:?}",
+                $lineno,
+                entry.get(),
+                entry.key(),
+                $val
+            ))),
+        }
+    };
+}
+
+/// Insert a value into a map, silently ignoring conflicts (no clobbering of existing values).
+macro_rules! insert_ignore_conflict {
+    ($entry_type:ident, $map:expr, $key:expr, $val:expr) => {
+        if let $entry_type::Entry::Vacant(entry) = $map.entry($key) {
+            entry.insert($val);
+        }
+    };
+}
 
 /// Registry holds all BaseUnit definitions.
 ///
@@ -197,18 +221,23 @@ impl Registry {
             let def = unit_defs.get(&name).unwrap().clone();
 
             // Plural form of base unit e.g. 'seconds'
-            Self::insert_or_warn(
-                def.lineno,
-                &mut unit_defs,
+            insert_ignore_conflict!(
+                linked_hash_map,
+                unit_defs,
                 def.name.clone() + "s",
-                def.clone(),
+                def.clone()
             );
 
             // Add symbol e.g. 's' for 'second'
             let data: UnitAliasData = def.into();
             if let Some(symbol) = data.symbol {
                 let new_alias = data.to_alias(symbol.to_string(), data.name.clone());
-                Self::insert_or_warn(data.lineno, &mut unit_defs, symbol.to_string(), new_alias);
+                insert_ignore_conflict!(
+                    linked_hash_map,
+                    &mut unit_defs,
+                    symbol.to_string(),
+                    new_alias
+                );
             };
 
             self.create_unit_defs_from_prefixes(&mut unit_defs, name, data);
@@ -239,50 +268,6 @@ impl Registry {
         self.define_units(&unit_defs)
     }
 
-    /// Insert a value into a map, returning an error on conflict without clobbering the value.
-    /// This differs from the builtin hashmap insertion, which clobbers existing values.
-    fn try_insert<K, V, S>(
-        lineno: usize,
-        map: &mut HashMap<K, V, S>,
-        key: K,
-        val: V,
-    ) -> Result<&mut V, SmootError>
-    where
-        K: Eq + Hash + Debug,
-        V: Debug,
-        S: BuildHasher,
-    {
-        match map.entry(key) {
-            Entry::Vacant(entry) => Ok(entry.insert(val)),
-            Entry::Occupied(entry) => Err(SmootError::ExpressionError(format!(
-                "line:{} Attempted to overwrite value {:?}\nwith {:?}:{:?}",
-                lineno,
-                entry.get(),
-                entry.key(),
-                val
-            ))),
-        }
-    }
-
-    /// Insert a value into a map, silently ignoring conflicts (no clobbering of existing values).
-    #[inline(always)]
-    fn insert_or_warn<K, V, S>(_lineno: usize, map: &mut HashMap<K, V, S>, key: K, val: V)
-    where
-        K: Eq + Hash + Debug,
-        V: Debug,
-        S: BuildHasher,
-    {
-        match map.entry(key) {
-            Entry::Vacant(entry) => {
-                entry.insert(val);
-            }
-            Entry::Occupied(_entry) => {
-                // // TODO: actual logging
-                // println!("line:{} Attempted to overwrite value {:?}\nwith {:?}:{:?}", lineno, entry.get(), entry.key(), val);
-            }
-        }
-    }
-
     /// Insert a unit definition.
     fn insert_def(&mut self, name: String, aliases: &Vec<&str>, unit: BaseUnit) -> &BaseUnit {
         // Ignore any aliases named `_`
@@ -300,7 +285,7 @@ impl Registry {
     /// Take all parsed unit definitions and create real units from them.
     fn define_units(
         &mut self,
-        unit_defs: &HashMap<String, UnitDefinition>,
+        unit_defs: &LinkedHashMap<String, UnitDefinition>,
     ) -> Result<(), SmootError> {
         for (name, def) in unit_defs.iter() {
             if self.units.contains_key(name) {
@@ -331,11 +316,11 @@ impl Registry {
             let _ = self.insert_def(name.clone(), &def.aliases, unit);
             // Symbol
             if let Some(symbol) = def.symbol {
-                Self::insert_or_warn(
-                    def.lineno,
-                    &mut self.symbols,
+                insert_ignore_conflict!(
+                    hash_map,
+                    self.symbols,
                     def.name.clone(),
-                    symbol.to_string(),
+                    symbol.to_string()
                 );
             }
         }
@@ -347,7 +332,7 @@ impl Registry {
         &mut self,
         lineno: usize,
         symbol: &str,
-        unit_defs: &HashMap<String, UnitDefinition>,
+        unit_defs: &LinkedHashMap<String, UnitDefinition>,
     ) -> Result<&BaseUnit, SmootError> {
         if self.units.contains_key(symbol) {
             return Ok(self.units.get(symbol).unwrap());
@@ -377,7 +362,7 @@ impl Registry {
         &mut self,
         lineno: usize,
         tree: &ParseTree,
-        unit_defs: &HashMap<String, UnitDefinition>,
+        unit_defs: &LinkedHashMap<String, UnitDefinition>,
     ) -> SmootResult<BaseUnit> {
         if tree.left.is_none() && tree.right.is_none() {
             // Leaf
@@ -469,14 +454,14 @@ impl Registry {
         &mut self,
         lines: L,
     ) -> SmootResult<(
-        HashMap<String, UnitDefinition<'input>>,
+        LinkedHashMap<String, UnitDefinition<'input>>,
         Vec<DimensionDefinition<'input>>,
         // HashMap<String, ParseTree>,
     )>
     where
         L: Iterator<Item = (usize, &'input str)>,
     {
-        let mut unit_defs: HashMap<String, UnitDefinition> = HashMap::new();
+        let mut unit_defs: LinkedHashMap<String, UnitDefinition> = LinkedHashMap::new();
         // Dimensions like `[length]` define the category that a unit belongs to.
         let mut dim_defs: Vec<DimensionDefinition> = Vec::new();
         // // Derived dimensions are defined by expressions of base dimensions e.g. `[length] / [time]`.
@@ -486,7 +471,13 @@ impl Registry {
             if let Ok(dim_def) = registry_parser::dimension_definition(line, lineno) {
                 dim_defs.push(dim_def);
             } else if let Ok(unit_def) = registry_parser::unit_with_aliases(line, lineno) {
-                Self::try_insert(lineno, &mut unit_defs, unit_def.name.clone(), unit_def)?;
+                try_insert!(
+                    linked_hash_map,
+                    lineno,
+                    unit_defs,
+                    unit_def.name.clone(),
+                    unit_def
+                )?;
             } else if let Ok(_expr) = registry_parser::derived_dimension(line) {
                 // TODO(jwh): Left here for posterity. We don't actually use derived dimensions in Smoot but might in the future.
                 //     if let NodeData::Op(Operator::Assign) = &expr.val {
@@ -505,11 +496,12 @@ impl Registry {
                 //         }
                 //     }
             } else if let Ok(prefix_def) = registry_parser::prefix_definition(line, lineno) {
-                Self::try_insert(
+                try_insert!(
+                    hash_map,
                     lineno,
-                    &mut self.prefix_definitions,
+                    self.prefix_definitions,
                     prefix_def.name.clone(),
-                    prefix_def,
+                    prefix_def
                 )?;
             } else {
                 return Err(SmootError::ParseTreeError(format!(
@@ -535,7 +527,7 @@ impl Registry {
     /// `kilometer` and `kilometers`. Note that `kilometers` will be an alias of `kilometer`.
     fn create_unit_defs_from_prefixes<'a>(
         &self,
-        unit_defs: &mut HashMap<String, UnitDefinition<'a>>,
+        unit_defs: &mut LinkedHashMap<String, UnitDefinition<'a>>,
         name: String,
         data: UnitAliasData<'a>,
     ) {
@@ -546,11 +538,11 @@ impl Registry {
             // Add aliases e.g. 'sec' and 'secs' for 'second'
             for &alias in data.aliases.iter() {
                 let new_alias = data.to_alias(alias.to_string(), data.name.clone());
-                Self::insert_or_warn(
-                    data.lineno,
+                insert_ignore_conflict!(
+                    linked_hash_map,
                     unit_defs,
                     alias.to_string() + suffix,
-                    new_alias,
+                    new_alias
                 );
             }
 
@@ -582,12 +574,12 @@ impl Registry {
                     for prefix_alias in prefix_def.aliases.iter() {
                         let alias_name = Self::add_prefix(prefix_alias.clone(), symbol);
                         let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
-                        Self::insert_or_warn(data.lineno, unit_defs, alias_name, new_alias);
+                        insert_ignore_conflict!(linked_hash_map, unit_defs, alias_name, new_alias);
                     }
 
                     let alias_name = Self::add_prefix(prefix_def.name.clone(), symbol);
                     let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
-                    Self::insert_or_warn(data.lineno, unit_defs, alias_name, new_alias);
+                    insert_ignore_conflict!(linked_hash_map, unit_defs, alias_name, new_alias);
                 };
 
                 // Add all combinations of prefix aliases and unit aliases e.g. 'msec' and 'msecs'.
@@ -595,29 +587,39 @@ impl Registry {
                     for prefix_alias in prefix_def.aliases.iter() {
                         let alias_name = Self::add_prefix(prefix_alias.clone(), alias);
                         let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
-                        Self::insert_or_warn(
-                            data.lineno,
+                        insert_ignore_conflict!(
+                            linked_hash_map,
                             unit_defs,
                             alias_name + suffix,
-                            new_alias,
+                            new_alias
                         );
                     }
 
                     let alias_name = Self::add_prefix(prefix_def.name.clone(), alias);
                     let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
-                    Self::insert_or_warn(data.lineno, unit_defs, alias_name + suffix, new_alias);
+                    insert_ignore_conflict!(
+                        linked_hash_map,
+                        unit_defs,
+                        alias_name + suffix,
+                        new_alias
+                    );
                 }
 
                 // Add all prefix aliases to the unit name e.g. 'msecond'.
                 for prefix_alias in prefix_def.aliases.iter() {
                     let alias_name = Self::add_prefix(prefix_alias.clone(), &data.name);
                     let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
-                    Self::insert_or_warn(data.lineno, unit_defs, alias_name + suffix, new_alias);
+                    insert_ignore_conflict!(
+                        linked_hash_map,
+                        unit_defs,
+                        alias_name + suffix,
+                        new_alias
+                    );
                 }
 
                 // Add prefixed unit e.g. 'millisecond'.
                 let new_def = f_make_new_def(prefix_name.clone());
-                Self::insert_or_warn(data.lineno, unit_defs, prefix_name + suffix, new_def);
+                insert_ignore_conflict!(linked_hash_map, unit_defs, prefix_name + suffix, new_def);
             }
         }
     }
@@ -642,11 +644,11 @@ impl Registry {
             // Symbol
             if let Some(symbol) = def.symbol {
                 self.insert_def(symbol.to_string(), &vec![], unit.clone());
-                Self::insert_or_warn(
-                    def.lineno,
-                    &mut self.symbols,
+                insert_ignore_conflict!(
+                    hash_map,
+                    self.symbols,
                     def.name.to_string(),
-                    symbol.to_string(),
+                    symbol.to_string()
                 );
             }
             // Plural unit
@@ -722,12 +724,31 @@ where
 mod test_registry {
     use test_case::case;
 
-    use crate::test_utils::{DEFAULT_UNITS_FILE, TEST_CACHE_PATH};
+    use crate::{
+        test_utils::{DEFAULT_UNITS_FILE, TEST_CACHE_PATH},
+        utils::ApproxEq,
+    };
 
     use super::*;
 
+    /// All BaseUnit dimensionalities must be integral values. No powers like `0.5` are supported.
     #[test]
-    fn test_registry_loads_default() -> SmootResult<()> {
+    fn test_all_dimensionalities_are_integral() -> SmootResult<()> {
+        let reg = Registry::new_from_file(Path::new(DEFAULT_UNITS_FILE))?;
+        for unit in reg.units.values() {
+            assert!(
+                unit.dimensionality.iter().all(|d| d.approx_eq(d.round())),
+                "Unit {} with type {:b} has non-integral dimensionality {:?}",
+                unit.name,
+                unit.unit_type,
+                unit.dimensionality
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_registry_loads_from_cache() -> SmootResult<()> {
         let cache_path = Path::new(TEST_CACHE_PATH);
         Registry::clear_cache(cache_path);
         let _ = Registry::new_from_cache_or_file(cache_path, Path::new(DEFAULT_UNITS_FILE))?;

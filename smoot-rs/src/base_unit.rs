@@ -23,17 +23,13 @@ pub struct BaseUnit {
 
 /// Compute the dimensionality vector for a given dimension type.
 /// e.g. 0x1 -> [1.0]
-fn get_dimensionality(unit_type: DimensionType) -> Vec<f64> {
-    let mut dimensionality = Vec::new();
-    let mut bits = unit_type;
-    while bits > 0 {
-        let idx = bits.trailing_zeros();
-        let diff = idx as usize - dimensionality.len();
-        if diff > 0 {
-            dimensionality.extend((0..diff).map(|_| 0.0));
-        }
-        dimensionality.push(1.0);
-        bits &= !(1 << idx);
+fn get_dimensionality(mut unit_type: DimensionType) -> Vec<f64> {
+    let size = (DimensionType::BITS - unit_type.leading_zeros()) as usize;
+    let mut dimensionality = vec![0.0; size];
+    while unit_type > 0 {
+        let idx = unit_type.trailing_zeros() as usize;
+        dimensionality[idx] = 1.0;
+        unit_type &= !(1 << idx);
     }
     dimensionality
 }
@@ -60,37 +56,26 @@ impl BaseUnit {
         }
     }
 
-    /// Update the dimensionality vector based on a dimension type mask.
-    /// e.g. 0x1 -> [1.0]
-    pub fn update_dimensionality(&mut self, mut unit_type: DimensionType) {
-        while unit_type > 0 {
-            let idx = unit_type.trailing_zeros() as usize;
-            if idx < self.dimensionality.len() {
-                self.dimensionality[idx] = 1.0;
-            } else {
-                if idx - self.dimensionality.len() > 0 {
-                    self.dimensionality
-                        .extend((0..idx - self.dimensionality.len()).map(|_| 0.0));
-                }
-                self.dimensionality.push(1.0);
-            }
-            unit_type &= !(1 << idx);
-        }
-    }
-
     /// In-place multiplication of this unit's dimensionality vector by a number.
     pub fn mul_dimensionality(&mut self, n: f64) {
-        self.dimensionality.iter_mut().for_each(|d| *d *= n);
+        self.dimensionality
+            .iter_mut()
+            // Only apply operations to dimensions that are present
+            .filter(|d| !d.approx_eq(0.0))
+            .for_each(|d| *d *= n);
     }
 
     pub fn sub_dimensionality(&mut self, n: f64) {
-        self.dimensionality.iter_mut().for_each(|d| *d -= n);
+        self.dimensionality
+            .iter_mut()
+            // Only apply operations to dimensions that are present
+            .filter(|d| !d.approx_eq(0.0))
+            .for_each(|d| *d -= n);
     }
 
     /// Return true if this unit is a composite of multiple dimensions.
     pub fn is_multidimensional(&self) -> bool {
-        let l = self.unit_type.trailing_zeros();
-        (self.unit_type >> l) > 1
+        (self.unit_type >> self.unit_type.trailing_zeros()) > 1
     }
 
     /// Return true if this unit is a constant value e.g. `1`.

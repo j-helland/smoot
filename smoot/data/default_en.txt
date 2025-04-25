@@ -860,18 +860,18 @@ neper = 1 ; logbase: 2.71828182845904523536028747135266249775724709369995; logfa
 
 #### CGS ELECTROMAGNETIC UNITS ####
 
-# === Gaussian system of units ===
-#@group Gaussian
-    franklin = erg ** 0.5 * centimeter ** 0.5 = Fr = statcoulomb = statC = esu
-    statvolt = erg / franklin = statV
-    statampere = franklin / second = statA
-    gauss = dyne / franklin = G
-    maxwell = gauss * centimeter ** 2 = Mx
-    oersted = dyne / maxwell = Oe = ørsted
-    statohm = statvolt / statampere = statΩ
-    statfarad = franklin / statvolt = statF
-    statmho = statampere / statvolt
-#@end
+## === Gaussian system of units ===
+##@group Gaussian
+#    franklin = erg ** 0.5 * centimeter ** 0.5 = Fr = statcoulomb = statC = esu
+#    statvolt = erg / franklin = statV
+#    statampere = franklin / second = statA
+#    gauss = dyne / franklin = G
+#    maxwell = gauss * centimeter ** 2 = Mx
+#    oersted = dyne / maxwell = Oe = ørsted
+#    statohm = statvolt / statampere = statΩ
+#    statfarad = franklin / statvolt = statF
+#    statmho = statampere / statvolt
+##@end
 # # Note this system is not commensurate with SI, as ε_0 and µ_0 disappear;
 # # some quantities with different dimensions in SI have the same
 # # dimensions in the Gaussian system (e.g. [Mx] = [Fr], but [Wb] != [C]),
