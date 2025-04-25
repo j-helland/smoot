@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 
 import smoot
 from smoot.numpy_functions import NP_HANDLED_FUNCTIONS, NP_HANDLED_UFUNCS
+from smoot.utils import warn_for_large_arrays
 
 from .smoot import (
     Unit as InnerUnit,
@@ -100,6 +101,11 @@ class Quantity(Generic[T, R]):
                 self._get_units(units) if units is not None else (None, None)
             )
             arr = np.array(value, dtype=np.float64)
+
+            # TODO(jwh): Remove this once Smoot has a better story for handling large arrays
+            #            on the Rust side.
+            warn_for_large_arrays(arr)
+
             quantity = ArrayF64Quantity(value=arr, units=_units, factor=factor)
 
         else:

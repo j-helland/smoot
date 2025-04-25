@@ -5,6 +5,7 @@ import numpy as np
 from typing_extensions import Self
 
 import smoot
+from smoot.utils import warn_for_large_arrays
 from .smoot import (
     Unit as InnerUnit,
     div_unit,
@@ -133,6 +134,11 @@ class Unit:
         elif isinstance(other, Iterable):
             new = object.__new__(self.__registry.Quantity)
             arr = np.array(other, dtype=np.float64)
+
+            # TODO(jwh): Remove this once Smoot has a better story for handling large arrays
+            #            on the Rust side.
+            warn_for_large_arrays(arr)
+
             new._Quantity__inner = arr_mul_unit(arr=arr, unit=self.__inner)
         elif isinstance(other, Unit):
             new = object.__new__(self.__class__)
@@ -158,6 +164,11 @@ class Unit:
         elif isinstance(other, Iterable):
             new = object.__new__(self.__registry.Quantity)
             arr = np.array(other, dtype=np.float64)
+
+            # TODO(jwh): Remove this once Smoot has a better story for handling large arrays
+            #            on the Rust side.
+            warn_for_large_arrays(arr)
+
             new._Quantity__inner = arr_div_unit(unit=self.__inner, arr=arr)
         elif isinstance(other, Unit):
             new = object.__new__(self.__class__)
@@ -180,6 +191,11 @@ class Unit:
         elif isinstance(other, Iterable):
             new = object.__new__(self.__registry.Quantity)
             arr = np.array(other, dtype=np.float64)
+
+            # TODO(jwh): Remove this once Smoot has a better story for handling large arrays
+            #            on the Rust side.
+            warn_for_large_arrays(arr)
+
             new._Quantity__inner = arr_rdiv_unit(arr=arr, unit=self.__inner)
         elif isinstance(other, Unit):
             new = object.__new__(self.__class__)
