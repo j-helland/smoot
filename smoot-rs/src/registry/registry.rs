@@ -6,7 +6,8 @@ use std::io::Write;
 use std::path::Path;
 
 use bitcode::{Decode, Encode};
-use xxhash_rust::xxh3::{Xxh3Builder, xxh3_64};
+use rustc_hash::FxBuildHasher;
+use xxhash_rust::xxh3::xxh3_64;
 
 use crate::base_unit::{BaseUnit, DIMENSIONLESS_TYPE, DimensionType};
 use crate::error::{SmootError, SmootResult};
@@ -27,10 +28,10 @@ pub struct Registry {
     /// A root unit is the canonical unit for a particular dimension (e.g. [length] -> meter).
     // Don't bother with sharing memory with units because there's relatively few dimensions,
     // making this cheap.
-    root_units: HashMap<DimensionType, BaseUnit, Xxh3Builder>,
-    dimensions: HashMap<DimensionType, String, Xxh3Builder>,
-    prefix_definitions: HashMap<String, PrefixDefinition, Xxh3Builder>,
-    symbols: HashMap<String, String, Xxh3Builder>,
+    root_units: HashMap<DimensionType, BaseUnit, FxBuildHasher>,
+    dimensions: HashMap<DimensionType, String, FxBuildHasher>,
+    prefix_definitions: HashMap<String, PrefixDefinition, FxBuildHasher>,
+    symbols: HashMap<String, String, FxBuildHasher>,
     checksum: u64,
 }
 impl Registry {
@@ -626,7 +627,7 @@ impl Registry {
         let mut next_dimension = 1;
         let mut dimensions = HashMap::new();
 
-        for def in dim_defs.into_iter() {
+        for def in dim_defs.iter() {
             let dim = if def.is_dimensionless() {
                 DIMENSIONLESS_TYPE
             } else {

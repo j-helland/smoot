@@ -390,6 +390,7 @@ dependencies = [
  "ndarray",
  "num-traits",
  "peg",
+ "rustc-hash",
  "thiserror",
  "xxhash-rust",
 ]

@@ -442,5 +442,5 @@ Notable Rust dependencies:
 - peg
     * ___Parser for unit definitions, quantity / unit expressions___
 - xxhash-rust
-    * ___Better performing hash function for `Registry` internals___
+    * ___Fast hash for computing crude file checksums___
 
