@@ -178,86 +178,22 @@ impl Registry {
             .map(|(lineno, line)| (lineno + 1, line))
             .filter(|(_, line)| !line.is_empty() && !Self::is_comment(line));
 
+        //==================================================
+        // First pass - get abstract definitions
+        //==================================================
         // Containers for parsed unit constructs. These are not the "real" units, we can only build those
         // in a second pass since parsed expressions may reference units that are defined later in the file.
-        // Dimensions like `[length]` define the category that a unit belongs to.
-        let mut dim_defs: Vec<DimensionDefinition> = Vec::new();
-        let mut unit_defs: HashMap<String, UnitDefinition> = HashMap::new();
-        // Derived dimensions are defined by expressions of base dimensions e.g. `[length] / [time]`.
-        let mut derived_dim_defs: HashMap<String, ParseTree> = HashMap::new();
-
-        //==================================================
-        // First pass - get raw definitions
-        //==================================================
-        // Parse all abstract "definition" objects, which will be wired together into "real" objects during
-        // the second pass.
-        for (lineno, line) in lines {
-            if let Ok(dim_def) = registry_parser::dimension_definition(line, lineno) {
-                dim_defs.push(dim_def);
-            } else if let Ok(unit_def) = registry_parser::unit_with_aliases(line, lineno) {
-                Self::try_insert(lineno, &mut unit_defs, unit_def.name.clone(), unit_def)?;
-            } else if let Ok(expr) = registry_parser::derived_dimension(line) {
-                if let NodeData::Op(Operator::Assign) = &expr.val {
-                    if let NodeData::Dimension(Some(dimension)) = &expr.left.as_ref().unwrap().val {
-                        if let Some(overwrite) = derived_dim_defs.insert(dimension.clone(), expr) {
-                            return Err(SmootError::DimensionError(format!(
-                                "line:{} Line '{}' overwrote previous derived dimension {:?}",
-                                lineno, line, overwrite
-                            )));
-                        }
-                    } else {
-                        return Err(SmootError::DimensionError(format!(
-                            "line:{} Derived dimension expression {} does not assign to a dimension",
-                            lineno, line
-                        )));
-                    }
-                }
-            } else if let Ok(prefix_def) = registry_parser::prefix_definition(line, lineno) {
-                Self::try_insert(
-                    lineno,
-                    &mut self.prefix_definitions,
-                    prefix_def.name.clone(),
-                    prefix_def,
-                )?;
-            } else {
-                return Err(SmootError::ParseTreeError(format!(
-                    "line:{} Unhandled line '{}'",
-                    lineno, line
-                )));
-            }
-        }
+        let (mut unit_defs, dim_defs) = self.parse_abstract_definitions(lines)?;
 
         //==================================================
         // Prefix assignment expressions
         //==================================================
-        let f_add_prefix = |mut prefix: String, name: &str| {
-            prefix.push_str(name);
-            prefix
-        };
-
         // Add prefixes and suffixes for regular unit definitions.
+        //
         // Prefixes are combinatorial. Every prefix (and prefix alias) must be attached to every unit (and unit alias).
         // Add all prefix combos as regular units so that the unit definition stage instantiates everything seamlessly.
-        //
-        // This works by grafting existing unit definition parse trees with an additional multiplicative factor for each
-        // prefix (e.g. kilo corresponds to 1000, so we graft on a `1000 * ` operation to the expression's parse tree).
         for name in unit_defs.keys().cloned().collect::<Vec<_>>() {
             let def = unit_defs.get(&name).unwrap().clone();
-
-            let f_make_new_alias = |new_name: String, from: String| UnitDefinition {
-                name: new_name.clone(),
-                symbol: None,
-                // Create an expression like `km = kilometer`.
-                expression: ParseTree::new(
-                    Operator::AssignAlias.into(),
-                    new_name.into(),
-                    from.into(),
-                ),
-                modifiers: def.modifiers.clone(),
-                // Clear the aliases to avoid redefining them
-                aliases: vec![],
-                lineno: def.lineno,
-            };
 
             // Plural form of base unit e.g. 'seconds'
             Self::insert_or_warn(
@@ -268,262 +204,37 @@ impl Registry {
             );
 
             // Add symbol e.g. 's' for 'second'
-            if let Some(symbol) = def.symbol {
-                let new_alias = f_make_new_alias(symbol.to_string(), def.name.clone());
-                Self::insert_or_warn(def.lineno, &mut unit_defs, symbol.to_string(), new_alias);
+            let data: UnitAliasData = def.into();
+            if let Some(symbol) = data.symbol {
+                let new_alias = data.to_alias(symbol.to_string(), data.name.clone());
+                Self::insert_or_warn(data.lineno, &mut unit_defs, symbol.to_string(), new_alias);
             };
 
-            for suffix in ["", "s"].iter() {
-                // Add aliases e.g. 'sec' and 'secs' for 'second'
-                def.aliases.iter().for_each(|&alias| {
-                    let new_alias = f_make_new_alias(alias.to_string(), def.name.clone());
-                    Self::insert_or_warn(
-                        def.lineno,
-                        &mut unit_defs,
-                        alias.to_string() + suffix,
-                        new_alias,
-                    );
-                });
-
-                for prefix_def in self.prefix_definitions.values() {
-                    let f_make_new_def = |new_name: String| UnitDefinition {
-                        name: new_name.clone(),
-                        symbol: None,
-                        // Create an expression like `kilometer = 1000 * meter`, where `M` is the prefix multiplier.
-                        expression: ParseTree::new(
-                            Operator::Assign.into(),
-                            new_name.into(),
-                            ParseTree::new(
-                                Operator::Mul.into(),
-                                prefix_def.multiplier.into(),
-                                name.clone().into(),
-                            ),
-                        ),
-                        modifiers: def.modifiers.clone(),
-                        // Clear the aliases to avoid redefining them
-                        aliases: vec![],
-                        lineno: def.lineno,
-                    };
-
-                    let prefix_name = f_add_prefix(prefix_def.name.clone(), &name);
-
-                    // Add prefixed symbol e.g. 'millis' and 'ms' for 'second'.
-                    // No plural forms for symbols e.g. 'ms' [length] would conflict with 'ms' [time].
-                    if let Some(symbol) = def.symbol {
-                        for prefix_alias in prefix_def.aliases.iter() {
-                            let alias_name = f_add_prefix(prefix_alias.clone(), symbol);
-                            let new_alias =
-                                f_make_new_alias(alias_name.clone(), prefix_name.clone());
-                            Self::insert_or_warn(def.lineno, &mut unit_defs, alias_name, new_alias);
-                        }
-
-                        let alias_name = f_add_prefix(prefix_def.name.clone(), symbol);
-                        let new_alias = f_make_new_alias(alias_name.clone(), prefix_name.clone());
-                        Self::insert_or_warn(def.lineno, &mut unit_defs, alias_name, new_alias);
-                    };
-
-                    // Add all combinations of prefix aliases and unit aliases e.g. 'msec' and 'msecs'.
-                    for &alias in def.aliases.iter() {
-                        for prefix_alias in prefix_def.aliases.iter() {
-                            let alias_name = f_add_prefix(prefix_alias.clone(), alias);
-                            let new_alias =
-                                f_make_new_alias(alias_name.clone(), prefix_name.clone());
-                            Self::insert_or_warn(
-                                def.lineno,
-                                &mut unit_defs,
-                                alias_name + suffix,
-                                new_alias,
-                            );
-                        }
-
-                        let alias_name = f_add_prefix(prefix_def.name.clone(), alias);
-                        let new_alias = f_make_new_alias(alias_name.clone(), prefix_name.clone());
-                        Self::insert_or_warn(
-                            def.lineno,
-                            &mut unit_defs,
-                            alias_name + suffix,
-                            new_alias,
-                        );
-                    }
-
-                    // Add all prefix aliases to the unit name e.g. 'msecond'.
-                    for prefix_alias in prefix_def.aliases.iter() {
-                        let alias_name = f_add_prefix(prefix_alias.clone(), &def.name);
-                        let new_alias = f_make_new_alias(alias_name.clone(), prefix_name.clone());
-                        Self::insert_or_warn(
-                            def.lineno,
-                            &mut unit_defs,
-                            alias_name + suffix,
-                            new_alias,
-                        );
-                    }
-
-                    // Add prefixed unit e.g. 'millisecond'.
-                    let new_def = f_make_new_def(prefix_name.clone());
-                    Self::insert_or_warn(def.lineno, &mut unit_defs, prefix_name + suffix, new_def);
-                }
-            }
+            self.create_unit_defs_from_prefixes(&mut unit_defs, name, data);
         }
 
         // Add prefixes and suffixes for dimension definitions
-        // Dimension definitions like `meter = [length] = m = metre` need the same treatment.
-        for def in dim_defs.iter() {
-            let f_make_new_alias = |new_name: String, from: String| UnitDefinition {
-                name: new_name.clone(),
-                symbol: None,
-                // Create an expression like `km = kilometer`.
-                expression: ParseTree::new(
-                    Operator::AssignAlias.into(),
-                    new_name.into(),
-                    from.into(),
-                ),
-                modifiers: def.modifiers.clone(),
-                // Clear the aliases to avoid redefining them
-                aliases: vec![],
-                lineno: def.lineno,
-            };
-
-            for &suffix in ["", "s"].iter() {
-                // Add all aliases e.g. 'sec' and 'secs'.
-                for &alias in def.aliases.iter() {
-                    let new_alias = f_make_new_alias(alias.to_string(), def.name.to_string());
-                    Self::insert_or_warn(
-                        def.lineno,
-                        &mut unit_defs,
-                        alias.to_string() + suffix,
-                        new_alias,
-                    );
-                }
-
-                // Add all prefixes e.g. 'millisec' and 'millisecs'.
-                for prefix_def in self.prefix_definitions.values() {
-                    let f_make_new_def = |new_name: String| UnitDefinition {
-                        name: new_name.clone(),
-                        symbol: None,
-                        // Create an expression like `kilometer = 1000 * meter`, where `M` is the prefix multiplier.
-                        expression: ParseTree::new(
-                            Operator::Assign.into(),
-                            new_name.into(),
-                            ParseTree::new(
-                                Operator::Mul.into(),
-                                ParseTree::from(prefix_def.multiplier),
-                                def.name.into(),
-                            ),
-                        ),
-                        modifiers: def.modifiers.clone(),
-                        // Clear the aliases to avoid redefining them
-                        aliases: vec![],
-                        lineno: def.lineno,
-                    };
-
-                    let prefix_name = f_add_prefix(prefix_def.name.clone(), def.name);
-
-                    // Add prefixed symbol e.g. 'kilom' and 'km'.
-                    // No plural forms
-                    if let Some(symbol) = def.symbol {
-                        for prefix_alias in prefix_def.aliases.iter() {
-                            let alias_name = f_add_prefix(prefix_alias.clone(), symbol);
-                            let new_alias =
-                                f_make_new_alias(alias_name.clone(), prefix_name.clone());
-                            Self::insert_or_warn(def.lineno, &mut unit_defs, alias_name, new_alias);
-                        }
-
-                        let alias_name = f_add_prefix(prefix_def.name.clone(), symbol);
-                        let new_alias = f_make_new_alias(alias_name.clone(), prefix_name.clone());
-                        Self::insert_or_warn(def.lineno, &mut unit_defs, alias_name, new_alias);
-                    };
-
-                    // Add all combinations of prefix aliases and unit aliases e.g. 'msec' and 'msecs'.
-                    for &alias in def.aliases.iter() {
-                        for prefix_alias in prefix_def.aliases.iter() {
-                            let alias_name = f_add_prefix(prefix_alias.clone(), alias);
-
-                            // Add prefix aliases
-                            let new_alias =
-                                f_make_new_alias(alias_name.clone(), prefix_name.clone());
-                            Self::insert_or_warn(
-                                def.lineno,
-                                &mut unit_defs,
-                                alias_name + suffix,
-                                new_alias,
-                            );
-                        }
-
-                        // Add prefixed unit aliases
-                        let alias_name = f_add_prefix(prefix_def.name.clone(), alias);
-                        let new_alias = f_make_new_alias(alias_name.clone(), prefix_name.clone());
-                        Self::insert_or_warn(
-                            def.lineno,
-                            &mut unit_defs,
-                            alias_name + suffix,
-                            new_alias,
-                        );
-                    }
-
-                    // Add all prefix aliases to the unit name e.g. 'msecond'.
-                    for prefix_alias in prefix_def.aliases.iter() {
-                        let alias_name = f_add_prefix(prefix_alias.clone(), def.name);
-
-                        let new_alias = f_make_new_alias(alias_name.clone(), prefix_name.clone());
-                        Self::insert_or_warn(
-                            def.lineno,
-                            &mut unit_defs,
-                            alias_name + suffix,
-                            new_alias,
-                        );
-                    }
-
-                    // Add prefixed unit
-                    let new_def = f_make_new_def(prefix_name.clone());
-                    Self::insert_or_warn(def.lineno, &mut unit_defs, prefix_name + suffix, new_def);
-                }
-            }
+        // Dimension definitions like `meter = [length] = m = metre`
+        for data in dim_defs.iter().cloned().map(UnitAliasData::from) {
+            self.create_unit_defs_from_prefixes(&mut unit_defs, data.name.clone(), data);
         }
 
+        // Avoid excessive re-hashing of tables from resizing.
         self.dimensions.reserve(dim_defs.len());
         self.units.reserve(unit_defs.len() + dim_defs.len());
 
         //==================================================
         // Define dimensions
         //==================================================
-        let mut next_dimension = 1;
-        let mut dimensions = HashMap::new();
-
-        for def in dim_defs.into_iter() {
-            let dim = if def.is_dimensionless() {
-                DIMENSIONLESS_TYPE
-            } else {
-                let dim = next_dimension;
-                next_dimension <<= 1;
-                dim
-            };
-
-            let unit = BaseUnit::new(def.name.into(), 1.0, dim);
-
-            self.insert_root_unit(unit.clone());
-            // Symbol
-            if let Some(symbol) = def.symbol {
-                self.insert_def(symbol.to_string(), &vec![], unit.clone());
-                Self::insert_or_warn(
-                    def.lineno,
-                    &mut self.symbols,
-                    def.name.to_string(),
-                    symbol.to_string(),
-                );
-            }
-            // Plural unit
-            // No aliases needed since non-plural covers it
-            self.insert_def(def.name.to_string() + "s", &vec![], unit.clone());
-            // Non-plural
-            self.insert_def(def.name.to_string(), &def.aliases, unit);
-
-            dimensions.insert(def.dimension, dim);
-            self.dimensions.insert(dim, def.dimension.to_string());
-        }
+        // These are the base cases for recursive unit definitions like `smoot = 1.7018 * meter`.
+        self.define_root_units(&dim_defs);
 
         //==================================================
         // Evaluate unit definitions
         //==================================================
+        // Wire together the remaining abstract definitions into concrete units.
+        // For example, `smoot = 1.7018 * meter` will be recursively linked to `meter = [length]`,
+        // which was defined as a root unit previously.
         self.define_units(&unit_defs)
     }
 
@@ -740,6 +451,266 @@ impl Registry {
     #[inline(always)]
     fn is_comment(line: &str) -> bool {
         line.is_empty() || registry_parser::comment(line).is_ok()
+    }
+
+    #[inline(always)]
+    fn add_prefix(prefix: String, name: &str) -> String {
+        prefix + name
+    }
+
+    /// Parse all abstract unit and dimension definitions e.g. `meter = [length]`.
+    ///
+    /// These definitions reference each other (e.g. `smoot = 1.7018 * meter`) and can
+    /// be declared in any order. The abstract definitions returned from this function
+    /// are not yet wired together, they are essentially just parse trees with symbols
+    /// that still need to be linked.
+    fn parse_abstract_definitions<'input, L>(
+        &mut self,
+        lines: L,
+    ) -> SmootResult<(
+        HashMap<String, UnitDefinition<'input>>,
+        Vec<DimensionDefinition<'input>>,
+        // HashMap<String, ParseTree>,
+    )>
+    where
+        L: Iterator<Item = (usize, &'input str)>,
+    {
+        let mut unit_defs: HashMap<String, UnitDefinition> = HashMap::new();
+        // Dimensions like `[length]` define the category that a unit belongs to.
+        let mut dim_defs: Vec<DimensionDefinition> = Vec::new();
+        // // Derived dimensions are defined by expressions of base dimensions e.g. `[length] / [time]`.
+        // let mut derived_dim_defs: HashMap<String, ParseTree> = HashMap::new();
+
+        for (lineno, line) in lines {
+            if let Ok(dim_def) = registry_parser::dimension_definition(line, lineno) {
+                dim_defs.push(dim_def);
+            } else if let Ok(unit_def) = registry_parser::unit_with_aliases(line, lineno) {
+                Self::try_insert(lineno, &mut unit_defs, unit_def.name.clone(), unit_def)?;
+            } else if let Ok(_expr) = registry_parser::derived_dimension(line) {
+                // TODO(jwh): Left here for posterity. We don't actually use derived dimensions in Smoot but might in the future.
+                //     if let NodeData::Op(Operator::Assign) = &expr.val {
+                //         if let NodeData::Dimension(Some(dimension)) = &expr.left.as_ref().unwrap().val {
+                //             if let Some(overwrite) = derived_dim_defs.insert(dimension.clone(), expr) {
+                //                 return Err(SmootError::DimensionError(format!(
+                //                     "line:{} Line '{}' overwrote previous derived dimension {:?}",
+                //                     lineno, line, overwrite
+                //                 )));
+                //             }
+                //         } else {
+                //             return Err(SmootError::DimensionError(format!(
+                //                 "line:{} Derived dimension expression {} does not assign to a dimension",
+                //                 lineno, line
+                //             )));
+                //         }
+                //     }
+            } else if let Ok(prefix_def) = registry_parser::prefix_definition(line, lineno) {
+                Self::try_insert(
+                    lineno,
+                    &mut self.prefix_definitions,
+                    prefix_def.name.clone(),
+                    prefix_def,
+                )?;
+            } else {
+                return Err(SmootError::ParseTreeError(format!(
+                    "line:{} Unhandled line '{}'",
+                    lineno, line
+                )));
+            }
+        }
+        Ok((
+            unit_defs, dim_defs,
+            // derived_dim_defs,
+        ))
+    }
+
+    /// Take a unit definition and add all prefixes and suffixes as new unit definitions.
+    ///
+    /// If we have an alias like `kilo- = 1000`, then the newly generated prefixed unit
+    /// definitions contain ParseTrees for expressions like `kilometer = 1000 * meter`.
+    ///
+    /// Examples
+    /// --------
+    /// If we have a suffix `kilo-` and a unit `meter`, then we will generate
+    /// `kilometer` and `kilometers`. Note that `kilometers` will be an alias of `kilometer`.
+    fn create_unit_defs_from_prefixes<'a>(
+        &self,
+        unit_defs: &mut HashMap<String, UnitDefinition<'a>>,
+        name: String,
+        data: UnitAliasData<'a>,
+    ) {
+        // For now, hard-code plural suffix 's'.
+        // TODO(jwh): This should probably be defined somewhere else, although it's unlikely that
+        //            we'll have any more suffixes.
+        for &suffix in ["", "s"].iter() {
+            // Add aliases e.g. 'sec' and 'secs' for 'second'
+            for &alias in data.aliases.iter() {
+                let new_alias = data.to_alias(alias.to_string(), data.name.clone());
+                Self::insert_or_warn(
+                    data.lineno,
+                    unit_defs,
+                    alias.to_string() + suffix,
+                    new_alias,
+                );
+            }
+
+            for prefix_def in self.prefix_definitions.values() {
+                let f_make_new_def = |new_name: String| UnitDefinition {
+                    name: new_name.clone(),
+                    symbol: None,
+                    // Create an expression like `kilometer = 1000 * meter`, where `M` is the prefix multiplier.
+                    expression: ParseTree::new(
+                        Operator::Assign.into(),
+                        new_name.into(),
+                        ParseTree::new(
+                            Operator::Mul.into(),
+                            prefix_def.multiplier.into(),
+                            name.clone().into(),
+                        ),
+                    ),
+                    modifiers: data.modifiers.clone(),
+                    // Clear the aliases to avoid redefining them
+                    aliases: vec![],
+                    lineno: data.lineno,
+                };
+
+                let prefix_name = Self::add_prefix(prefix_def.name.clone(), &name);
+
+                // Add prefixed symbol e.g. 'millis' and 'ms' for 'second'.
+                // No plural forms for symbols e.g. 'ms' [length] would conflict with 'ms' [time].
+                if let Some(symbol) = data.symbol {
+                    for prefix_alias in prefix_def.aliases.iter() {
+                        let alias_name = Self::add_prefix(prefix_alias.clone(), symbol);
+                        let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
+                        Self::insert_or_warn(data.lineno, unit_defs, alias_name, new_alias);
+                    }
+
+                    let alias_name = Self::add_prefix(prefix_def.name.clone(), symbol);
+                    let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
+                    Self::insert_or_warn(data.lineno, unit_defs, alias_name, new_alias);
+                };
+
+                // Add all combinations of prefix aliases and unit aliases e.g. 'msec' and 'msecs'.
+                for &alias in data.aliases.iter() {
+                    for prefix_alias in prefix_def.aliases.iter() {
+                        let alias_name = Self::add_prefix(prefix_alias.clone(), alias);
+                        let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
+                        Self::insert_or_warn(
+                            data.lineno,
+                            unit_defs,
+                            alias_name + suffix,
+                            new_alias,
+                        );
+                    }
+
+                    let alias_name = Self::add_prefix(prefix_def.name.clone(), alias);
+                    let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
+                    Self::insert_or_warn(data.lineno, unit_defs, alias_name + suffix, new_alias);
+                }
+
+                // Add all prefix aliases to the unit name e.g. 'msecond'.
+                for prefix_alias in prefix_def.aliases.iter() {
+                    let alias_name = Self::add_prefix(prefix_alias.clone(), &data.name);
+                    let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
+                    Self::insert_or_warn(data.lineno, unit_defs, alias_name + suffix, new_alias);
+                }
+
+                // Add prefixed unit e.g. 'millisecond'.
+                let new_def = f_make_new_def(prefix_name.clone());
+                Self::insert_or_warn(data.lineno, unit_defs, prefix_name + suffix, new_def);
+            }
+        }
+    }
+
+    /// Create root units from dimension definitions like `meter = [length]`.
+    fn define_root_units(&mut self, dim_defs: &Vec<DimensionDefinition>) {
+        let mut next_dimension = 1;
+        let mut dimensions = HashMap::new();
+
+        for def in dim_defs.into_iter() {
+            let dim = if def.is_dimensionless() {
+                DIMENSIONLESS_TYPE
+            } else {
+                let dim = next_dimension;
+                next_dimension <<= 1;
+                dim
+            };
+
+            let unit = BaseUnit::new(def.name.into(), 1.0, dim);
+
+            self.insert_root_unit(unit.clone());
+            // Symbol
+            if let Some(symbol) = def.symbol {
+                self.insert_def(symbol.to_string(), &vec![], unit.clone());
+                Self::insert_or_warn(
+                    def.lineno,
+                    &mut self.symbols,
+                    def.name.to_string(),
+                    symbol.to_string(),
+                );
+            }
+            // Plural unit
+            // No aliases needed since non-plural covers it
+            self.insert_def(def.name.to_string() + "s", &vec![], unit.clone());
+            // Non-plural
+            self.insert_def(def.name.to_string(), &def.aliases, unit);
+
+            dimensions.insert(def.dimension, dim);
+            self.dimensions.insert(dim, def.dimension.to_string());
+        }
+    }
+}
+
+/// Common data shared between various unit-like definitions.
+struct UnitAliasData<'a> {
+    name: String,
+    lineno: usize,
+    aliases: Vec<&'a str>,
+    modifiers: Vec<(&'a str, f64)>,
+    symbol: Option<&'a str>,
+}
+impl<'a> From<UnitDefinition<'a>> for UnitAliasData<'a> {
+    fn from(value: UnitDefinition<'a>) -> Self {
+        UnitAliasData {
+            name: value.name,
+            lineno: value.lineno,
+            aliases: value.aliases,
+            modifiers: value.modifiers,
+            symbol: value.symbol,
+        }
+    }
+}
+impl<'a> From<DimensionDefinition<'a>> for UnitAliasData<'a> {
+    fn from(value: DimensionDefinition<'a>) -> Self {
+        UnitAliasData {
+            name: value.name.to_string(),
+            lineno: value.lineno,
+            aliases: value.aliases,
+            modifiers: value.modifiers,
+            symbol: value.symbol,
+        }
+    }
+}
+
+/// Generate an alias unit definition from self.
+trait ToUnitDefAlias<'a> {
+    fn to_alias(&self, new_name: String, from: String) -> UnitDefinition<'a>;
+}
+
+impl<'input, 'output> ToUnitDefAlias<'input> for UnitAliasData<'output>
+where
+    'output: 'input,
+{
+    fn to_alias(&self, new_name: String, from: String) -> UnitDefinition<'input> {
+        UnitDefinition {
+            name: new_name.clone(),
+            symbol: None,
+            // Create an expression like `km = kilometer`.
+            expression: ParseTree::new(Operator::AssignAlias.into(), new_name.into(), from.into()),
+            modifiers: self.modifiers.clone(),
+            // Clear the aliases to avoid redefining them
+            aliases: vec![],
+            lineno: self.lineno,
+        }
     }
 }
 
