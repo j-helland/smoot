@@ -218,17 +218,23 @@ It is also possible to create a unit registry from scratch containing only your 
 ## Performance
 
 > [!NOTE]
-> All benchmark results were obtained on a MacBook Pro M4 Max using Python 3.8.20 and Pint 0.21.1. Results are similar for Python 3.13.2 and Pint 0.24.4.
+> All benchmark results were obtained on a MacBook Pro M4 Max using `Python 3.8.20`, `Pint 0.21.1`, `Astropy 5.2.2`, and `Unyt 2.9.5`. 
+>
+> Results are similar for `Python 3.13.2`, `Pint 0.24.4`, `Astropy 7.0.1`, and `Unyt 3.0.4`.
 
-Smoot typically outperforms [Pint](https://github.com/hgrecco/pint). Across all measured operations, Smoot averages (geometric mean) about 10x faster than Pint.
+Smoot typically outperforms other popular dimensional analysis libraries in the Python ecosystem: [Pint](https://github.com/hgrecco/pint), [Astropy units](https://github.com/astropy/astropy), and [Unyt](https://github.com/yt-project/unyt/tree/main). 
+
+Across all measured operations, Smoot averages (geometric mean) about 10x faster than Pint and Unyt, and about 3x faster than Astropy.
 
 ### Unit Conversions
 
-Smoot averages about 15x faster unit conversions than Pint (excluding expression string parsing).
+Smoot averages about 15x faster unit conversions than Pint and 4-5x faster than astropy and unyt.
 
-| Average (geometric) | Median           | Max     | Min    |
-| ---                 | ---              | ---     | ---    |
-| 15.370 +/- 1.885    | 14.730 +/- 6.973 |  44.938 |  7.570 |
+| speedup factor | Average (geometric) | Median | Max | Min |
+| --- | ---                 | ---    | --- | --- |
+| **vs pint**    | 15.379 +/- 3.933 | 24.178 +/- 20.384 | 66.557 | 3.6 |
+| **vs astropy** | 4.347  +/- 1.213 | 4.405  +/- 0.795  | 5.307  | 3.368 |
+| **vs unyt**    | 5.014  +/- 1.214 | 5.013  +/- 0.961  | 6.227  | 3.956 |
 
 
 ![](artifacts/smoot-conversions.png)
@@ -252,23 +258,28 @@ Smoot averages about 15x faster unit conversions than Pint (excluding expression
 
 ### Expression String Parsing
 
-Smoot averages about 20x faster expression string parsing than Pint.
+Smoot averages about 13.5x faster expression string parsing than Pint, 4x faster than Astropy, and 17x faster than Unyt.
 
-| Average (geometric) | Median | Max | Min |
-| ---                 | ---    | --- | --- |
-| 19.533 +/- 3.736 | 33.013 +/- 22.784 | 72.340 | 3.039 |
+Note that in the version of Unyt used for this benchmark, there is no quantity string parsing (e.g. `'1 meter'`) so Unyt is excluded from those comparisons.
+
+
+| speedup factor | Average (geometric) | Median | Max | Min |
+| --- | ---                 | ---    | --- | --- |
+| **vs pint**    | 13.450 | 3.345 | 23.311 | 9.984 | 50.820 | 2.390  |
+| **vs astropy** | 4.250  | 2.933 | 2.230  | 0.182 | 21.222 | 2.009  |
+| **vs unyt**    | 16.976 | 1.752 | 12.419 | 0.273 | 32.435 | 12.146 |
 
 
 ![](artifacts/smoot-parse.png)
 
-| function       | expression | pint (μs) | smoot (μs) | speedup factor |
-| ----           | ----------- | --------- | ---------- | -------------- |
-| `parse`          | `1 meter`                                                 |  30.124  | 0.836 | **36.018** |
-| `parse`          | `1 km`                                                    |  58.016  | 0.801 | **72.340** |
-| `parse`          | `1 meter/(second * gram)**2 + 3 meter/(second * gram)**2` | 154.955  | 3.085 | **50.221** |
-| `parse` unit     | `meter`                                                   |   2.643  | 0.870 | **3.038** |
-| `parse` unit     | `km`                                                      |  26.013  | 0.866 | **30.007** |
-| `parse` unit     | `meter/(second * gram)**2`                                |   6.660  | 1.431 | **4.654** |
+| name|description|smoot (μs)|pint (μs)|astropy (μs)|unyt (μs)|speedup (vs pint)|speedup (vs astropy)|speedup (vs unyt) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| parse quantity | `1 meter` | 1.331 | 30.979 | 2.896 | N/A | 23.277 x | 2.176 x | N/A |
+| parse quantity | `1 km` | 1.155 | 58.704 | 2.640 | N/A | 50.820 x | 2.285 x | N/A |
+| parse quantity | `1 meter/(second * gram)` | 2.886 | 68.526 | 38.442 | N/A | 23.746 x | 13.321 x | N/A |
+| parse unit | `meter` | 1.186 | 2.836 | 2.383 | 14.407 | 2.391 x | 2.009 x | 12.146 x |
+| parse unit | `km` | 1.128 | 26.332 | 2.354 | 14.009 | 23.345 x | 2.087 x | 12.420 x |
+| parse unit | `meter/(second * gram)` | 1.811 | 6.842 | 38.439 | 58.750 | 3.777 x | 21.222 x | 32.436 x |
 
 
 ### Pickle
@@ -277,68 +288,67 @@ Smoot quantities pickle and unpickle faster than Pint. In particular, Smoot quan
 
 ![](artifacts/smoot-pickle.png)
 
-| function       |  pint (μs) | smoot (μs) | speedup factor |
-| ----           |  --------- | ---------- | -------------- |
-| `pickle.dump`  |  2.678     | 1.582      | **1.692**      |
-| `pickle.load`  | 21.255     | 1.752      | **12.127**     |
+| name|smoot (μs)|pint (μs)|astropy (μs)|unyt (μs)|speedup (vs pint)|speedup (vs astropy)|speedup (vs unyt) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `pickle.dump` | 1.687 | 2.735 | 4.614 | 144.418 | **1.621 x** | **2.735 x** | **85.604 x** |
+| `pickle.load` | 7.590 | 181.128 | 3.532 | 352.720 | **23.865 x** | **0.465 x** | **46.473 x** |
 
 
 ### Arithmetic
 
-Smoot quantities are about 18x faster at arithmetic than Pint.
+Smoot quantities are about 23x faster at arithmetic than Pint and about 10-12x faster than astropy and unyt, even with implicit unit conversions e.g. `'1 m' + '1 cm'`.
 
-| Average (geometric) | Median | Max | Min |
-| ---                 | ---    | --- | --- |
-| 18.136 +/- 2.188  | 14.167 +/- 4.710 | 63.203 | 3.309 |
+| speedup factor | Average (geometric) | Median | Max | Min |
+| --- | ---                 | ---    | --- | --- |
+| vs pint | 23.126 +/- 1.679 | 27.543 +/- 9.543 | 38.155 | 12.1 |
+| vs astropy | 10.924 +/- 1.368 | 11.165 +/- 2.061 | 14.732 | 6.207  |
+| vs unyt |    12.550 +/- 1.454 | 11.949 +/- 3.291 | 19.342 | 7.543    |
 
-![](artifacts/smoot-ops.png)
+![](artifacts/smoot-ops-binary-m-cm.png)
 
-| function       |  pint (μs) | smoot (μs) | speedup factor |
-| ----           |  --------- | ---------- | -------------- |
-| `eq`           |  1.258     | 0.131      |  **9.552**     |
-| `add`          |  3.358     | 0.325      | **10.328**     |
-| `iadd`         |  3.817     | 0.262      | **14.521**     |
-| `sub`          |  3.237     | 0.345      |  **9.371**     |
-| `isub`         |  3.740     | 0.270      | **13.812**     |
-| `mul`          |  3.842     | 0.329      | **11.662**     |
-| `imul`         |  4.342     | 0.264      | **16.436**     |
-| `truediv`      |  4.061     | 0.333      | **12.181**     |
-| `itruediv`     |  4.336     | 0.273      | **15.872**     |
-| `floordiv`     |  5.192     | 0.349      | **14.851**     |
-| `ifloordiv`    |  3.443     | 0.274      | **12.540**     |
-| `mod`          |  4.406     | 0.334      | **13.172**     |
-| `imod`         |  2.966     | 0.263      | **11.270**     |
-| `math.pow`     |  8.411     | 0.381      | **22.055**     |
-| `np.logaddexp` | 13.829     | 1.449      |  **9.541**     |
-| `neg`          |  1.542     | 0.141      | **10.903**     |
-| `math.floor`   |  4.883     | 0.171      | **28.469**     |
-| `math.ceil`    |  4.797     | 0.168      | **28.506**     |
-| `round`        |  1.627     | 0.190      |  **8.548**     |
-| `abs`          |  1.517     | 0.174      |  **8.707**     |
-| `math.sqrt`    |  4.804     | 0.080      | **59.460**     |
-| `math.cos`     |  4.796     | 0.086      | **55.710**     |
-| `math.sin`     |  4.834     | 0.085      | **56.756**     |
-| `math.log`     |  4.921     | 0.101      | **48.306**     |
-| `math.exp`     |  4.881     | 0.082      | **58.811**     |
-| `math.isnan`   |  4.821     | 0.076      | **63.202**     |
-| `math.isinf`   |  4.730     | 0.080      | **58.891**     |
-| `np.sqrt`      |  6.224     | 1.881      |  **3.308**     |
+| name|smoot (μs)|pint (μs)|astropy (μs)|unyt (μs)|speedup (vs pint)|speedup (vs astropy)|speedup (vs unyt) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `eq` | 0.320 | 8.526 | 1.989 | 3.116 | **26.648 x** | **6.217 x** | **9.738 x** |
+| `add` | 0.399 | 14.704 | 4.439 | 4.395 | **36.864 x** | **11.129 x** | 1**1.019 x** |
+| `sub` | 0.386 | 14.531 | 4.068 | 4.535 | **37.669 x** | **10.545 x** | 1**1.756 x** |
+| `mul` | 0.430 | 5.068 | 6.108 | 3.161 | **11.783 x** | **14.201 x** | **7.349 x** |
+| `truediv` | 0.443 | 5.288 | 6.031 | 8.196 | **11.938 x** | **13.614 x** | 1**8.502 x** |
+| `floordiv` | 0.442 | 13.006 | 4.479 | 8.309 | **29.423 x** | **10.133 x** | 1**8.797 x** |
+
+
+### Numpy ufuncs
+
+Smoot is competitive for Numpy ufunc invocations on scalar values at about 3.5x faster than Pint, 1.8x faster than astropy, and about the same as unyt.
+
+| speedup factor | Average (geometric) | Median | Max | Min |
+| --- | ---                 | ---    | --- | --- |
+| vs pint    | 3.533 +/- 1.314 | 3.675 +/- 0.940 | 4.683 | 2.601 |
+| vs astropy | 1.831 +/- 1.432 | 1.940 +/- 0.584 | 2.591 | 1.137 |
+| vs unyt    | 1.045 +/- 1.428 | 0.848 +/- 0.086 | 1.564 | 0.761 |
+
+![](artifacts/smoot-unary-ufunc-meter.png)
+
+| name|smoot (μs)|pint (μs)|astropy (μs)|unyt (μs)|speedup (vs pint)|speedup (vs astropy)|speedup (vs unyt) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `np.sqrt` | 2.608 | 7.133 | 5.060 | 2.212 | **2.735 x** | **1.940 x** | **0.848 x** |
+| `np.square` | 2.479 | 6.450 | 3.535 | 2.020 | **2.602 x** | **1.426 x** | **0.815 x** |
+| `np.absolute` | 2.153 | 7.913 | 2.449 | 1.639 | **3.676 x** | **1.138 x** | **0.761 x** |
+| `np.isinf` | 0.556 | 2.604 | 1.441 | 0.870 | **4.684 x** | **2.592 x** | **1.565 x** |
+| `np.isnan` | 0.575 | 2.586 | 1.451 | 0.872 | **4.499 x** | **2.524 x** | **1.517 x** |
 
 
 ### Load Times
 
-Smoot loads unit definitions from disk about 5x faster than Pint. This means that Smoot's import time is notably faster than Pint.
+Smoot fully loads unit definitions from disk about 6x faster than Pint and from cache about 1.5x faster. This means that Smoot's import time is notably faster than Pint.
 
-| Average (geometric) | Median | Max | Min |
-| ---                 | ---    | --- | --- |
-| 5.297 +/- 1.078 | 5.304 +/- 0.282 | 5.586 |  5.022 |
+Smoot generally imports slower than astropy and unyt because both of these libraries encode their default unit system directly into their modules. Moreover, Pint and Smoot define more units than astropy and unyt.
 
 ![](artifacts/smoot-load.png)
 
 | function       |  description | pint (ms)          | smoot (ms)         | speedup factor    |
 | ----           |  ---------   | ----------         | --------------     | ---               |
-| load units     | from file    | 159.242  | 28.505  | **5.586** |
-| load units     | from cache   |  23.762  |  4.731  | **5.022** |
+| load units     | from file    | 163.379  | 28.342485  | **5.764** |
+| load units     | from cache   | 7.769  |  4.968 | **1.563** |
 
 
 ## Project Internals
