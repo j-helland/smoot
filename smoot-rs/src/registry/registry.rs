@@ -452,9 +452,7 @@ impl Registry {
                         let power = right_unit.multiplier.round() as i32;
                         left_unit.ipowi(power);
                         left_unit.multiplier = left_unit.multiplier.powi(power);
-
-                        // Display powers not needed for intermediary units.
-                        left_unit.power = None;
+                        left_unit.power = 1;
 
                         Ok(left_unit)
                     } else {

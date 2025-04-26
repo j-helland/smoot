@@ -225,15 +225,11 @@ impl Unit {
         let mut numerator = nums
             .iter()
             .map(|u| {
-                u.power
-                    .map(|p| {
-                        if p == 1 {
-                            u.name.clone()
-                        } else {
-                            format!("{} ** {}", u.name, p)
-                        }
-                    })
-                    .unwrap_or_else(|| u.name.clone())
+                if u.power == 1 {
+                    u.name.clone()
+                } else {
+                    format!("{} ** {}", u.name, u.power)
+                }
             })
             .join(" * ");
 
@@ -244,15 +240,11 @@ impl Unit {
         let mut denominator = denoms
             .iter()
             .map(|u| {
-                u.power
-                    .map(|p| {
-                        if p == 1 {
-                            u.name.clone()
-                        } else {
-                            format!("{} ** {}", u.name, p)
-                        }
-                    })
-                    .unwrap_or_else(|| u.name.clone())
+                if u.power == 1 {
+                    u.name.clone()
+                } else {
+                    format!("{} ** {}", u.name, u.power)
+                }
             })
             .join(" * ");
 
@@ -350,8 +342,7 @@ impl Unit {
                         // Aggregate conversion factors
                         // To handle cases like m * km^2, we need to convert m -> km. That means we need the conversion
                         // factor in terms of last's exponent, not next's exponent.
-                        let factor =
-                            last.get_multiplier() / next.multiplier.powi(last.power.unwrap_or(1));
+                        let factor = last.get_multiplier() / next.multiplier.powi(last.power);
                         if is_denom {
                             result_conversion_factor /= factor;
                         } else {
@@ -360,12 +351,7 @@ impl Unit {
 
                         last.name = next.name;
                         last.multiplier = next.multiplier;
-                        let next_power = next.power.unwrap_or(1);
-                        last.power = last
-                            .power
-                            .map(|p| p + next_power)
-                            .or(Some(1 + next_power))
-                            .filter(|&p| p != 1);
+                        last.power += next.power;
                         last.dimensionality.extend(next.dimensionality);
                         last.dimensionality.sort();
                         last.simplify();
@@ -395,13 +381,13 @@ impl Unit {
 
         // Sort into unit type groups to find all possible cancellations.
         self.numerator_units.sort_by(|u1, u2| {
-            (u1.unit_type, u1.power.map(|p| -p))
-                .partial_cmp(&(u2.unit_type, u2.power.map(|p| -p)))
+            (u1.unit_type, u1.power)
+                .partial_cmp(&(u2.unit_type, u2.power))
                 .unwrap()
         });
         self.denominator_units.sort_by(|u1, u2| {
-            (u1.unit_type, u1.power.map(|p| -p))
-                .partial_cmp(&(u2.unit_type, u2.power.map(|p| -p)))
+            (u1.unit_type, u1.power)
+                .partial_cmp(&(u2.unit_type, u2.power))
                 .unwrap()
         });
 
@@ -418,11 +404,11 @@ impl Unit {
 
             // Skip if mismatched units.
             match u1.unit_type.cmp(&u2.unit_type) {
-                std::cmp::Ordering::Less => {
+                Ordering::Less => {
                     inum += 1;
                     continue;
                 }
-                std::cmp::Ordering::Greater => {
+                Ordering::Greater => {
                     iden += 1;
                     continue;
                 }
@@ -451,9 +437,7 @@ impl Unit {
 
             // Unit exponents (e.g. meter ** 2) may result in a cancellation without completely removing
             // the unit from the numerator/denominator.
-            let u1_power = u1.power.unwrap_or(1);
-            let u2_power = u2.power.unwrap_or(1);
-            match u1_power.cmp(&u2_power) {
+            match u1.power.cmp(&u2.power) {
                 Ordering::Equal => {
                     numerator_retain[inum] = false;
                     denominator_retain[iden] = false;

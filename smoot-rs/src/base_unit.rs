@@ -20,7 +20,7 @@ pub struct BaseUnit {
     pub multiplier: f64,
     pub unit_type: DimensionType,
     pub dimensionality: Vec<Dimension>,
-    pub power: Option<i32>,
+    pub power: i32,
 }
 
 impl BaseUnit {
@@ -30,7 +30,7 @@ impl BaseUnit {
             multiplier,
             unit_type,
             dimensionality: get_dimensionality(unit_type),
-            power: None,
+            power: 1,
         }
     }
 
@@ -41,7 +41,7 @@ impl BaseUnit {
             multiplier,
             unit_type: DIMENSIONLESS_TYPE,
             dimensionality: vec![],
-            power: None,
+            power: 1,
         }
     }
 
@@ -58,9 +58,7 @@ impl BaseUnit {
 
     /// Get the multiplicative factor associated with this base unit.
     pub fn get_multiplier(&self) -> f64 {
-        self.power
-            .map(|p| self.multiplier.powi(p))
-            .unwrap_or(self.multiplier)
+        self.multiplier.powi(self.power)
     }
 
     /// Get the multiplicative factor needed to convert this unit into a target unit.
@@ -89,6 +87,12 @@ impl BaseUnit {
     }
 
     pub fn ipowi(&mut self, p: i32) {
+        self.power *= p;
+        if p == 0 {
+            self.dimensionality.clear();
+            self.unit_type = DIMENSIONLESS_TYPE;
+            return;
+        }
         if p == 1 {
             return;
         }
@@ -100,9 +104,6 @@ impl BaseUnit {
             self.dimensionality.iter_mut().for_each(|d| *d = d.neg());
         }
         self.dimensionality.sort();
-
-        // Maintain separate power field purely for display.
-        self.power = self.power.map(|dp| dp + p).or(Some(p));
     }
 
     pub fn powi(&self, p: i32) -> Self {
@@ -145,7 +146,7 @@ impl BaseUnit {
 
         // There should be no affect on self.unit_type since powers can only multiply/divide existing dimensionality numbers.
         self.dimensionality = result;
-        self.power = self.power.map(|p| p / 2).filter(|&p| p != 1);
+        self.power /= 2;
         Ok(())
     }
 
@@ -161,11 +162,12 @@ impl BaseUnit {
     }
 
     pub fn div_dimensionality(&mut self, other: &Self) {
-        self.power = self
-            .power
-            .map(|p| p - other.power.unwrap_or(1))
-            .or(other.power.map(|p| -p))
-            .filter(|&p| p != 1);
+        self.power -= other.power;
+        if self.power == 0 {
+            self.dimensionality.clear();
+            self.unit_type = DIMENSIONLESS_TYPE;
+            return;
+        }
 
         self.dimensionality
             .extend(other.dimensionality.iter().map(|d| -d));
@@ -221,7 +223,7 @@ pub(crate) fn simplify_dimensionality(dimensionality: &mut Vec<Dimension>) {
             // Negative is too large, move right
             Ordering::Less => left += 1,
             // Positive is too large, move left
-            _ => right -= 1,
+            Ordering::Greater => right -= 1,
         }
     }
 
@@ -349,14 +351,14 @@ mod test_base_unit {
             multiplier: 1.0,
             unit_type: 0,
             dimensionality: vec![-3, -2, -1, 1, 2, 2, 3, 3],
-            power: None,
+            power: 1,
         };
         let expected = BaseUnit {
             name: String::new(),
             multiplier: 1.0,
             unit_type: (1 << 1) | (1 << 2),
             dimensionality: vec![2, 3],
-            power: None,
+            power: 1,
         };
         actual.simplify();
         assert_eq!(actual, expected);
@@ -432,14 +434,14 @@ mod test_base_unit {
             multiplier: 1.0,
             unit_type: 0,
             dimensionality: vec![0, 0, -1, -1, 2],
-            power: None,
+            power: 1,
         };
         let u2 = BaseUnit {
             name: "u2".into(),
             multiplier: 1.0,
             unit_type: 0,
             dimensionality: vec![0, -1, -1, 2],
-            power: None,
+            power: 1,
         };
 
         let result = u1.conversion_factor(&u2);
