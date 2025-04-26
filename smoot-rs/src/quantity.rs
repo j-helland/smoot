@@ -14,7 +14,7 @@ use crate::{
     registry::Registry,
     types::Number,
     unit::{Dimensionality, Unit},
-    utils::{ConvertMagnitude, Powf, Powi},
+    utils::{ConvertMagnitude, Powi},
 };
 
 pub trait Storage<N: Number>: Mul<N, Output = Self> + MulAssign<N> + Clone + Sized {}
@@ -186,22 +186,6 @@ where
         ))
     }
 
-    /// Elementwise power
-    pub fn arr_pow(&self, other: &Self) -> SmootResult<Self> {
-        self.require_same_shape(other)?;
-        if !other.unit.is_dimensionless() {
-            return Err(SmootError::IncompatibleUnitTypes(
-                self.unit.to_string(),
-                other.unit.to_string(),
-            ));
-        }
-
-        let magnitude = Zip::from(&self.magnitude)
-            .and(&other.magnitude)
-            .map_collect(|&a, &b| a.powf(b.to_f64().unwrap()));
-        Ok(Self::new(magnitude, self.unit.clone()))
-    }
-
     /// Matrix multiplication. Works like numpy.dot, but only supports 1D and 2D arrays.
     pub fn dot(self, other: &Self) -> SmootResult<Self> {
         // Because we work with dynamically dimensioned arrays, we need to explicitly handle each combination of dimensions
@@ -266,14 +250,6 @@ where
     }
 }
 
-impl<N: Number, S: Storage<N>> Powf for Quantity<N, S>
-where
-    S: Powf + ConvertMagnitude,
-{
-    fn powf(self, p: f64) -> Self {
-        Quantity::new(self.magnitude.powf(p), self.unit.powf(p))
-    }
-}
 impl<N: Number, S: Storage<N>> Powi for Quantity<N, S>
 where
     S: Powi + ConvertMagnitude,
@@ -513,13 +489,13 @@ where
 
     fn add(mut self, rhs: N) -> Self::Output {
         if !self.unit.is_dimensionless() {
-            return Err(SmootError::InvalidOperation(
-                "+",
+            return Err(SmootError::InvalidOperation(format!(
+                "Invalid Quantity operation '{}' + '{}'",
                 self.unit
                     .get_units_string(true)
                     .unwrap_or("dimensionless".into()),
-                "dimensionaless".into(),
-            ));
+                "dimensionaless",
+            )));
         }
         self.magnitude += rhs;
         Ok(self)
@@ -531,13 +507,13 @@ impl<N: Number> Add<ArrayD<N>> for Quantity<N, ArrayD<N>> {
 
     fn add(mut self, rhs: ArrayD<N>) -> Self::Output {
         if !self.unit.is_dimensionless() {
-            return Err(SmootError::InvalidOperation(
-                "+",
+            return Err(SmootError::InvalidOperation(format!(
+                "Invalid Quantity operation '{}' + '{}'",
                 self.unit
                     .get_units_string(true)
                     .unwrap_or("dimensionless".into()),
-                "dimensionaless".into(),
-            ));
+                "dimensionaless",
+            )));
         }
         self.magnitude = self.magnitude + rhs;
         Ok(self)
@@ -632,13 +608,13 @@ where
 
     fn sub(mut self, rhs: N) -> Self::Output {
         if !self.unit.is_dimensionless() {
-            return Err(SmootError::InvalidOperation(
-                "-",
+            return Err(SmootError::InvalidOperation(format!(
+                "Invalid Quantity operation '{}' - '{}'",
                 self.unit
                     .get_units_string(true)
                     .unwrap_or("dimensionless".into()),
-                "dimensionaless".into(),
-            ));
+                "dimensionaless",
+            )));
         }
         self.magnitude -= rhs;
         Ok(self)
@@ -650,13 +626,13 @@ impl<N: Number> Sub<ArrayD<N>> for Quantity<N, ArrayD<N>> {
 
     fn sub(mut self, rhs: ArrayD<N>) -> Self::Output {
         if !self.unit.is_dimensionless() {
-            return Err(SmootError::InvalidOperation(
-                "-",
+            return Err(SmootError::InvalidOperation(format!(
+                "Invalid Quantity operation '{}' - '{}'",
                 self.unit
                     .get_units_string(true)
                     .unwrap_or("dimensionless".into()),
-                "dimensionaless".into(),
-            ));
+                "dimensionaless",
+            )));
         }
         self.magnitude = self.magnitude - rhs;
         Ok(self)
@@ -877,21 +853,6 @@ mod test_quantity {
         LazyLock::new(|| TEST_REGISTRY.get_unit("newton").expect("No unit 'newton`'"));
     static UNIT_JOULE: LazyLock<&BaseUnit> =
         LazyLock::new(|| TEST_REGISTRY.get_unit("joule").expect("No unit 'joule`'"));
-
-    #[test]
-    fn test_quantity_ito_fractional_power() -> SmootResult<()> {
-        let km_sqrt = Unit::new(vec![BaseUnit::clone(&UNIT_KILOMETER)], vec![]).powf(0.5);
-        let m_sqrt = Unit::new(vec![BaseUnit::clone(&UNIT_METER)], vec![]).powf(0.5);
-
-        let mut q = Quantity::new(1.0, km_sqrt);
-
-        q.ito(&m_sqrt, None)?;
-
-        assert_is_close!(q.magnitude, UNIT_KILOMETER.multiplier.sqrt());
-        assert_eq!(q.unit, m_sqrt);
-
-        Ok(())
-    }
 
     #[test]
     fn test_quantity_ito() -> SmootResult<()> {

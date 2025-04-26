@@ -303,27 +303,11 @@ def _floor_divide(
     )
 
 
-@_implements("sqrt", _FunctionType.ufunc)
-def _sqrt(x: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
-    return x.__class__(
-        value=np.sqrt(x.m, *args, **kwargs),
-        units=x.units**0.5,
-    )
-
-
 @_implements("square", _FunctionType.ufunc)
 def _square(x: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
     return x.__class__(
         value=np.square(x.m, *args, **kwargs),
         units=x.units**2,
-    )
-
-
-@_implements("cbrt", _FunctionType.ufunc)
-def _cbrt(x: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
-    return x.__class__(
-        value=np.cbrt(x.m, *args, **kwargs),
-        units=x.units ** (1 / 3),
     )
 
 

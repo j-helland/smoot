@@ -5,8 +5,8 @@ pub enum SmootError {
     #[error("Incompatible unit types {0} and {1}")]
     IncompatibleUnitTypes(String, String),
 
-    #[error("Invalid operation {0} between units {1} and {2}")]
-    InvalidOperation(&'static str, String, String),
+    #[error("{0}")]
+    InvalidOperation(String),
 
     #[error("{0}")]
     NoSuchElement(String),

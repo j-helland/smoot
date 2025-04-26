@@ -1,37 +1,36 @@
 use std::{
+    cmp::Ordering,
     collections::HashMap,
     fmt::{self},
     mem::swap,
-    ops::{Add, BitOr, Div, DivAssign, Mul, MulAssign, Sub},
+    ops::{Add, Div, DivAssign, Mul, MulAssign, Sub},
 };
 
 use bitcode::{Decode, Encode};
 use hashable::Hashable;
-use itertools::{EitherOrBoth, Itertools};
-use num_traits::ToPrimitive;
+use itertools::Itertools;
+use rustc_hash::FxBuildHasher;
 
 use crate::{
-    base_unit::{BaseUnit, DIMENSIONLESS_TYPE, DimensionType},
+    base_unit::{BaseUnit, DIMENSIONLESS_TYPE, Dimension, DimensionType, simplify_dimensionality},
     error::{SmootError, SmootResult},
     hash::Hash,
     parser::expression_parser,
     registry::Registry,
-    utils::{ApproxEq, float_eq_rel},
+    utils::ApproxEq,
 };
 
-type UnitDimensionality<N> = Vec<N>;
-
-pub struct Dimensionality(pub HashMap<String, f64>);
+pub struct Dimensionality(pub HashMap<String, i32, FxBuildHasher>);
 
 #[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
 pub struct Unit {
     numerator_units: Vec<BaseUnit>,
     numerator_dimension: DimensionType,
-    numerator_dimensionality: UnitDimensionality<f64>,
+    numerator_dimensionality: Vec<Dimension>,
 
     denominator_units: Vec<BaseUnit>,
     denominator_dimension: DimensionType,
-    denominator_dimensionality: UnitDimensionality<f64>,
+    denominator_dimensionality: Vec<Dimension>,
 }
 
 impl Unit {
@@ -39,10 +38,10 @@ impl Unit {
         let mut unit = Self {
             numerator_units,
             numerator_dimension: DIMENSIONLESS_TYPE,
-            numerator_dimensionality: UnitDimensionality::new(),
+            numerator_dimensionality: Vec::new(),
             denominator_units,
             denominator_dimension: DIMENSIONLESS_TYPE,
-            denominator_dimensionality: UnitDimensionality::new(),
+            denominator_dimensionality: Vec::new(),
         };
         unit.update_dimensionality();
         unit
@@ -57,28 +56,32 @@ impl Unit {
     }
 
     /// Integer power operation that creates a new unit.
-    pub fn powi(&self, n: i32) -> Self {
+    pub fn powi(&self, p: i32) -> Self {
         if self.denominator_dimension == DIMENSIONLESS_TYPE
             && self.numerator_dimension == DIMENSIONLESS_TYPE
         {
             return Self::new_dimensionless();
         }
-        match n {
+        match p {
             0 => Self::new_dimensionless(),
             1 => self.clone(),
             -1 => Self::new(self.denominator_units.clone(), self.numerator_units.clone()),
-            _ => self.powf(n.into()),
+            _ => {
+                let mut new = self.clone();
+                new.ipowi(p);
+                new
+            }
         }
     }
 
     /// In-place integer power operation.
-    pub fn ipowi(&mut self, n: i32) {
+    pub fn ipowi(&mut self, p: i32) {
         if self.denominator_dimension == DIMENSIONLESS_TYPE
             && self.numerator_dimension == DIMENSIONLESS_TYPE
         {
             return;
         }
-        match n {
+        match p {
             0 => *self = Self::new_dimensionless(),
             1 => {}
             -1 => {
@@ -92,53 +95,11 @@ impl Unit {
                     &mut self.denominator_dimension,
                 );
             }
-            _ => self.ipowf(n.into()),
-        }
-    }
-
-    /// Floating power operation that creates a new unit.
-    pub fn powf(&self, n: f64) -> Self {
-        let nabs = n.abs();
-        let mut numerator = self
-            .numerator_units
-            .clone()
-            .into_iter()
-            .map(|mut u| {
-                u.ipowf(nabs);
-                u
-            })
-            .collect();
-        let mut denominator = self
-            .denominator_units
-            .clone()
-            .into_iter()
-            .map(|mut u| {
-                u.ipowf(nabs);
-                u
-            })
-            .collect();
-
-        // Flip if power sign is negative.
-        if n < 0.0 {
-            swap(&mut numerator, &mut denominator);
-        }
-
-        Self::new(numerator, denominator)
-    }
-
-    /// In-place floating power operation.
-    pub fn ipowf(&mut self, n: f64) {
-        let nabs = n.abs();
-        self.numerator_units.iter_mut().for_each(|u| {
-            u.ipowf(nabs);
-        });
-        self.denominator_units.iter_mut().for_each(|u| {
-            u.ipowf(nabs);
-        });
-
-        // Flip if power sign is negative.
-        if n < 0.0 {
-            swap(&mut self.numerator_units, &mut self.denominator_units);
+            _ => {
+                self.numerator_units.iter_mut().for_each(|u| u.ipowi(p));
+                self.denominator_units.iter_mut().for_each(|u| u.ipowi(p));
+                self.update_dimensionality();
+            }
         }
     }
 
@@ -163,40 +124,15 @@ impl Unit {
     /// Return true if this unit is compatible with the target (e.g. meter and kilometer).
     pub fn is_compatible_with(&self, other: &Self) -> bool {
         // Fast mask comparison
+        // TODO(jwh): profile to see if this is worth it
         let is_same_dimension = self.numerator_dimension == other.numerator_dimension
             && self.denominator_dimension == other.denominator_dimension;
         if !is_same_dimension {
             return false;
         }
 
-        let mut result = true;
-
-        // numerator
-        let mut indices = self.numerator_dimension;
-        let mut idx: u32;
-        while result && indices > 0 {
-            idx = indices.trailing_zeros();
-            indices &= !(1 << idx);
-            result &= float_eq_rel(
-                self.numerator_dimensionality[idx as usize],
-                other.numerator_dimensionality[idx as usize],
-                1e-6,
-            );
-        }
-
-        // denominator
-        indices = self.denominator_dimension;
-        while result && indices > 0 {
-            idx = indices.trailing_zeros();
-            indices &= !(1 << idx);
-            result &= float_eq_rel(
-                self.denominator_dimensionality[idx as usize],
-                other.denominator_dimensionality[idx as usize],
-                1e-6,
-            );
-        }
-
-        result
+        self.numerator_dimensionality == other.numerator_dimensionality
+            && self.denominator_dimensionality == other.denominator_dimensionality
     }
 
     /// Compute the multiplicative factor necessary to convert this unit into the target unit.
@@ -236,47 +172,24 @@ impl Unit {
         Ok(numerator_conversion_factor / denominator_conversion_factor)
     }
 
-    /// Format a float as a string.
-    /// If the float is close to an integer, only display the integer part.
-    fn format_float(p: f64) -> String {
-        if float_eq_rel(p.fract(), 0.0, 1e-8) {
-            format!("{}", p.to_i64().unwrap())
-        } else {
-            format!("{:?}", p)
-        }
-    }
-
     pub fn get_dimensionality(&self, registry: &Registry) -> Option<Dimensionality> {
         if self.is_dimensionless() {
             return None;
         }
 
-        // Numerator
-        let mut dims = HashMap::with_capacity(
-            self.numerator_dimensionality
-                .len()
-                .max(self.denominator_dimensionality.len()),
-        );
+        let mut dims = HashMap::default();
+        dims.reserve(self.numerator_dimensionality.len() + self.denominator_dimensionality.len());
 
         self.numerator_dimensionality
             .iter()
-            .enumerate()
-            .filter(|(_, dim)| !dim.approx_eq(0.0))
-            .for_each(|(idx, &dim)| {
-                let dim_str = registry.get_dimension(&(1 << idx));
-                dims.insert(dim_str.clone(), dim);
-            });
-
-        // Denominator
-        self.denominator_dimensionality
-            .iter()
-            .enumerate()
-            .filter(|(_, dim)| !dim.approx_eq(0.0))
-            .for_each(|(idx, &dim)| {
-                let dim_str = registry.get_dimension(&(1 << idx));
+            .copied()
+            .chain(self.denominator_dimensionality.iter().map(|d| -d))
+            .for_each(|d| {
+                let d = d as i32;
+                let dim_str = registry.get_dimension(&(1 << (d.abs() - 1)));
                 dims.entry(dim_str.clone())
-                    .and_modify(|d| *d -= dim)
-                    .or_insert(-dim);
+                    .and_modify(|e| *e += d.signum())
+                    .or_insert(d.signum());
             });
 
         Some(Dimensionality(dims))
@@ -287,7 +200,7 @@ impl Unit {
             dims.0
                 .iter()
                 .sorted_by_key(|(k, _)| k.as_str())
-                .map(|(k, v)| format!("{}: {}", k, Self::format_float(*v)))
+                .map(|(k, v)| format!("{}: {}", k, v))
                 .join(", ")
         })
     }
@@ -313,8 +226,13 @@ impl Unit {
             .iter()
             .map(|u| {
                 u.power
-                    .map(Self::format_float)
-                    .map(|s| format!("{} ** {}", u.name, s))
+                    .map(|p| {
+                        if p == 1 {
+                            u.name.clone()
+                        } else {
+                            format!("{} ** {}", u.name, p)
+                        }
+                    })
                     .unwrap_or_else(|| u.name.clone())
             })
             .join(" * ");
@@ -327,8 +245,13 @@ impl Unit {
             .iter()
             .map(|u| {
                 u.power
-                    .map(Self::format_float)
-                    .map(|s| format!("{} ** {}", u.name, s))
+                    .map(|p| {
+                        if p == 1 {
+                            u.name.clone()
+                        } else {
+                            format!("{} ** {}", u.name, p)
+                        }
+                    })
                     .unwrap_or_else(|| u.name.clone())
             })
             .join(" * ");
@@ -355,49 +278,46 @@ impl Unit {
     ///
     /// This is invoked automatically during unit reduction / simplification.
     fn update_dimensionality(&mut self) {
-        // Use bitmask to get the largest dimension index.
-        // If we bitwise or all masks together, the index of the MSB indicates the largest size we need.
-        let max_dim = DimensionType::BITS
-            - Self::get_dimension_mask(&self.numerator_units)
-                .bitor(Self::get_dimension_mask(&self.denominator_units))
-                .leading_zeros();
-        let max_dim = max_dim as usize;
-
         // Reset
         self.numerator_dimension = 0;
         self.denominator_dimension = 0;
-
-        self.numerator_dimensionality.fill(0.0);
-        self.numerator_dimensionality.resize(max_dim, 0.0);
-        self.denominator_dimensionality.fill(0.0);
-        self.denominator_dimensionality.resize(max_dim, 0.0);
+        self.numerator_dimensionality.clear();
+        self.denominator_dimensionality.clear();
 
         // Update
         // A negative dimension in the numerator corresponds to a positive dimension in the denominator.
         for u in self.numerator_units.iter() {
-            for (i, &dim) in u.dimensionality.iter().enumerate() {
-                let b = u.unit_type & (1 << i);
-                if dim < 0.0 {
+            for &dim in u.dimensionality.iter() {
+                let dim_abs = dim.abs();
+                let b = u.unit_type & (1 << (dim_abs - 1));
+                if dim.is_negative() {
                     self.denominator_dimension |= b;
-                    self.denominator_dimensionality[i] += dim.abs();
+                    self.denominator_dimensionality.push(dim_abs);
                 } else {
                     self.numerator_dimension |= b;
-                    self.numerator_dimensionality[i] += dim;
+                    self.numerator_dimensionality.push(dim_abs);
                 }
             }
         }
         for u in self.denominator_units.iter() {
-            for (i, &dim) in u.dimensionality.iter().enumerate() {
-                let b = u.unit_type & (1 << i);
-                if dim < 0.0 {
+            for &dim in u.dimensionality.iter() {
+                let dim_abs = dim.abs();
+                let b = u.unit_type & (1 << (dim_abs - 1));
+                if dim.is_negative() {
                     self.numerator_dimension |= b;
-                    self.numerator_dimensionality[i] += dim.abs();
+                    self.numerator_dimensionality.push(dim_abs);
                 } else {
                     self.denominator_dimension |= b;
-                    self.denominator_dimensionality[i] += dim;
+                    self.denominator_dimensionality.push(dim_abs);
                 }
             }
         }
+
+        self.numerator_dimensionality.sort();
+        self.denominator_dimensionality.sort();
+
+        simplify_dimensionality(&mut self.numerator_dimensionality);
+        simplify_dimensionality(&mut self.denominator_dimensionality);
     }
 
     /// Merge compatible units e.g. `meter * km -> meter ** 2`.
@@ -428,7 +348,10 @@ impl Unit {
                 if let Some(last) = units_reduced.last_mut() {
                     if last.unit_type == next.unit_type {
                         // Aggregate conversion factors
-                        let factor = last.conversion_factor_unchecked(&next);
+                        // To handle cases like m * km^2, we need to convert m -> km. That means we need the conversion
+                        // factor in terms of last's exponent, not next's exponent.
+                        let factor =
+                            last.get_multiplier() / next.multiplier.powi(last.power.unwrap_or(1));
                         if is_denom {
                             result_conversion_factor /= factor;
                         } else {
@@ -437,21 +360,15 @@ impl Unit {
 
                         last.name = next.name;
                         last.multiplier = next.multiplier;
-                        let next_power = next.power.unwrap_or(1.0);
+                        let next_power = next.power.unwrap_or(1);
                         last.power = last
                             .power
                             .map(|p| p + next_power)
-                            .or(Some(1.0 + next_power));
-                        last.dimensionality = last
-                            .dimensionality
-                            .drain(..)
-                            .zip_longest(next.dimensionality.iter())
-                            .map(|lr| match lr {
-                                EitherOrBoth::Both(l, &r) => l + r,
-                                EitherOrBoth::Left(l) => l,
-                                EitherOrBoth::Right(r) => *r,
-                            })
-                            .collect();
+                            .or(Some(1 + next_power))
+                            .filter(|&p| p != 1);
+                        last.dimensionality.extend(next.dimensionality);
+                        last.dimensionality.sort();
+                        last.simplify();
                         return;
                     }
                 }
@@ -534,17 +451,21 @@ impl Unit {
 
             // Unit exponents (e.g. meter ** 2) may result in a cancellation without completely removing
             // the unit from the numerator/denominator.
-            let u1_power = u1.power.unwrap_or(1.0);
-            let u2_power = u2.power.unwrap_or(1.0);
-            if u1_power == u2_power {
-                numerator_retain[inum] = false;
-                denominator_retain[iden] = false;
-            } else if u1_power < u2_power {
-                numerator_retain[inum] = false;
-                u2.sub_power(u1_power);
-            } else if u1_power > u2_power {
-                denominator_retain[iden] = false;
-                u1.sub_power(u2_power);
+            let u1_power = u1.power.unwrap_or(1);
+            let u2_power = u2.power.unwrap_or(1);
+            match u1_power.cmp(&u2_power) {
+                Ordering::Equal => {
+                    numerator_retain[inum] = false;
+                    denominator_retain[iden] = false;
+                }
+                Ordering::Less => {
+                    numerator_retain[inum] = false;
+                    u2.div_dimensionality(u1);
+                }
+                Ordering::Greater => {
+                    denominator_retain[iden] = false;
+                    u1.div_dimensionality(u2);
+                }
             }
 
             inum += 1;
@@ -616,30 +537,34 @@ impl Unit {
         base: &BaseUnit,
         registry: &Registry,
     ) {
-        for (i, &dim) in base.dimensionality.iter().enumerate() {
-            if dim.approx_eq(0.0) {
-                continue;
-            }
-            let dim_abs = dim.abs();
+        if base.dimensionality.is_empty() {
+            return;
+        }
 
-            let dim_type = 1 << i;
-            let root = registry.get_root_unit(&dim_type);
-            let root = if dim_abs.approx_eq(1.0) {
-                root.clone()
-            } else {
-                root.powf(dim_abs)
-            };
-
-            if dim.is_sign_negative() {
+        let mut f_update = |dim: Dimension, power: i32| {
+            let dim_type = 1 << (dim.abs() - 1);
+            let root = registry.get_root_unit(&dim_type).powi(power);
+            if dim.is_negative() {
                 denominator.push(root);
             } else {
                 numerator.push(root);
             }
-        }
-    }
+        };
 
-    fn get_dimension_mask(units: &[BaseUnit]) -> DimensionType {
-        units.iter().fold(0, |d, u| d | u.unit_type)
+        let mut last = base.dimensionality[0];
+        let mut power = 1;
+
+        for &dim in &base.dimensionality[1..] {
+            if dim == last {
+                power += 1;
+                continue;
+            }
+            f_update(last, power);
+            power = 1;
+            last = dim;
+        }
+        // Handle the final segment
+        f_update(last, power);
     }
 }
 
@@ -726,12 +651,12 @@ impl Add for Unit {
 
     fn add(self, rhs: Self) -> Self::Output {
         if !self.is_compatible_with(&rhs) {
-            return Err(SmootError::InvalidOperation(
-                "+",
+            return Err(SmootError::InvalidOperation(format!(
+                "Invalid Unit operation '{}' + '{}'",
                 self.get_units_string(true)
                     .unwrap_or("dimensionless".into()),
                 rhs.get_units_string(true).unwrap_or("dimensionless".into()),
-            ));
+            )));
         }
         Ok(self)
     }
@@ -742,12 +667,12 @@ impl Sub for Unit {
 
     fn sub(self, rhs: Self) -> Self::Output {
         if !self.is_compatible_with(&rhs) {
-            return Err(SmootError::InvalidOperation(
-                "-",
+            return Err(SmootError::InvalidOperation(format!(
+                "Invalid Unit operation '{}' - '{}'",
                 self.get_units_string(true)
                     .unwrap_or("dimensionless".into()),
                 rhs.get_units_string(true).unwrap_or("dimensionless".into()),
-            ));
+            )));
         }
         Ok(self)
     }
@@ -869,19 +794,11 @@ mod test_unit {
     )]
     #[case(
         Unit::new(
-            vec![UNIT_METER.powf(2.0)],
-            vec![UNIT_SECOND.powf(2.0)],
+            vec![UNIT_METER.powi(2)],
+            vec![UNIT_SECOND.powi(2)],
         ),
         Some("meter ** 2 / second ** 2")
         ; "Powers"
-    )]
-    #[case(
-        Unit::new(
-            vec![UNIT_METER.powf(2.5)],
-            vec![],
-        ),
-        Some("meter ** 2.5")
-        ; "Fractional powers"
     )]
     #[case(
         Unit::new(
@@ -915,14 +832,6 @@ mod test_unit {
         ),
         Some("[length]: -1")
         ; "Denominator"
-    )]
-    #[case(
-        Unit::new(
-            vec![UNIT_METER.powf(2.5)],
-            vec![],
-        ),
-        Some("[length]: 2.5")
-        ; "Power"
     )]
     #[case(
         Unit::new(
@@ -1103,11 +1012,7 @@ mod test_unit {
         let _ = u.simplify(true);
 
         assert_eq!(u.denominator_dimension, DIMENSIONLESS_TYPE);
-        assert!(
-            u.denominator_dimensionality
-                .iter()
-                .all(|d| d.approx_eq(0.0))
-        );
+        assert!(u.denominator_dimensionality.iter().all(|&d| d == 0));
         assert_eq!(u.numerator_dimension, UNIT_SECOND.unit_type);
         assert_eq!(u.numerator_dimensionality, UNIT_SECOND.dimensionality);
     }
@@ -1128,34 +1033,23 @@ mod test_unit {
     /// Numerator units with exponents are correctly simplified.
     #[test]
     fn test_simplify_adjusts_numerator_powers() {
-        let mut u = Unit::new(vec![UNIT_METER.powf(2.0)], vec![UNIT_METER.clone()]);
+        let mut u = Unit::new(vec![UNIT_METER.powi(2)], vec![UNIT_METER.clone()]);
         let expected = Unit::new(vec![UNIT_METER.clone()], vec![]);
 
         let _ = u.simplify(true);
 
-        assert_eq!(u, expected);
+        assert_eq!(u, expected, "{:#?} != {:#?}", u, expected);
     }
 
     /// Denominator units with exponents are correctly simplified.
     #[test]
     fn test_simplify_adjusts_denominator_powers() {
-        let mut u = Unit::new(vec![UNIT_METER.clone()], vec![UNIT_METER.powf(2.0)]);
+        let mut u = Unit::new(vec![UNIT_METER.clone()], vec![UNIT_METER.powi(2)]);
         let expected = Unit::new(vec![], vec![UNIT_METER.clone()]);
 
         let _ = u.simplify(true);
 
-        assert_eq!(u, expected);
-    }
-
-    #[test]
-    fn test_simplify_with_fractional_powers() {
-        let mut u = Unit::new(vec![UNIT_KILOMETER.powf(0.5)], vec![UNIT_METER.clone()]);
-
-        let conversion_factor = u.simplify(false);
-
-        assert_is_close!(conversion_factor, 1000.0_f64.sqrt());
-        assert!(u.numerator_units.is_empty());
-        assert_eq!(u.denominator_units, vec![UNIT_METER.powf(0.5)]);
+        assert_eq!(u, expected, "{:#?} != {:#?}", u, expected);
     }
 
     #[case(
@@ -1256,32 +1150,15 @@ mod test_unit {
         assert!(u1.is_compatible_with(&u2));
     }
 
-    #[test]
-    /// Floating point imprecision should not cause units to be considered incompatible.
-    fn test_is_compatible_with_float_imprecision() {
-        let u1 = Unit::new(vec![UNIT_METER.clone()], vec![]);
-        let mut u2 = u1.clone();
-        u2.ipowf(1.0 + f64::EPSILON);
-        assert!(u1.is_compatible_with(&u2));
-    }
-
-    #[test]
-    /// Fractional powers should be checked for compatibility.
-    fn test_is_compatible_fractional_powers() {
-        let u1 = Unit::new(vec![UNIT_METER.clone()], vec![]);
-        let u2 = Unit::new(vec![UNIT_METER.powf(0.5)], vec![]);
-        assert!(!u1.is_compatible_with(&u2));
-    }
-
     #[case(
         Unit::new(vec![UNIT_KILOMETER.clone(), UNIT_METER.clone()], vec![]),
-        Unit::new(vec![UNIT_METER.powf(2.0)], vec![]),
+        Unit::new(vec![UNIT_METER.powi(2)], vec![]),
         1000.0
         ; "Numerator"
     )]
     #[case(
         Unit::new(vec![], vec![UNIT_KILOMETER.clone(), UNIT_METER.clone()]),
-        Unit::new(vec![], vec![UNIT_METER.powf(2.0)]),
+        Unit::new(vec![], vec![UNIT_METER.powi(2)]),
         1e-3
         ; "Denominator"
     )]
@@ -1290,18 +1167,6 @@ mod test_unit {
         Unit::new(vec![UNIT_JOULE.clone()], vec![UNIT_NEWTON.clone()]),
         1.0
         ; "Incompatible units with matching dimensions do not reduce"
-    )]
-    #[case(
-        Unit::new(vec![UNIT_KILOMETER.powf(0.5), UNIT_METER.clone()], vec![]),
-        Unit::new(vec![UNIT_KILOMETER.powf(1.5)], vec![]),
-        1e-3_f64.sqrt()
-        ; "Units with fractional powers"
-    )]
-    #[case(
-        Unit::new(vec![UNIT_METER.powf(0.5), UNIT_KILOMETER.clone()], vec![]),
-        Unit::new(vec![UNIT_METER.powf(1.5)], vec![]),
-        1000.0
-        ; "Units with fractional powers 2"
     )]
     #[case(
         Unit::new(vec![BaseUnit::new_constant(2.0), UNIT_METER.clone()], vec![]),
@@ -1318,7 +1183,7 @@ mod test_unit {
     fn test_reduce(mut unit: Unit, expected: Unit, expected_factor: f64) {
         assert_is_close!(unit.reduce(), expected_factor);
         assert_is_close!(unit.reduce(), 1.0); // idempotent
-        assert_eq!(unit, expected);
+        assert_eq!(unit, expected, "{:#?} != {:#?}", unit, expected);
     }
 
     #[case(
@@ -1353,7 +1218,7 @@ mod test_unit {
     )]
     #[case(
         Unit::new(vec![UNIT_NEWTON.clone()], vec![]),
-        Unit::new(vec![UNIT_METER.clone(), UNIT_GRAM.clone()], vec![UNIT_SECOND.powf(2.0)]),
+        Unit::new(vec![UNIT_METER.clone(), UNIT_GRAM.clone()], vec![UNIT_SECOND.powi(2)]),
         1000.0
         ; "Multidimensional base unit"
     )]
@@ -1365,7 +1230,7 @@ mod test_unit {
     )]
     fn test_ito_root_unit(mut unit: Unit, expected: Unit, expected_factor: f64) {
         assert_is_close!(unit.ito_root_units(&TEST_REGISTRY), expected_factor);
-        assert_eq!(unit, expected);
+        assert_eq!(unit, expected, "{:#?} != {:#?}", unit, expected);
     }
 
     #[test]

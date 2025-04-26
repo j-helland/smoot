@@ -383,6 +383,7 @@ dependencies = [
  "mimalloc",
  "numpy",
  "pyo3",
+ "rustc-hash",
  "smoot-rs",
 ]
 

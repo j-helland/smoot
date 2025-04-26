@@ -41,6 +41,7 @@ pub(crate) enum Operator {
     Mul,
     Div,
     Pow,
+    Sqrt,
     Assign,
     AssignAlias,
 }
@@ -50,6 +51,7 @@ impl From<&str> for Operator {
             "*" => Self::Mul,
             "/" => Self::Div,
             "^" | "**" => Self::Pow,
+            "sqrt" => Self::Sqrt,
             "=" => Self::Assign,
             _ => Self::Invalid(value.into()),
         }
@@ -102,6 +104,14 @@ impl ParseTree {
             val,
             left: Some(Box::new(left)),
             right: Some(Box::new(right)),
+        }
+    }
+
+    pub fn new_unary(op: Operator, node: ParseTree) -> Self {
+        Self {
+            val: op.into(),
+            left: Some(Box::new(node)),
+            right: None,
         }
     }
 
@@ -189,8 +199,10 @@ peg::parser! {
                 u1:(@) __ op:$("*" / "/") __ u2:@
                     { ParseTree::new(Operator::from(op).into(), u1, u2) }
                 --
-                u1:(@) __ op:$("^" / "**") __ u2:@
-                    { ParseTree::new(Operator::from(op).into(), u1, u2) }
+                u:@ __ op:$("^" / "**") __ p:integer()
+                    { ParseTree::new(Operator::from(op).into(), u, p.into()) }
+                "sqrt(" __ u:unit_expression() __ ")"
+                    { ParseTree::new_unary(Operator::Sqrt, u) }
                 --
                 "(" __ expr:unit_expression() __ ")" { expr }
                 --
@@ -370,13 +382,31 @@ mod test_unit_parser {
         ))
         ; "Inverted power"
     )]
+    #[case(
+        "sqrt(meter * meter)",
+        Some(ParseTree::new_unary(
+            Operator::Sqrt,
+            ParseTree::new(
+                Operator::Mul.into(),
+                "meter".into(),
+                "meter".into(),
+            )
+        ))
+        ; "Square root"
+    )]
+    #[case(
+        "meter ** 0.5",
+        None
+        ; "Invalid fractional power"
+    )]
     fn test_unit_expression(
         expression: &str,
         expected: Option<ParseTree>,
     ) -> Result<(), ParseError<LineCol>> {
         let result = registry_parser::unit_expression(expression);
         if let Some(expected) = expected {
-            assert_eq!(result?, expected);
+            let result = result?;
+            assert_eq!(result, expected, "{:#?}\n!=\n{:#?}", result, expected);
         } else {
             assert!(result.is_err(), "Expected an error but got:\n{:#?}", result);
         }

@@ -34,30 +34,6 @@ impl<T: ApproxEq + Copy> ApproxEq for &Vec<T> {
     }
 }
 
-pub trait Powf {
-    fn powf(self, p: f64) -> Self;
-}
-impl Powf for f64 {
-    fn powf(self, p: f64) -> Self {
-        self.powf(p)
-    }
-}
-impl Powf for i64 {
-    fn powf(self, p: f64) -> Self {
-        (self as f64).powf(p) as i64
-    }
-}
-impl Powf for ArrayD<f64> {
-    fn powf(self, p: f64) -> Self {
-        self.mapv(|f| f.powf(p))
-    }
-}
-impl Powf for ArrayD<i64> {
-    fn powf(self, p: f64) -> Self {
-        self.mapv(|i| i.powf(p))
-    }
-}
-
 pub trait Powi {
     fn powi(self, p: i32) -> Self;
 }

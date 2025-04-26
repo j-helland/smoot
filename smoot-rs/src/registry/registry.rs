@@ -47,7 +47,7 @@ macro_rules! insert_ignore_conflict {
 /// re-parsing the unit definitions file.
 #[derive(Encode, Decode)]
 pub struct Registry {
-    pub(crate) units: HashMap<String, BaseUnit>,
+    pub(crate) units: HashMap<String, BaseUnit, FxBuildHasher>,
 
     /// A root unit is the canonical unit for a particular dimension (e.g. [length] -> meter).
     // Don't bother with sharing memory with units because there's relatively few dimensions,
@@ -62,7 +62,7 @@ impl Registry {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
-            units: HashMap::new(),
+            units: HashMap::default(),
             root_units: HashMap::default(),
             dimensions: HashMap::default(),
             prefix_definitions: HashMap::default(),
@@ -269,7 +269,12 @@ impl Registry {
     }
 
     /// Insert a unit definition.
-    fn insert_def(&mut self, name: String, aliases: &Vec<&str>, unit: BaseUnit) -> &BaseUnit {
+    fn insert_def(&mut self, name: String, aliases: &Vec<&str>, mut unit: BaseUnit) -> &BaseUnit {
+        // Make sure all created base units are fully simplified.
+        // Shrink capacity for more efficient storage when the registry is cached to disk.
+        unit.simplify();
+        unit.dimensionality.shrink_to_fit();
+
         // Ignore any aliases named `_`
         for &alias in aliases.iter().filter(|&&a| a.ne("_")) {
             let _ = self.units.entry(alias.into()).or_insert(unit.clone());
@@ -388,42 +393,76 @@ impl Registry {
             };
             return Ok(unit);
         }
-        if tree.right.is_none() || tree.left.is_none() {
+        if tree.left.is_none() {
             return Err(SmootError::ParseTreeError(format!(
-                "line:{} Intermediate node {:?} has a None child",
+                "line:{} Intermediate node {:?} has None left child",
                 lineno, tree.val
             )));
         }
 
-        let right_unit =
-            self.eval_expression_tree(lineno, tree.right.as_ref().unwrap().as_ref(), unit_defs)?;
-        let right_unit = BaseUnit::clone(&right_unit);
-
+        // There must always be a left unit.
         let left_unit =
             self.eval_expression_tree(lineno, tree.left.as_ref().unwrap().as_ref(), unit_defs)?;
         let mut left_unit = BaseUnit::clone(&left_unit);
 
+        // Right unit might be None for unary operators e.g. Sqrt.
+        let right_unit = tree
+            .right
+            .as_ref()
+            .map(|right| self.eval_expression_tree(lineno, right, unit_defs));
+
         if let NodeData::Op(op) = &tree.val {
             return match op {
                 Operator::Div => {
-                    left_unit /= right_unit;
-                    Ok(left_unit)
+                    if let Some(Ok(right_unit)) = right_unit {
+                        left_unit /= right_unit;
+                        Ok(left_unit)
+                    } else {
+                        Err(SmootError::ParseTreeError(format!(
+                            "line:{} {} / None expected a right operand",
+                            lineno, left_unit.name,
+                        )))
+                    }
                 }
                 Operator::Mul => {
-                    left_unit *= right_unit;
+                    if let Some(Ok(right_unit)) = right_unit {
+                        left_unit *= right_unit;
+                        Ok(left_unit)
+                    } else {
+                        Err(SmootError::ParseTreeError(format!(
+                            "line:{} {} * None expected a right operand",
+                            lineno, left_unit.name,
+                        )))
+                    }
+                }
+                Operator::Sqrt => {
+                    left_unit.isqrt()?;
                     Ok(left_unit)
                 }
                 Operator::Pow => {
-                    // We should never have an expression like `meter ** seconds`, only numerical exponents like `meter ** 2`.
-                    if !right_unit.name.is_empty() {
-                        return Err(SmootError::ParseTreeError(format!(
-                            "line:{} Invalid operator {} ** {}",
-                            lineno, left_unit.name, right_unit.name
-                        )));
+                    if let Some(right_unit) = right_unit {
+                        let right_unit = right_unit?;
+                        if !right_unit.is_constant() {
+                            return Err(SmootError::ParseTreeError(format!(
+                                "line:{} Invalid operator {} ** {}",
+                                lineno, left_unit.name, right_unit.name
+                            )));
+                        }
+
+                        let power = right_unit.multiplier.round() as i32;
+                        left_unit.ipowi(power);
+                        left_unit.multiplier = left_unit.multiplier.powi(power);
+
+                        // Display powers not needed for intermediary units.
+                        left_unit.power = None;
+
+                        Ok(left_unit)
+                    } else {
+                        Err(SmootError::ParseTreeError(format!(
+                            "line:{} {} ** None expected a right operand",
+                            lineno, left_unit.name,
+                        )))
                     }
-                    left_unit.multiplier = left_unit.multiplier.powf(right_unit.multiplier);
-                    left_unit.mul_dimensionality(right_unit.multiplier);
-                    Ok(left_unit)
                 }
                 _ => Err(SmootError::ParseTreeError(format!(
                     "line:{} Invalid operator {:?}",
@@ -724,28 +763,9 @@ where
 mod test_registry {
     use test_case::case;
 
-    use crate::{
-        test_utils::{DEFAULT_UNITS_FILE, TEST_CACHE_PATH},
-        utils::ApproxEq,
-    };
+    use crate::test_utils::{DEFAULT_UNITS_FILE, TEST_CACHE_PATH};
 
     use super::*;
-
-    /// All BaseUnit dimensionalities must be integral values. No powers like `0.5` are supported.
-    #[test]
-    fn test_all_dimensionalities_are_integral() -> SmootResult<()> {
-        let reg = Registry::new_from_file(Path::new(DEFAULT_UNITS_FILE))?;
-        for unit in reg.units.values() {
-            assert!(
-                unit.dimensionality.iter().all(|d| d.approx_eq(d.round())),
-                "Unit {} with type {:b} has non-integral dimensionality {:?}",
-                unit.name,
-                unit.unit_type,
-                unit.dimensionality
-            );
-        }
-        Ok(())
-    }
 
     #[test]
     fn test_registry_loads_from_cache() -> SmootResult<()> {
@@ -759,103 +779,160 @@ mod test_registry {
 
     #[case(
         "percent = 0.01 = %",
-        Some(HashMap::from([
-            ("percent".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
-            ("percents".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
-            ("%".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
-        ]))
+        {
+            let mut map = HashMap::default();
+            map.extend([
+                ("percent".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+                ("percents".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+                ("%".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+            ]);
+            Some(map)
+        }
         ; "Dimensionless unit with alias parses"
     )]
     #[case(
-        "# ignored comment\npercent = 0.01 = %  # ignored comment",
-        Some(HashMap::from([
-            ("percent".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
-            ("percents".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
-            ("%".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
-        ]))
+        "# ignored comment\n\
+        percent = 0.01 = %  # ignored comment",
+        {
+            let mut map = HashMap::default();
+            map.extend([
+                ("percent".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+                ("percents".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+                ("%".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+            ]);
+            Some(map)
+        }
         ; "Comments are ignored"
     )]
     #[case(
-        "kilo- = 1e3\nmeter = [length]",
-        Some(HashMap::from([
-            ("meter".to_string(), BaseUnit::new("meter".to_string(), 1.0, 1)),
-            ("meters".to_string(), BaseUnit::new("meter".to_string(), 1.0, 1)),
-            ("kilometer".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 1)),
-            ("kilometers".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 1)),
-        ]))
+        "kilo- = 1e3\n\
+        meter = [length]",
+        {
+            let mut map = HashMap::default();
+            map.extend([
+                ("meter".to_string(), BaseUnit::new("meter".to_string(), 1.0, 1)),
+                ("meters".to_string(), BaseUnit::new("meter".to_string(), 1.0, 1)),
+                ("kilometer".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 1)),
+                ("kilometers".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 1)),
+            ]);
+            Some(map)
+        }
         ; "Prefixes are applied"
     )]
     #[case(
-        "unit2 = 2 * unit1\nunit1 = 1.0",
-        Some(HashMap::from([
-            ("unit1".to_string(), BaseUnit::new("unit1".to_string(), 1.0, 0)),
-            ("unit1s".to_string(), BaseUnit::new("unit1".to_string(), 1.0, 0)),
-            ("unit2".to_string(), BaseUnit::new("unit2".to_string(), 2.0, 0)),
-            ("unit2s".to_string(), BaseUnit::new("unit2".to_string(), 2.0, 0)),
-        ]))
+        "unit2 = 2 * unit1\n\
+        unit1 = 1.0",
+        {
+            let mut map = HashMap::default();
+            map.extend([
+                ("unit1".to_string(), BaseUnit::new("unit1".to_string(), 1.0, 0)),
+                ("unit1s".to_string(), BaseUnit::new("unit1".to_string(), 1.0, 0)),
+                ("unit2".to_string(), BaseUnit::new("unit2".to_string(), 2.0, 0)),
+                ("unit2s".to_string(), BaseUnit::new("unit2".to_string(), 2.0, 0)),
+            ]);
+            Some(map)
+        }
         ; "Derived units can be defined in any order"
     )]
     #[case(
-        "radian = []\nsteradian = radian ** 2",
-        Some(HashMap::from([
-            ("radian".to_string(), BaseUnit::new("radian".to_string(), 1.0, 0)),
-            ("radians".to_string(), BaseUnit::new("radian".to_string(), 1.0, 0)),
-            ("steradian".to_string(), BaseUnit::new("steradian".to_string(), 1.0, 0)),
-            ("steradians".to_string(), BaseUnit::new("steradian".to_string(), 1.0, 0)),
-        ]))
+        "radian = []\n\
+        steradian = radian ** 2",
+        {
+            let mut map = HashMap::default();
+            map.extend([
+                ("radian".to_string(), BaseUnit::new("radian".to_string(), 1.0, 0)),
+                ("radians".to_string(), BaseUnit::new("radian".to_string(), 1.0, 0)),
+                ("steradian".to_string(), BaseUnit::new("steradian".to_string(), 1.0, 0)),
+                ("steradians".to_string(), BaseUnit::new("steradian".to_string(), 1.0, 0)),
+            ]);
+            Some(map)
+        }
         ; "Derived dimensionless units stay unitless"
     )]
     #[case(
         "hour = 60 = h = hr",
-        Some(HashMap::from([
-            ("hour".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
-            ("hours".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
-            // Symbol should not have plural form
-            ("h".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
-            ("hr".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
-            ("hrs".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
-        ]))
+        {
+            let mut map = HashMap::default();
+            map.extend([
+                ("hour".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
+                ("hours".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
+                // Symbol should not have plural form
+                ("h".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
+                ("hr".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
+                ("hrs".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
+            ]);
+            Some(map)
+        }
         ; "Aliases are plural but not symbols"
     )]
     #[case(
-        "milli- = 1e-3\nsecond = [time] = s = sec",
-        Some(HashMap::from([
-            ("second".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
-            ("seconds".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
-            ("millisecond".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
-            ("milliseconds".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
-            ("s".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
-            ("millis".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
-            ("sec".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
-            ("secs".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
-            ("millisec".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
-            ("millisecs".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
-        ]))
+        "milli- = 1e-3\n\
+        second = [time] = s = sec",
+        {
+            let mut map = HashMap::default();
+            map.extend([
+                ("second".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
+                ("seconds".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
+                ("millisecond".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
+                ("milliseconds".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
+                ("s".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
+                ("millis".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
+                ("sec".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
+                ("secs".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
+                ("millisec".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
+                ("millisecs".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
+            ]);
+            Some(map)
+        }
         ; "Prefixes and suffixes apply to dimension definitions"
     )]
     #[case(
-        "kilo- = 1000\nmeter = 1 = m = metre",
-        Some(HashMap::from([
-            ("meter".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
-            ("meters".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
-            ("kilometer".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
-            ("kilometers".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
-            ("m".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
-            ("kilom".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
-            ("metre".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
-            ("metres".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
-            ("kilometre".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
-            ("kilometres".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
-        ]))
+        "kilo- = 1000\n\
+        meter = 1 = m = metre",
+        {
+            let mut map = HashMap::default();
+            map.extend([
+                ("meter".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
+                ("meters".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
+                ("kilometer".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
+                ("kilometers".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
+                ("m".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
+                ("kilom".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
+                ("metre".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
+                ("metres".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
+                ("kilometre".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
+                ("kilometres".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
+            ]);
+            Some(map)
+        }
         ; "Prefixes and suffixes apply to unit definitions"
+    )]
+    #[case(
+        "u1 = 1000\n\
+        u2 = u1 ** 2",
+        {
+            let mut map = HashMap::default();
+            map.extend([
+                ("u1".to_string(), BaseUnit::new("u1".to_string(), 1000.0, 0)),
+                ("u1s".to_string(), BaseUnit::new("u1".to_string(), 1000.0, 0)),
+                ("u2".to_string(), BaseUnit::new("u2".to_string(), 1000.0 * 1000.0, 0)),
+                ("u2s".to_string(), BaseUnit::new("u2".to_string(), 1000.0 * 1000.0, 0)),
+            ]);
+            Some(map)
+        }
     )]
     fn test_registry_load_from_str(
         data: &str,
-        expected_units: Option<HashMap<String, BaseUnit>>,
+        expected_units: Option<HashMap<String, BaseUnit, FxBuildHasher>>,
     ) -> SmootResult<()> {
         let res = Registry::new_from_str(data);
         if let Some(expected_units) = expected_units {
-            assert_eq!(res?.units, expected_units);
+            let res = res?;
+            assert_eq!(
+                res.units, expected_units,
+                "{:#?} != {:#?}",
+                res.units, expected_units
+            );
         } else {
             assert!(res.is_err());
         }

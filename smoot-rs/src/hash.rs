@@ -59,6 +59,8 @@ macro_rules! impl_hash {
         }
     };
 }
+impl_hash!(i8);
+impl_hash!(i32);
 impl_hash!(u64);
 impl_hash!(String);
 

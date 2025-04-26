@@ -14,13 +14,14 @@ use pyo3::{
     exceptions::{PyException, PyRuntimeError, PyValueError},
     prelude::*,
 };
+use rustc_hash::FxBuildHasher;
 use smoot_rs::{
     error,
     hash::Hash,
     quantity,
     registry::Registry,
     unit,
-    utils::{ConvertMagnitude, Powf, RoundDigits},
+    utils::{ApproxEq, ConvertMagnitude, Powi, RoundDigits},
 };
 
 use std::sync::Arc;
@@ -172,7 +173,7 @@ macro_rules! create_unit_type {
             fn dimensionality(
                 &self,
                 registry: &UnitRegistry,
-            ) -> PyResult<Option<HashMap<String, f64>>> {
+            ) -> PyResult<Option<HashMap<String, i32, FxBuildHasher>>> {
                 let registry = registry.get()?;
                 Ok(self.inner.get_dimensionality(&registry).map(|dims| dims.0))
             }
@@ -234,15 +235,23 @@ macro_rules! create_unit_type {
                 let _ = self.inner.reduce();
             }
 
-            fn __pow__(&self, p: f64, _modulo: Option<i64>) -> Self {
+            fn __pow__(&self, other: f64, _modulo: Option<i64>) -> PyResult<Self> {
+                let p = other.round();
+                if !p.approx_eq(other) {
+                    return handle_err(Err(error::SmootError::InvalidOperation(format!(
+                        "Expected an integral power but got {}",
+                        other
+                    ))));
+                }
+
                 let mut new = self.clone();
-                new.inner.ipowf(p);
+                new.inner.ipowi(p as i32);
                 let _ = new.inner.reduce();
-                new
+                Ok(new)
             }
 
-            fn __ipow__(&mut self, p: f64, _modulo: Option<i64>) {
-                self.inner.ipowf(p);
+            fn __ipow__(&mut self, p: i32, _modulo: Option<i64>) {
+                self.inner.ipowi(p);
                 let _ = self.inner.reduce();
             }
         }
@@ -294,7 +303,7 @@ macro_rules! create_quantity_type {
             fn dimensionality(
                 &self,
                 registry: &UnitRegistry,
-            ) -> PyResult<Option<HashMap<String, f64>>> {
+            ) -> PyResult<Option<HashMap<String, i32, FxBuildHasher>>> {
                 let registry = registry.get()?;
                 Ok(self.inner.get_dimensionality(&registry).map(|dims| dims.0))
             }
@@ -452,10 +461,17 @@ macro_rules! create_quantity_type {
                 Ok(Self { inner })
             }
 
-            fn __pow__(&self, other: f64, _modulo: Option<i64>) -> Self {
-                Self {
-                    inner: self.inner.clone().powf(other),
+            fn __pow__(&self, other: f64, _modulo: Option<i64>) -> PyResult<Self> {
+                let p = other.round();
+                if !p.approx_eq(other) {
+                    return handle_err(Err(error::SmootError::InvalidOperation(format!(
+                        "Expected an integral power but got {}",
+                        other
+                    ))));
                 }
+                Ok(Self {
+                    inner: self.inner.clone().powi(p as i32),
+                })
             }
 
             fn __neg__(&self) -> Self {
@@ -574,7 +590,7 @@ macro_rules! create_array_quantity_type {
             fn dimensionality(
                 &self,
                 registry: &UnitRegistry,
-            ) -> PyResult<Option<HashMap<String, f64>>> {
+            ) -> PyResult<Option<HashMap<String, i32, FxBuildHasher>>> {
                 let registry = registry.get()?;
                 Ok(self.inner.get_dimensionality(&registry).map(|dims| dims.0))
             }
@@ -720,16 +736,17 @@ macro_rules! create_array_quantity_type {
                 Ok(Self { inner })
             }
 
-            fn __pow__(&self, other: f64, _modulo: Option<i64>) -> Self {
-                Self {
-                    inner: self.inner.clone().powf(other),
+            fn __pow__(&self, other: f64, _modulo: Option<i64>) -> PyResult<Self> {
+                let p = other.round();
+                if !p.approx_eq(other) {
+                    return handle_err(Err(error::SmootError::InvalidOperation(format!(
+                        "Expected an integral power but got {}",
+                        other
+                    ))));
                 }
-            }
-
-            /// Element-wise power
-            fn arr_pow(&self, other: &Self) -> PyResult<Self> {
-                let inner = handle_err(self.inner.arr_pow(&other.inner))?;
-                Ok(Self { inner })
+                Ok(Self {
+                    inner: self.inner.clone().powi(other.round() as i32),
+                })
             }
 
             fn __matmul__(&self, other: &Self) -> PyResult<Self> {

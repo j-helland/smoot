@@ -115,7 +115,6 @@ def test_conversion(
         (Q("1 km / hour"), Q(1000 / 60 / 60, "m / s")),
         (Q("1 km * hour"), Q(1000 * 60 * 60, "m * s")),
         (Q("1 joule / newton"), Q("1 meter")),
-        (Q("1 km ** 0.5 / m"), Q(math.sqrt(1000.0), "1 / m ** 0.5")),
         (Q("1 Hz"), Q("1 / second")),
     ),
 )
@@ -293,9 +292,6 @@ def test_binary_inplace_operators(
         (Q([1, 2, 3]), operator.mul, Q([3, 2, 1]), Q([3, 4, 3])),
         ([1, 2, 3], operator.mul, Q([3, 2, 1]), Q([3, 4, 3])),
         (Q([1, 2, 3]), operator.mul, [3, 2, 1], Q([3, 4, 3])),
-        (Q([1, 2, 3]), operator.pow, Q([3, 2, 1]), Q([1, 4, 3])),
-        ([1, 2, 3], operator.pow, Q([3, 2, 1]), Q([1, 4, 3])),
-        (Q([1, 2, 3]), operator.pow, [3, 2, 1], Q([1, 4, 3])),
         (Q([[1], [2], [3]]), operator.matmul, Q([[3, 2, 1]]), Q([[3, 2, 1], [6, 4, 2], [9, 6, 3]])),
         ([[1], [2], [3]], operator.matmul, Q([[3, 2, 1]]), Q([[3, 2, 1], [6, 4, 2], [9, 6, 3]])),
         (Q([[1], [2], [3]]), operator.matmul, [[3, 2, 1]], Q([[3, 2, 1], [6, 4, 2], [9, 6, 3]])),
@@ -317,8 +313,6 @@ def test_binary_array_operators(
     argvalues=(
         (Q([-1, -2, -3]), abs, Q([1, 2, 3])),
         (Q([-1, -2, -3]), operator.neg, Q([1, 2, 3])),
-        # ufuncs
-        (Q([1, 2, 3]), np.sqrt, Q(np.sqrt(np.array([1, 2, 3])))),
     ),
 )
 def test_unary_array_operators(
@@ -353,9 +347,7 @@ def test_matmul_produces_scalar() -> None:
         (Q([1, 2, 3]), np.log10, Q(np.log10([1, 2, 3]))),
         (Q([1, 2, 3]), np.expm1, Q(np.expm1([1, 2, 3]))),
         (Q([1, 2, 3]), np.log1p, Q(np.log1p([1, 2, 3]))),
-        (Q([1, 2, 3], "meter"), np.sqrt, Q(np.sqrt([1, 2, 3]), "meter ** 0.5")),
-        (Q([1, 2, 3], "meter"), np.square, Q(np.square([1, 2, 3]), "meter ** 2.0")),
-        (Q([1, 2, 3], "meter"), np.cbrt, Q(np.cbrt([1, 2, 3]), units.meter ** (1 / 3))),
+        (Q([1, 2, 3], "meter"), np.square, Q(np.square([1, 2, 3]), "meter ** 2")),
         (Q([1, 2, 3], "meter"), np.reciprocal, Q([1, 1 / 2, 1 / 3], 1 / units.meter)),
         (Q([1, 2, 3], "radian"), np.sin, Q(np.sin([1, 2, 3]))),
         (Q([1, 2, 3], "radian"), np.cos, Q(np.cos([1, 2, 3]))),

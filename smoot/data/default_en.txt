@@ -272,7 +272,7 @@ angstrom_star = 1.00001495e-10 = Å_star                                        
 
 #### DERIVED CONSTANTS ####
 
-fine_structure_constant = (2 * ℎ * R_inf / (m_e * c)) ** 0.5 = α = alpha
+fine_structure_constant = sqrt(2 * ℎ * R_inf / (m_e * c)) = α = alpha
 vacuum_permeability = 2 * α * ℎ / (e ** 2 * c) = µ_0 = mu_0 = mu0 = magnetic_constant
 vacuum_permittivity = e ** 2 / (2 * α * ℎ * c) = ε_0 = epsilon_0 = eps_0 = eps0 = electric_constant
 impedance_of_free_space = 2 * α * ℎ / e ** 2 = Z_0 = characteristic_impedance_of_vacuum
@@ -321,7 +321,7 @@ astronomical_unit = 149597870700 * meter = au  # since Aug 2012
 parsec = 1 / tansec * astronomical_unit = pc
 nautical_mile = 1852 * meter = nmi
 bohr = hbar / (alpha * m_e * c) = a_0 = a0 = bohr_radius = atomic_unit_of_length = a_u_length
-planck_length = (hbar * gravitational_constant / c ** 3) ** 0.5
+planck_length = sqrt(hbar * gravitational_constant / c ** 3)
 
 # Mass
 metric_ton = 1e3 * kilogram = t = tonne
@@ -330,7 +330,7 @@ dalton = atomic_mass_constant = Da
 grain = 64.79891 * milligram = gr
 gamma_mass = microgram
 carat = 200 * milligram = ct = karat
-planck_mass = (hbar * c / gravitational_constant) ** 0.5
+planck_mass = sqrt(hbar * c / gravitational_constant)
 
 # Time
 minute = 60 * second = min
@@ -359,7 +359,7 @@ sidereal_day = day / 1.00273790935079524           # approximate
 sidereal_month = 27.32166155 * day                 # approximate
 tropical_month = 27.321582 * day                   # approximate
 synodic_month = 29.530589 * day = _ = lunar_month  # approximate
-planck_time = (hbar * gravitational_constant / c ** 5) ** 0.5
+planck_time = sqrt(hbar * gravitational_constant / c ** 5)
 
 # Temperature
 degree_Celsius = kelvin; offset: 273.15 = °C = celsius = degC = degreeC
@@ -367,7 +367,7 @@ degree_Rankine = 5 / 9 * kelvin; offset: 0 = °R = rankine = degR = degreeR
 degree_Fahrenheit = 5 / 9 * kelvin; offset: 233.15 + 200 / 9 = °F = fahrenheit = degF = degreeF
 degree_Reaumur = 4 / 5 * kelvin; offset: 273.15 = °Re = reaumur = degRe = degreeRe = degree_Réaumur = réaumur
 atomic_unit_of_temperature = E_h / k = a_u_temp
-planck_temperature = (hbar * c ** 5 / gravitational_constant / k ** 2) ** 0.5
+planck_temperature = sqrt(hbar * c ** 5 / gravitational_constant / k ** 2)
 
 # Area
 [area] = [length] ** 2
@@ -562,7 +562,7 @@ atomic_unit_of_current = e / atomic_unit_of_time = a_u_current
 mean_international_ampere = mean_international_volt / mean_international_ohm = A_it
 US_international_ampere = US_international_volt / US_international_ohm = A_US
 conventional_ampere_90 = K_J90 * R_K90 / (K_J * R_K) * ampere = A_90
-planck_current = (c ** 6 / gravitational_constant / k_C) ** 0.5
+planck_current = sqrt(c ** 6 / gravitational_constant / k_C)
 
 # Charge
 [charge] = [current] * [time]

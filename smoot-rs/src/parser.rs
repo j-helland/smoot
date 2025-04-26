@@ -3,7 +3,7 @@ use std::str::FromStr;
 use num_traits::Float;
 
 use crate::registry::Registry;
-use crate::utils::{Powf, Powi};
+use crate::utils::Powi;
 use crate::{quantity::Quantity, unit::Unit};
 
 trait ParsableFloat: FromStr + Float {}
@@ -67,7 +67,6 @@ peg::parser! {
                 u:@ __ "/" __ d:decimal() { u / Unit::new_constant(d) }
                 --
                 u:@ __ ("**" / "^") __ n:integer() { u.powi(n) }
-                u:@ __ ("**" / "^") __ n:decimal() { u.powf(n) }
                 --
                 u:unit(registry) { u }
                 "(" __ expr:unit_expression(registry) __ ")" { expr }
@@ -99,8 +98,6 @@ peg::parser! {
                 --
                 q1:@ __ "**" __ n:integer() !['.'] { q1.powi(n) }
                 q1:@ __ "^" __ n:integer() !['.'] { q1.powi(n) }
-                q1:@ __ "**" __ n:decimal() { q1.powf(n) }
-                q1:@ __ "^" __ n:decimal() { q1.powf(n) }
                 --
                 q:quantity(registry) { q }
                 "-" q:expression(registry) { -q }
@@ -212,10 +209,10 @@ mod test_expression_parser {
     #[case("meter / second", Some(Unit::new(vec![UNIT_METER.clone()], vec![UNIT_SECOND.clone()])); "Division")]
     #[case("meter * second", Some(Unit::new(vec![UNIT_METER.clone(), UNIT_SECOND.clone()], vec![])); "Multiplication")]
     #[case("meter second", Some(Unit::new(vec![UNIT_METER.clone(), UNIT_SECOND.clone()], vec![])); "Implicit multiplication")]
-    #[case("meter ** 2", Some(Unit::new(vec![UNIT_METER.powf(2.0)], vec![])); "Exponentiation")]
+    #[case("meter ** 2", Some(Unit::new(vec![UNIT_METER.powi(2)], vec![])); "Exponentiation")]
     #[case(
         "meter^2",
-        Some(Unit::new(vec![UNIT_METER.powf(2.0)], vec![]))
+        Some(Unit::new(vec![UNIT_METER.powi(2)], vec![]))
         ; "Exponentiation alternate notation"
     )]
     #[case(
@@ -223,7 +220,7 @@ mod test_expression_parser {
         Some(Unit::new(vec![], vec![UNIT_METER.clone()]))
         ; "Reciprocal power"
     )]
-    #[case("meter ** 0.5", Some(Unit::new(vec![UNIT_METER.powf(0.5)], vec![])); "Fractional power")]
+    #[case("meter ** 0.5", None; "Fractional power is invalid")]
     #[case("meter + meter", None; "Invalid operator plus")]
     #[case(
         "(meter * gram) / second",
@@ -236,7 +233,7 @@ mod test_expression_parser {
     #[case(
         "(meter * second) ** 2",
         Some(Unit::new(
-            vec![UNIT_METER.powf(2.0), UNIT_SECOND.powf(2.0)],
+            vec![UNIT_METER.powi(2), UNIT_SECOND.powi(2)],
             vec![]
         ))
         ; "Parentheses with exponentiation"
@@ -354,15 +351,31 @@ mod test_expression_parser {
         "1 meter * 1 kilometer",
         Some(Quantity::new(
             1e-3,
-            Unit::new(vec![UNIT_KILOMETER.clone()], vec![]).powf(2.0),
+            Unit::new(vec![UNIT_KILOMETER.clone()], vec![]).powi(2),
         ))
         ; "Multiplication with conversion"
+    )]
+    #[case(
+        "1 meter * 1 kilometer**2",
+        Some(Quantity::new(
+            1e-3,
+            Unit::new(vec![UNIT_KILOMETER.clone()], vec![]).powi(3),
+        ))
+        ; "Multiplication with conversion 2"
+    )]
+    #[case(
+        "1 meter**2 * 1 kilometer**2",
+        Some(Quantity::new(
+            1e-6,
+            Unit::new(vec![UNIT_KILOMETER.clone()], vec![]).powi(4),
+        ))
+        ; "Multiplication with conversion 3"
     )]
     #[case(
         "1 kilometer * 1 meter",
         Some(Quantity::new(
             1e3,
-            Unit::new(vec![UNIT_METER.clone()], vec![]).powf(2.0),
+            Unit::new(vec![UNIT_METER.clone()], vec![]).powi(2),
         ))
         ; "Multiplication with conversion flipped"
     )]
@@ -370,7 +383,7 @@ mod test_expression_parser {
         "1 meter * 1 second * 1 kilometer",
         Some(Quantity::new(
             1e-3,
-            Unit::new(vec![UNIT_KILOMETER.clone()], vec![]).powf(2.0)
+            Unit::new(vec![UNIT_KILOMETER.clone()], vec![]).powi(2)
                 * Unit::new(vec![UNIT_SECOND.clone()], vec![]),
         ))
         ; "Multiplication with other unit in the middle"
@@ -404,7 +417,7 @@ mod test_expression_parser {
         Some(Quantity::new(
             1.0,
             Unit::new(
-                vec![UNIT_METER.powf(2.0)],
+                vec![UNIT_METER.powi(2)],
                 vec![]
             ),
         ))
@@ -412,14 +425,8 @@ mod test_expression_parser {
     )]
     #[case(
         "1 meter ** 0.5",
-        Some(Quantity::new(
-            1.0,
-            Unit::new(
-                vec![UNIT_METER.powf(0.5)],
-                vec![]
-            ),
-        ))
-        ; "Fractional powers"
+        None
+        ; "Fractional powers are invalid"
     )]
     #[case(
         "1 meter ** -1",
@@ -438,24 +445,13 @@ mod test_expression_parser {
             4.0,
             Unit::new(
                 vec![
-                    UNIT_METER.powf(2.0),
-                    UNIT_SECOND.powf(2.0),
+                    UNIT_METER.powi(2),
+                    UNIT_SECOND.powi(2),
                 ],
                 vec![]
             ),
         ))
         ; "Exponentiation with parentheses"
-    )]
-    #[case(
-        "1 (meter ** 2) * (meter ** 0.5)",
-        Some(Quantity::new(
-            1.0,
-            Unit::new(
-                vec![UNIT_METER.powf(2.5)],
-                vec![]
-            ),
-        ))
-        ; "Exponents add"
     )]
     #[case(
         "1 / meter",

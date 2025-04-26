@@ -443,10 +443,7 @@ class Quantity(Generic[T, R]):
             raise ValueError(msg)
 
         new = object.__new__(self.__class__)
-        if type(self.__inner) is ArrayF64Quantity:
-            new.__inner = self.__inner.arr_pow(other_inner)
-        else:
-            new.__inner = self.__inner.__pow__(other_inner.magnitude, modulo)
+        new.__inner = self.__inner.__pow__(other_inner.magnitude, modulo)
         return new
 
     def __rpow__(
