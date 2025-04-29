@@ -7,6 +7,7 @@ use crate::hash::Hash;
 use bitcode::{Decode, Encode};
 use hashable::Hashable;
 use num_traits::PrimInt;
+use wide::i8x16;
 
 use crate::error::{SmootError, SmootResult};
 
@@ -94,7 +95,7 @@ impl BaseUnit {
     /// Err if the units are incompatible (e.g. meter and gram).
     pub fn conversion_factor(&self, target: &Self) -> SmootResult<f64> {
         // Fast check with unit types, slower vector equality check for more detail.
-        if self.dimensionality != target.dimensionality {
+        if !is_dim_eq(&self.dimensionality, &target.dimensionality) {
             return Err(SmootError::IncompatibleUnitTypes(
                 self.name.clone(),
                 target.name.clone(),
@@ -201,6 +202,27 @@ pub(crate) fn sqrt_dimensionality(dimensionality: &[Dimension]) -> SmootResult<V
     result.extend(std::iter::repeat_n(last, new_count));
 
     Ok(result)
+}
+
+/// Return true if two dimensionality vectors are equivalent.
+/// Uses SIMD where possible to parallelize comparisons.
+pub(crate) fn is_dim_eq(dim1: &[Dimension], dim2: &[Dimension]) -> bool {
+    if dim1.len() != dim2.len() {
+        return false;
+    }
+
+    const CHUNK_SIZE: usize = size_of::<i8x16>();
+    let mut chunks1 = dim1.chunks_exact(CHUNK_SIZE);
+    let mut chunks2 = dim2.chunks_exact(CHUNK_SIZE);
+
+    while let (Some(c1), Some(c2)) = (chunks1.next(), chunks2.next()) {
+        let c1_simd = i8x16::from_slice_unaligned(c1);
+        let c2_simd = i8x16::from_slice_unaligned(c2);
+        if c1_simd != c2_simd {
+            return false;
+        }
+    }
+    chunks1.remainder() == chunks2.remainder()
 }
 
 /// Cancel any opposite dimensions in-place.
@@ -314,6 +336,20 @@ mod test_base_unit {
     use crate::assert_is_close;
 
     use super::*;
+
+    #[case(vec![], vec![], true; "Dimensionless")]
+    #[case(vec![1], vec![], false; "Dimensionless mismatch")]
+    #[case(vec![1, 1], vec![1], false; "Repeated dimension mismatch")]
+    #[case(vec![1, 2, 3], vec![1, 2, 3], true; "Multidimensional")]
+    #[case(
+        (0..32).collect(),
+        (0..32).collect(),
+        true
+        ; "Multidimensional with chunks"
+    )]
+    fn test_is_dim_eq(dims1: Vec<Dimension>, dims2: Vec<Dimension>, expected: bool) {
+        assert_eq!(is_dim_eq(&dims1, &dims2), expected);
+    }
 
     #[case(vec![], DIMENSIONLESS_TYPE; "Dimensionless")]
     #[case(vec![1], 1; "Single dimension")]

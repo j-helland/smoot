@@ -12,7 +12,7 @@ use itertools::Itertools;
 use rustc_hash::FxBuildHasher;
 
 use crate::{
-    base_unit::{BaseUnit, Dimension, simplify_dimensionality, sqrt_dimensionality},
+    base_unit::{BaseUnit, Dimension, is_dim_eq, simplify_dimensionality, sqrt_dimensionality},
     error::{SmootError, SmootResult},
     hash::Hash,
     parser::expression_parser,
@@ -127,7 +127,7 @@ impl Unit {
 
     /// Return true if this unit is compatible with the target (e.g. meter and kilometer).
     pub fn is_compatible_with(&self, other: &Self) -> bool {
-        self.dimensionality == other.dimensionality
+        is_dim_eq(&self.dimensionality, &other.dimensionality)
     }
 
     /// Compute the multiplicative factor necessary to convert this unit into the target unit.
@@ -197,6 +197,10 @@ impl Unit {
 
     /// Convert this unit into a displayable string representation.
     pub fn get_units_string(&self, with_scaling_factor: bool) -> Option<String> {
+        if self.numerator_units.is_empty() && self.denominator_units.is_empty() {
+            return None;
+        }
+
         let nums = self
             .numerator_units
             .iter()
@@ -207,10 +211,6 @@ impl Unit {
             .iter()
             .sorted_by_key(|u| u.name.as_str())
             .collect_vec();
-
-        if nums.is_empty() && denoms.is_empty() {
-            return None;
-        }
 
         let mut numerator = nums
             .iter()
