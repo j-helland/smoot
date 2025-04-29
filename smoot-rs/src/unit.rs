@@ -12,7 +12,7 @@ use itertools::Itertools;
 use rustc_hash::FxBuildHasher;
 
 use crate::{
-    base_unit::{BaseUnit, Dimension, simplify_dimensionality},
+    base_unit::{BaseUnit, Dimension, simplify_dimensionality, sqrt_dimensionality},
     error::{SmootError, SmootResult},
     hash::Hash,
     parser::expression_parser,
@@ -88,6 +88,24 @@ impl Unit {
                 self.update_dimensionality();
             }
         }
+    }
+
+    pub fn isqrt(&mut self) -> SmootResult<()> {
+        for u in self
+            .numerator_units
+            .iter_mut()
+            .chain(self.denominator_units.iter_mut())
+        {
+            u.isqrt()?;
+        }
+        self.dimensionality = sqrt_dimensionality(&self.dimensionality).map_err(|_| {
+            SmootError::InvalidOperation(format!(
+                "sqrt would result in a non-integral power for {}",
+                self.get_units_string(true)
+                    .unwrap_or("dimensionless".to_string())
+            ))
+        })?;
+        Ok(())
     }
 
     /// Scale this unit by a constant multiplier.

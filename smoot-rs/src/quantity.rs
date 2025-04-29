@@ -14,10 +14,19 @@ use crate::{
     registry::Registry,
     types::Number,
     unit::{Dimensionality, Unit},
-    utils::{ConvertMagnitude, Powi},
+    utils::{ConvertMagnitude, LogExp, Powi, Sqrt, Trigonometry},
 };
 
-pub trait Storage<N: Number>: Mul<N, Output = Self> + MulAssign<N> + Clone + Sized {}
+pub trait Storage<N: Number>:
+    Mul<N, Output = Self>
+    + MulAssign<N>
+    + Sqrt
+    + Trigonometry<Output = Self>
+    + LogExp<Output = Self>
+    + Clone
+    + Sized
+{
+}
 impl<N: Number> Storage<N> for N {}
 impl<N: Number> Storage<N> for ArrayD<N> {}
 
@@ -118,6 +127,11 @@ where
         self.magnitude.iconvert(factor);
     }
 
+    pub fn isqrt(&mut self) -> SmootResult<()> {
+        self.magnitude = self.magnitude.sqrt();
+        self.unit.isqrt()
+    }
+
     fn convert_to(&mut self, unit: &Unit, factor: Option<f64>) -> SmootResult<()> {
         let factor = self.unit.conversion_factor(unit)? * factor.unwrap_or(1.0);
         self.magnitude.iconvert(factor);
@@ -136,6 +150,140 @@ impl Quantity<f64, f64> {
                 q
             })
             .map_err(|_| SmootError::ExpressionError(format!("Invalid quantity expression {}", s)))
+    }
+}
+
+impl<N: Number, S: Storage<N>> Trigonometry for Quantity<N, S>
+where
+    S: ConvertMagnitude,
+{
+    type Output = SmootResult<Quantity<N, S>>;
+
+    fn sin(&self) -> Self::Output {
+        if !self.is_dimensionless() {
+            return Err(SmootError::InvalidOperation(format!(
+                "sin expected dimensionless quantity but got {}",
+                self.unit
+                    .get_units_string(true)
+                    .unwrap_or("dimensionless".into())
+            )));
+        }
+        Ok(Quantity::new(self.magnitude.sin(), self.unit.clone()))
+    }
+
+    fn cos(&self) -> Self::Output {
+        if !self.is_dimensionless() {
+            return Err(SmootError::InvalidOperation(format!(
+                "cos expected dimensionless quantity but got {}",
+                self.unit
+                    .get_units_string(true)
+                    .unwrap_or("dimensionless".into())
+            )));
+        }
+        Ok(Quantity::new(self.magnitude.cos(), self.unit.clone()))
+    }
+
+    fn tan(&self) -> Self::Output {
+        if !self.is_dimensionless() {
+            return Err(SmootError::InvalidOperation(format!(
+                "tan expected dimensionless quantity but got {}",
+                self.unit
+                    .get_units_string(true)
+                    .unwrap_or("dimensionless".into())
+            )));
+        }
+        Ok(Quantity::new(self.magnitude.tan(), self.unit.clone()))
+    }
+
+    fn arcsin(&self) -> Self::Output {
+        if !self.is_dimensionless() {
+            return Err(SmootError::InvalidOperation(format!(
+                "arcsin expected dimensionless quantity but got {}",
+                self.unit
+                    .get_units_string(true)
+                    .unwrap_or("dimensionless".into())
+            )));
+        }
+        Ok(Quantity::new(self.magnitude.arcsin(), self.unit.clone()))
+    }
+
+    fn arccos(&self) -> Self::Output {
+        if !self.is_dimensionless() {
+            return Err(SmootError::InvalidOperation(format!(
+                "arccos expected dimensionless quantity but got {}",
+                self.unit
+                    .get_units_string(true)
+                    .unwrap_or("dimensionless".into())
+            )));
+        }
+        Ok(Quantity::new(self.magnitude.arccos(), self.unit.clone()))
+    }
+
+    fn arctan(&self) -> Self::Output {
+        if !self.is_dimensionless() {
+            return Err(SmootError::InvalidOperation(format!(
+                "arctan expected dimensionless quantity but got {}",
+                self.unit
+                    .get_units_string(true)
+                    .unwrap_or("dimensionless".into())
+            )));
+        }
+        Ok(Quantity::new(self.magnitude.arctan(), self.unit.clone()))
+    }
+}
+
+impl<N: Number, S: Storage<N>> LogExp for Quantity<N, S>
+where
+    S: ConvertMagnitude,
+{
+    type Output = SmootResult<Quantity<N, S>>;
+
+    fn ln(&self) -> Self::Output {
+        if !self.is_dimensionless() {
+            return Err(SmootError::InvalidOperation(format!(
+                "ln expected dimensionless quantity but got {}",
+                self.unit
+                    .get_units_string(true)
+                    .unwrap_or("dimensionless".into())
+            )));
+        }
+        Ok(Quantity::new(self.magnitude.ln(), self.unit.clone()))
+    }
+
+    fn log10(&self) -> Self::Output {
+        if !self.is_dimensionless() {
+            return Err(SmootError::InvalidOperation(format!(
+                "log10 expected dimensionless quantity but got {}",
+                self.unit
+                    .get_units_string(true)
+                    .unwrap_or("dimensionless".into())
+            )));
+        }
+        Ok(Quantity::new(self.magnitude.log10(), self.unit.clone()))
+    }
+
+    fn log2(&self) -> Self::Output {
+        if !self.is_dimensionless() {
+            return Err(SmootError::InvalidOperation(format!(
+                "log2 expected dimensionless quantity but got {}",
+                self.unit
+                    .get_units_string(true)
+                    .unwrap_or("dimensionless".into())
+            )));
+        }
+        Ok(Quantity::new(self.magnitude.log2(), self.unit.clone()))
+    }
+
+    fn exp(&self) -> Self::Output {
+        if !self.is_dimensionless() {
+            return Err(SmootError::InvalidOperation(format!(
+                "exp expected dimensionless quantity but got {}",
+                self.unit
+                    .get_units_string(true)
+                    .unwrap_or("dimensionless".into())
+            )));
+        }
+        Ok(Quantity::new(self.magnitude.exp(), self.unit.clone()))
     }
 }
 

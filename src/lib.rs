@@ -21,7 +21,7 @@ use smoot_rs::{
     quantity,
     registry::Registry,
     unit,
-    utils::{ApproxEq, ConvertMagnitude, Powi, RoundDigits},
+    utils::{ApproxEq, ConvertMagnitude, LogExp, Powi, RoundDigits, Trigonometry},
 };
 
 use std::sync::Arc;
@@ -40,11 +40,13 @@ use std::{
 //==================================================
 create_exception!("smoot.smoot", SmootError, PyException);
 create_exception!("smoot.smoot", SmootParseError, PyException);
+create_exception!("smoot.smoot", SmootInvalidOperation, PyException);
 
 /// Cannot `impl From<error::SmootError> for PyErr` because of the Rust orphan rule.
 fn handle_err<T>(result: Result<T, error::SmootError>) -> PyResult<T> {
     result.map_err(|e| match e {
         error::SmootError::ParseTreeError(msg) => SmootParseError::new_err(msg),
+        error::SmootError::InvalidOperation(msg) => SmootInvalidOperation::new_err(msg),
         _ => SmootError::new_err(e.to_string()),
     })
 }
@@ -189,6 +191,12 @@ macro_rules! create_unit_type {
                 let registry = registry.get()?;
                 self.inner.ito_root_units(&registry);
                 Ok(())
+            }
+
+            fn sqrt(&self) -> PyResult<Self> {
+                let mut new = self.clone();
+                handle_err(new.inner.isqrt())?;
+                Ok(new)
             }
 
             fn __hash__(&self) -> u64 {
@@ -365,6 +373,65 @@ macro_rules! create_quantity_type {
                 Self {
                     inner: &self.inner * scalar,
                 }
+            }
+
+            //==================================================
+            // math API
+            //==================================================
+            fn sqrt(&self) -> PyResult<Self> {
+                let mut new = self.clone();
+                handle_err(new.inner.isqrt())?;
+                Ok(new)
+            }
+
+            fn sin(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.sin())?;
+                Ok(Self { inner })
+            }
+
+            fn cos(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.cos())?;
+                Ok(Self { inner })
+            }
+
+            fn tan(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.tan())?;
+                Ok(Self { inner })
+            }
+
+            fn arcsin(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.arcsin())?;
+                Ok(Self { inner })
+            }
+
+            fn arccos(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.arccos())?;
+                Ok(Self { inner })
+            }
+
+            fn arctan(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.arctan())?;
+                Ok(Self { inner })
+            }
+
+            fn log(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.ln())?;
+                Ok(Self { inner })
+            }
+
+            fn log10(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.log10())?;
+                Ok(Self { inner })
+            }
+
+            fn log2(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.log2())?;
+                Ok(Self { inner })
+            }
+
+            fn exp(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.exp())?;
+                Ok(Self { inner })
             }
 
             //==================================================
@@ -657,6 +724,65 @@ macro_rules! create_array_quantity_type {
             }
 
             //==================================================
+            // math API
+            //==================================================
+            fn sqrt(&self) -> PyResult<Self> {
+                let mut new = self.clone();
+                handle_err(new.inner.isqrt())?;
+                Ok(new)
+            }
+
+            fn sin(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.sin())?;
+                Ok(Self { inner })
+            }
+
+            fn cos(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.cos())?;
+                Ok(Self { inner })
+            }
+
+            fn tan(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.tan())?;
+                Ok(Self { inner })
+            }
+
+            fn arcsin(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.arcsin())?;
+                Ok(Self { inner })
+            }
+
+            fn arccos(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.arccos())?;
+                Ok(Self { inner })
+            }
+
+            fn arctan(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.arctan())?;
+                Ok(Self { inner })
+            }
+
+            fn log(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.ln())?;
+                Ok(Self { inner })
+            }
+
+            fn log10(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.log10())?;
+                Ok(Self { inner })
+            }
+
+            fn log2(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.log2())?;
+                Ok(Self { inner })
+            }
+
+            fn exp(&self) -> PyResult<Self> {
+                let inner = handle_err(self.inner.exp())?;
+                Ok(Self { inner })
+            }
+
+            //==================================================
             // standard dunder methods
             //==================================================
             fn __len__(&self) -> usize {
@@ -876,6 +1002,10 @@ fn smoot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Error types
     m.add("SmootError", m.py().get_type::<SmootError>())?;
     m.add("SmootParseError", m.py().get_type::<SmootParseError>())?;
+    m.add(
+        "SmootInvalidOperation",
+        m.py().get_type::<SmootInvalidOperation>(),
+    )?;
 
     // Unit registry
     m.add_class::<UnitRegistry>()?;

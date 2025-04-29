@@ -2,6 +2,9 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum SmootError {
+    #[error("")]
+    SmootError,
+
     #[error("Incompatible unit types {0} and {1}")]
     IncompatibleUnitTypes(String, String),
 

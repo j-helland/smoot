@@ -61,6 +61,136 @@ impl Powi for ArrayD<i64> {
     }
 }
 
+pub trait Sqrt {
+    fn sqrt(&self) -> Self;
+}
+impl Sqrt for f64 {
+    fn sqrt(&self) -> Self {
+        f64::sqrt(*self)
+    }
+}
+impl<N: Sqrt + Copy> Sqrt for ArrayD<N> {
+    fn sqrt(&self) -> Self {
+        self.mapv(|f| f.sqrt())
+    }
+}
+
+pub trait LogExp {
+    type Output;
+
+    fn ln(&self) -> Self::Output;
+    fn log10(&self) -> Self::Output;
+    fn log2(&self) -> Self::Output;
+    fn exp(&self) -> Self::Output;
+}
+impl LogExp for f64 {
+    type Output = f64;
+
+    fn ln(&self) -> Self::Output {
+        f64::ln(*self)
+    }
+
+    fn log10(&self) -> Self::Output {
+        f64::log10(*self)
+    }
+
+    fn log2(&self) -> Self::Output {
+        f64::log2(*self)
+    }
+
+    fn exp(&self) -> Self::Output {
+        f64::exp(*self)
+    }
+}
+impl<N> LogExp for ArrayD<N>
+where
+    N: LogExp<Output = N> + Copy,
+{
+    type Output = ArrayD<N>;
+
+    fn ln(&self) -> Self::Output {
+        self.mapv(|f| f.ln())
+    }
+
+    fn log10(&self) -> Self::Output {
+        self.mapv(|f| f.log10())
+    }
+
+    fn log2(&self) -> Self::Output {
+        self.mapv(|f| f.log2())
+    }
+
+    fn exp(&self) -> Self::Output {
+        self.mapv(|f| f.exp())
+    }
+}
+
+pub trait Trigonometry {
+    type Output;
+
+    fn sin(&self) -> Self::Output;
+    fn cos(&self) -> Self::Output;
+    fn tan(&self) -> Self::Output;
+    fn arcsin(&self) -> Self::Output;
+    fn arccos(&self) -> Self::Output;
+    fn arctan(&self) -> Self::Output;
+}
+impl Trigonometry for f64 {
+    type Output = f64;
+
+    fn sin(&self) -> Self::Output {
+        f64::sin(*self)
+    }
+
+    fn cos(&self) -> Self::Output {
+        f64::cos(*self)
+    }
+
+    fn tan(&self) -> Self::Output {
+        f64::tan(*self)
+    }
+
+    fn arcsin(&self) -> Self::Output {
+        f64::asin(*self)
+    }
+
+    fn arccos(&self) -> Self::Output {
+        f64::acos(*self)
+    }
+
+    fn arctan(&self) -> Self::Output {
+        f64::atan(*self)
+    }
+}
+
+impl<N: Trigonometry<Output = N> + Copy> Trigonometry for ArrayD<N> {
+    type Output = ArrayD<N>;
+
+    fn sin(&self) -> Self::Output {
+        self.mapv(|f| f.sin())
+    }
+
+    fn cos(&self) -> Self::Output {
+        self.mapv(|f| f.cos())
+    }
+
+    fn tan(&self) -> Self::Output {
+        self.mapv(|f| f.tan())
+    }
+
+    fn arcsin(&self) -> Self::Output {
+        self.mapv(|f| f.arcsin())
+    }
+
+    fn arccos(&self) -> Self::Output {
+        self.mapv(|f| f.arccos())
+    }
+
+    fn arctan(&self) -> Self::Output {
+        self.mapv(|f| f.arctan())
+    }
+}
+
 pub trait Floor {
     fn floor(self) -> Self;
 }

@@ -348,6 +348,7 @@ def test_matmul_produces_scalar() -> None:
         (Q([1, 2, 3]), np.expm1, Q(np.expm1([1, 2, 3]))),
         (Q([1, 2, 3]), np.log1p, Q(np.log1p([1, 2, 3]))),
         (Q([1, 2, 3], "meter"), np.square, Q(np.square([1, 2, 3]), "meter ** 2")),
+        (Q([1, 2, 3], "meter ** 2"), np.sqrt, Q(np.sqrt([1, 2, 3]), "meter")),
         (Q([1, 2, 3], "meter"), np.reciprocal, Q([1, 1 / 2, 1 / 3], 1 / units.meter)),
         (Q([1, 2, 3], "radian"), np.sin, Q(np.sin([1, 2, 3]))),
         (Q([1, 2, 3], "radian"), np.cos, Q(np.cos([1, 2, 3]))),

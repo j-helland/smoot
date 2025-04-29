@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from smoot import UnitRegistry, Unit, SmootError
 import smoot
-from smoot.smoot import SmootParseError
+from smoot.smoot import SmootInvalidOperation, SmootParseError
 
 
 @pytest.fixture(scope="session")
@@ -173,3 +173,13 @@ def test_extend_registry_with_invalid_syntax() -> None:
 
     # Did not corrupt previous units
     assert units.meter
+
+
+def test_unit_sqrt(units: UnitRegistry) -> None:
+    u = units.meter**2
+    u = u**0.5
+    assert u == units.meter
+
+    # Non-integral dimensions not allowed
+    with pytest.raises(SmootInvalidOperation):
+        _ = u**0.5

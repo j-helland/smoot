@@ -138,39 +138,11 @@ impl BaseUnit {
     }
 
     pub fn isqrt(&mut self) -> SmootResult<()> {
-        if self.dimensionality.is_empty() {
-            return Ok(());
-        }
-        if self.dimensionality.len() % 2 != 0 {
-            return Err(SmootError::InvalidOperation(format!(
+        self.dimensionality = sqrt_dimensionality(&self.dimensionality)
+            .map_err(|_| SmootError::InvalidOperation(format!(
                 "Invalid operation on BaseUnit: sqrt would result in a non-integral dimensionality for {}",
                 self.name,
-            )));
-        }
-
-        let mut result = Vec::with_capacity(self.dimensionality.len() / 2);
-        let mut last = self.dimensionality[0];
-        let mut count = 1;
-
-        for &num in &self.dimensionality[1..] {
-            if num == last {
-                count += 1;
-                continue;
-            }
-
-            let new_count = count / 2;
-            result.extend(std::iter::repeat_n(last, new_count));
-
-            last = num;
-            count = 1;
-        }
-
-        // Handle the last group.
-        let new_count = count / 2;
-        result.extend(std::iter::repeat_n(last, new_count));
-
-        // There should be no affect on self.unit_type since powers can only multiply/divide existing dimensionality numbers.
-        self.dimensionality = result;
+            )))?;
         self.power /= 2;
         Ok(())
     }
@@ -197,6 +169,38 @@ impl BaseUnit {
         self.dimensionality.sort();
         self.simplify();
     }
+}
+
+pub(crate) fn sqrt_dimensionality(dimensionality: &[Dimension]) -> SmootResult<Vec<Dimension>> {
+    if dimensionality.is_empty() {
+        return Ok(vec![]);
+    }
+    if dimensionality.len() % 2 != 0 {
+        return Err(SmootError::SmootError);
+    }
+
+    let mut result = Vec::with_capacity(dimensionality.len() / 2);
+    let mut last = dimensionality[0];
+    let mut count = 1;
+
+    for &num in &dimensionality[1..] {
+        if num == last {
+            count += 1;
+            continue;
+        }
+
+        let new_count = count / 2;
+        result.extend(std::iter::repeat_n(last, new_count));
+
+        last = num;
+        count = 1;
+    }
+
+    // Handle the last group.
+    let new_count = count / 2;
+    result.extend(std::iter::repeat_n(last, new_count));
+
+    Ok(result)
 }
 
 /// Cancel any opposite dimensions in-place.

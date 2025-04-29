@@ -1,5 +1,6 @@
 # mypy: ignore-errors
 from __future__ import annotations
+import math
 from typing import Any, Iterable, Union
 import numpy as np
 from typing_extensions import Self
@@ -209,7 +210,11 @@ class Unit:
 
     def __pow__(self, p: int | float, modulo: int | float | None = None) -> Unit:
         new = object.__new__(self.__class__)
-        new.__inner = self.__inner.__pow__(p, modulo)
+        new.__inner = (
+            self.__inner.sqrt()
+            if math.isclose(p, 0.5)
+            else self.__inner.__pow__(p, modulo)
+        )
         return new
 
     def __ipow__(self, p: int | float, modulo: int | float | None = None) -> Self:

@@ -4,7 +4,7 @@ use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 use ndarray::ScalarOperand;
 use num_traits::{FromPrimitive, One, ToPrimitive, Zero};
 
-use crate::utils::ApproxEq;
+use crate::utils::{ApproxEq, LogExp, Sqrt, Trigonometry};
 
 pub trait DataOps:
     Add<Output = Self>
@@ -15,6 +15,9 @@ pub trait DataOps:
     + MulAssign
     + Div<Output = Self>
     + DivAssign
+    + Sqrt
+    + Trigonometry<Output = Self>
+    + LogExp<Output = Self>
     + Copy
     + ScalarOperand
     + PartialOrd

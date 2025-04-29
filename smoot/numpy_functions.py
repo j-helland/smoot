@@ -88,6 +88,16 @@ def _unary_boolean_output(func_name: str, func_type: _FunctionType) -> None:
         return func(x.magnitude, *args, **kwargs)
 
 
+def _unary_internal_impl(
+    func_name: str, func_type: _FunctionType, internal_name: str
+) -> None:
+    @_implements(func_name, func_type)
+    def impl(x: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
+        new = object.__new__(x.__class__)
+        new._Quantity__inner = getattr(x._Quantity__inner, internal_name)()
+        return new
+
+
 def _binary_unchanged_units(
     func_name: str,
     func_type: _FunctionType,
@@ -144,8 +154,6 @@ for func_name, func_type in (
     # ufunc
     ("negative", _FunctionType.ufunc),
     ("positive", _FunctionType.ufunc),
-    ("absolute", _FunctionType.ufunc),
-    ("fabs", _FunctionType.ufunc),
     ("rint", _FunctionType.ufunc),
     ("sign", _FunctionType.ufunc),
     ("floor", _FunctionType.ufunc),
@@ -164,19 +172,9 @@ for func_name, func_type in (
 # Functions that require dimensionless quantities as inputs.
 for func_name, func_type, in_units, out_units in (
     # ufunc
-    ("exp", _FunctionType.ufunc, "dimensionless", None),
     ("exp2", _FunctionType.ufunc, "dimensionless", None),
-    ("log", _FunctionType.ufunc, "dimensionless", None),
-    ("log2", _FunctionType.ufunc, "dimensionless", None),
-    ("log10", _FunctionType.ufunc, "dimensionless", None),
     ("expm1", _FunctionType.ufunc, "dimensionless", None),
     ("log1p", _FunctionType.ufunc, "dimensionless", None),
-    ("sin", _FunctionType.ufunc, "radian", "dimensionless"),
-    ("cos", _FunctionType.ufunc, "radian", "dimensionless"),
-    ("tan", _FunctionType.ufunc, "radian", "dimensionless"),
-    ("arcsin", _FunctionType.ufunc, "dimensionless", "radian"),
-    ("arccos", _FunctionType.ufunc, "dimensionless", "radian"),
-    ("arctan", _FunctionType.ufunc, "dimensionless", "radian"),
     ("sinh", _FunctionType.ufunc, "radian", "dimensionless"),
     ("cosh", _FunctionType.ufunc, "radian", "dimensionless"),
     ("tanh", _FunctionType.ufunc, "radian", "dimensionless"),
@@ -203,6 +201,23 @@ for func_name, func_type in (
     ("any", _FunctionType.function),
 ):
     _unary_boolean_output(func_name, func_type)
+
+for func_name, func_type, internal_name in (
+    ("sqrt", _FunctionType.ufunc, "sqrt"),
+    ("absolute", _FunctionType.ufunc, "__abs__"),
+    ("fabs", _FunctionType.ufunc, "__abs__"),
+    ("sin", _FunctionType.ufunc, "sin"),
+    ("cos", _FunctionType.ufunc, "cos"),
+    ("tan", _FunctionType.ufunc, "tan"),
+    ("arcsin", _FunctionType.ufunc, "arcsin"),
+    ("arccos", _FunctionType.ufunc, "arccos"),
+    ("arctan", _FunctionType.ufunc, "arctan"),
+    ("log", _FunctionType.ufunc, "log"),
+    ("log10", _FunctionType.ufunc, "log10"),
+    ("log2", _FunctionType.ufunc, "log2"),
+    ("exp", _FunctionType.ufunc, "exp"),
+):
+    _unary_internal_impl(func_name, func_type, internal_name)
 
 # Functions for which the output units match the units of the first argument.
 for func_name, func_type, requires_compatible_units in (
@@ -305,10 +320,9 @@ def _floor_divide(
 
 @_implements("square", _FunctionType.ufunc)
 def _square(x: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
-    return x.__class__(
-        value=np.square(x.m, *args, **kwargs),
-        units=x.units**2,
-    )
+    new = object.__new__(x.__class__)
+    new._Quantity__inner = x._Quantity__inner**2
+    return new
 
 
 @_implements("reciprocal", _FunctionType.ufunc)
