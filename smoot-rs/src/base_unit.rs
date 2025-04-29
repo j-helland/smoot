@@ -6,30 +6,48 @@ use std::{
 use crate::hash::Hash;
 use bitcode::{Decode, Encode};
 use hashable::Hashable;
+use num_traits::PrimInt;
 
 use crate::error::{SmootError, SmootResult};
 
+/// Dimension is essentially an enum value representing a physical dimension like `[length]` or `[time]`.
+/// These values are determined dynamically at runtime, but we assume that there are no more than 127 of them.
+///
+/// Negative values are used to represent reciprocal dimensions e.g. `1 / [time]`. Note that `0` is a reserved
+/// value that should never appear in dimensionality vectors for a unit.
+pub type Dimension = i8;
+pub const DIMENSIONLESS: Dimension = 0;
+
+/// A bitmask indicating which Dimensions are active for a unit.
+/// For example, a unit with dimensionality `[1, 1, 2, 5]` has a dimension type of `0b10011`.
 pub type DimensionType = u64;
 pub const DIMENSIONLESS_TYPE: DimensionType = 0;
 
-pub type Dimension = i8;
-
 #[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
 pub struct BaseUnit {
+    /// A human-readable identifier for this unit.
     pub name: String,
+
+    /// The scalar used to compute conversion factors to and from this unit. For example, `kilometer`
+    /// has a multiplier of `1000`, while `meter` has a multiplier of `1`.
     pub multiplier: f64,
-    pub unit_type: DimensionType,
+
+    /// The active physical dimensions for this unit.
     pub dimensionality: Vec<Dimension>,
+
+    /// Holds user-applied exponents to a unit. Also useful for disply purposes e.g. creating a string `meter ** 2`.
+    /// A BaseUnit will never be parsed from unit definitions with a non-unit power.
     pub power: i32,
 }
 
 impl BaseUnit {
-    pub fn new(name: String, multiplier: f64, unit_type: DimensionType) -> Self {
+    pub fn new(name: String, multiplier: f64, mut dimensionality: Vec<Dimension>) -> Self {
+        debug_assert!(dimensionality.iter().all(|&d| d != 0));
+        dimensionality.sort();
         Self {
             name,
             multiplier,
-            unit_type,
-            dimensionality: get_dimensionality(unit_type),
+            dimensionality,
             power: 1,
         }
     }
@@ -39,7 +57,6 @@ impl BaseUnit {
         Self {
             name: String::new(),
             multiplier,
-            unit_type: DIMENSIONLESS_TYPE,
             dimensionality: vec![],
             power: 1,
         }
@@ -47,7 +64,16 @@ impl BaseUnit {
 
     /// Return true if this unit is a composite of multiple dimensions.
     pub fn is_multidimensional(&self) -> bool {
-        (self.unit_type >> self.unit_type.trailing_zeros()) > 1
+        self.dimensionality
+            .iter()
+            .map(|dim| dim.abs() - 1)
+            .fold(0, |acc, dim| acc | (1 << dim))
+            .count_ones()
+            > 1
+    }
+
+    pub fn get_dimension_type(&self) -> DimensionType {
+        dimensionality_to_type(&self.dimensionality)
     }
 
     /// Return true if this unit is a constant value e.g. `1`.
@@ -68,7 +94,7 @@ impl BaseUnit {
     /// Err if the units are incompatible (e.g. meter and gram).
     pub fn conversion_factor(&self, target: &Self) -> SmootResult<f64> {
         // Fast check with unit types, slower vector equality check for more detail.
-        if self.unit_type != target.unit_type || self.dimensionality != target.dimensionality {
+        if self.dimensionality != target.dimensionality {
             return Err(SmootError::IncompatibleUnitTypes(
                 self.name.clone(),
                 target.name.clone(),
@@ -90,7 +116,6 @@ impl BaseUnit {
         self.power *= p;
         if p == 0 {
             self.dimensionality.clear();
-            self.unit_type = DIMENSIONLESS_TYPE;
             return;
         }
         if p == 1 {
@@ -158,14 +183,12 @@ impl BaseUnit {
 
     pub fn simplify(&mut self) {
         simplify_dimensionality(&mut self.dimensionality);
-        self.unit_type = dimensionality_to_type(&self.dimensionality);
     }
 
     pub fn div_dimensionality(&mut self, other: &Self) {
         self.power -= other.power;
         if self.power == 0 {
             self.dimensionality.clear();
-            self.unit_type = DIMENSIONLESS_TYPE;
             return;
         }
 
@@ -174,27 +197,6 @@ impl BaseUnit {
         self.dimensionality.sort();
         self.simplify();
     }
-}
-
-/// Compute the dimensionality vector for a given dimension type.
-fn get_dimensionality(mut unit_type: DimensionType) -> Vec<Dimension> {
-    let size = (DimensionType::BITS - unit_type.leading_zeros()) as usize;
-    let mut dims = Vec::with_capacity(size);
-    let mut idx = 0;
-    while unit_type > 0 {
-        if unit_type & 0x1 == 0x1 {
-            dims.push(idx + 1); // `0` is not allowed, we need sign bit to determine numerator or denominator
-            idx += 1;
-            unit_type >>= 1;
-        } else {
-            // Jump to next highest set bit
-            let offset = unit_type.trailing_zeros() as Dimension;
-            idx += offset;
-            unit_type >>= offset;
-        }
-    }
-    // dims is sorted by construction
-    dims
 }
 
 /// Cancel any opposite dimensions in-place.
@@ -271,8 +273,6 @@ impl Mul for BaseUnit {
 impl MulAssign for BaseUnit {
     fn mul_assign(&mut self, rhs: Self) {
         self.multiplier *= rhs.get_multiplier();
-        self.unit_type |= rhs.unit_type;
-
         self.dimensionality.extend(rhs.dimensionality);
         self.dimensionality.sort();
     }
@@ -291,8 +291,6 @@ impl Div for BaseUnit {
 impl DivAssign for BaseUnit {
     fn div_assign(&mut self, rhs: Self) {
         self.multiplier /= rhs.get_multiplier();
-        self.unit_type |= rhs.unit_type;
-
         self.dimensionality
             .extend(rhs.dimensionality.into_iter().map(|d| -d));
         self.dimensionality.sort();
@@ -312,15 +310,6 @@ mod test_base_unit {
     use crate::assert_is_close;
 
     use super::*;
-
-    #[case(0, vec![]; "Dimensionless")]
-    #[case(1, vec![1]; "One dimension")]
-    #[case(1 << 1, vec![2]; "One dimension in higher bit")]
-    #[case(1 | (1 << 1), vec![1, 2]; "Multiple dimensions")]
-    #[case(1 | (1 << 4), vec![1, 5]; "Multiple dimensions with gap")]
-    fn test_get_dimensionality(unit_type: DimensionType, expected: Vec<Dimension>) {
-        assert_eq!(get_dimensionality(unit_type), expected);
-    }
 
     #[case(vec![], DIMENSIONLESS_TYPE; "Dimensionless")]
     #[case(vec![1], 1; "Single dimension")]
@@ -349,14 +338,12 @@ mod test_base_unit {
         let mut actual = BaseUnit {
             name: String::new(),
             multiplier: 1.0,
-            unit_type: 0,
             dimensionality: vec![-3, -2, -1, 1, 2, 2, 3, 3],
             power: 1,
         };
         let expected = BaseUnit {
             name: String::new(),
             multiplier: 1.0,
-            unit_type: (1 << 1) | (1 << 2),
             dimensionality: vec![2, 3],
             power: 1,
         };
@@ -365,28 +352,27 @@ mod test_base_unit {
     }
 
     #[case(
-        BaseUnit::new("left".into(), 2.0, 1),
-        BaseUnit::new("right".into(), 3.0, 1 << 1),
-        BaseUnit::new("left".into(), 6.0, 1 | (1 << 1))
+        BaseUnit::new("left".into(), 2.0, vec![1]),
+        BaseUnit::new("right".into(), 3.0, vec![2]),
+        BaseUnit::new("left".into(), 6.0, vec![1, 2])
         ; "Multipliers multiply and unit types combine"
     )]
     fn test_mul(left: BaseUnit, right: BaseUnit, expected: BaseUnit) {
-        println!("{:#?}", right);
         assert_eq!(left * right, expected);
     }
 
     #[case(
-        BaseUnit::new("test".into(), 1.0, 1),
+        BaseUnit::new("test".into(), 1.0, vec![1]),
         false
         ; "single dimension 1"
     )]
     #[case(
-        BaseUnit::new("test".into(), 1.0, 1 << 8),
+        BaseUnit::new("test".into(), 1.0, vec![8]),
         false
         ; "single dimension 2"
     )]
     #[case(
-        BaseUnit::new("test".into(), 1.0, (1 << 3) | (1 << 8)),
+        BaseUnit::new("test".into(), 1.0, vec![3, 8]),
         true
         ; "multidimensional"
     )]
@@ -398,8 +384,8 @@ mod test_base_unit {
     /// The conversion factor between compatible units is computed correctly.
     fn test_conversion_factor() -> SmootResult<()> {
         // Given two units with the same type
-        let u1 = BaseUnit::new("u1".into(), 1.0, 0);
-        let u2 = BaseUnit::new("u2".into(), 2.0, 0);
+        let u1 = BaseUnit::new("u1".into(), 1.0, vec![]);
+        let u2 = BaseUnit::new("u2".into(), 2.0, vec![]);
 
         // Then a self conversion factor is 1.0
         assert_eq!(u1.conversion_factor(&u1)?, 1.0);
@@ -415,8 +401,8 @@ mod test_base_unit {
     /// Trying to convert between incompatible units is an error.
     fn test_conversion_factor_incompatible_types() {
         // Given two units with disparate types
-        let u1 = BaseUnit::new("u1".into(), 1.0, 0);
-        let u2 = BaseUnit::new("u2".into(), 2.0, 1);
+        let u1 = BaseUnit::new("u1".into(), 1.0, vec![]);
+        let u2 = BaseUnit::new("u2".into(), 2.0, vec![1]);
 
         // Then the result is an error
         let result = u1.conversion_factor(&u2);
@@ -432,14 +418,12 @@ mod test_base_unit {
         let u1 = BaseUnit {
             name: "u1".into(),
             multiplier: 1.0,
-            unit_type: 0,
             dimensionality: vec![0, 0, -1, -1, 2],
             power: 1,
         };
         let u2 = BaseUnit {
             name: "u2".into(),
             multiplier: 1.0,
-            unit_type: 0,
             dimensionality: vec![0, -1, -1, 2],
             power: 1,
         };
@@ -454,10 +438,10 @@ mod test_base_unit {
 
     #[test]
     fn test_hash() {
-        let u1 = BaseUnit::new("u1".into(), 1.0, 0);
+        let u1 = BaseUnit::new("u1".into(), 1.0, vec![]);
         assert_eq!(hash(&u1), hash(&u1.clone()));
 
-        let u2 = BaseUnit::new("u2".into(), 2.0, 1);
+        let u2 = BaseUnit::new("u2".into(), 2.0, vec![1]);
         assert_ne!(hash(&u1), hash(&u2));
     }
 

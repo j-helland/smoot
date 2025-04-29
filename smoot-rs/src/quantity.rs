@@ -23,7 +23,10 @@ impl<N: Number> Storage<N> for ArrayD<N> {}
 
 #[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
 pub struct Quantity<N: Number, S: Storage<N>> {
+    /// e.g. `1` in `1 meter`.
     pub magnitude: S,
+
+    /// e.g. `meter` in `1 meter`.
     pub unit: Unit,
 
     _marker: PhantomData<N>,

@@ -7,7 +7,7 @@ use linked_hash_map::LinkedHashMap;
 use rustc_hash::FxBuildHasher;
 use xxhash_rust::xxh3::xxh3_64;
 
-use crate::base_unit::{BaseUnit, DIMENSIONLESS_TYPE, DimensionType};
+use crate::base_unit::{BaseUnit, DIMENSIONLESS, Dimension};
 use crate::error::{SmootError, SmootResult};
 
 use super::registry_parser::{
@@ -52,8 +52,8 @@ pub struct Registry {
     /// A root unit is the canonical unit for a particular dimension (e.g. [length] -> meter).
     // Don't bother with sharing memory with units because there's relatively few dimensions,
     // making this cheap.
-    root_units: HashMap<DimensionType, BaseUnit, FxBuildHasher>,
-    dimensions: HashMap<DimensionType, String, FxBuildHasher>,
+    root_units: HashMap<Dimension, BaseUnit, FxBuildHasher>,
+    dimensions: HashMap<Dimension, String, FxBuildHasher>,
     prefix_definitions: HashMap<String, PrefixDefinition, FxBuildHasher>,
     symbols: HashMap<String, String, FxBuildHasher>,
     checksum: u64,
@@ -102,12 +102,16 @@ impl Registry {
         self.units.get(key)
     }
 
-    pub fn get_root_unit(&self, dimension: &DimensionType) -> &BaseUnit {
-        self.root_units.get(dimension).expect("Missing root unit")
+    pub fn get_root_unit(&self, dimension: Dimension) -> &BaseUnit {
+        self.root_units
+            .get(&dimension.abs())
+            .expect("Missing root unit")
     }
 
-    pub fn get_dimension(&self, dimension: &DimensionType) -> &String {
-        self.dimensions.get(dimension).expect("Missing dimension")
+    pub fn get_dimension_string(&self, dimension: Dimension) -> &String {
+        self.dimensions
+            .get(&dimension.abs())
+            .expect("Missing dimension")
     }
 
     pub fn len(&self) -> usize {
@@ -284,7 +288,10 @@ impl Registry {
 
     /// Insert only if the entry doesn't exist
     fn insert_root_unit(&mut self, unit: BaseUnit) {
-        self.root_units.entry(unit.unit_type).or_insert(unit);
+        debug_assert!(unit.dimensionality.len() == 1, "{:#?}", unit);
+        self.root_units
+            .entry(unit.dimensionality[0].abs())
+            .or_insert(unit);
     }
 
     /// Take all parsed unit definitions and create real units from them.
@@ -663,21 +670,22 @@ impl Registry {
 
     /// Create root units from dimension definitions like `meter = [length]`.
     fn define_root_units(&mut self, dim_defs: &Vec<DimensionDefinition>) {
-        let mut next_dimension = 1;
-        let mut dimensions = HashMap::new();
-
+        let mut next_dimension: Dimension = DIMENSIONLESS;
         for def in dim_defs.iter() {
-            let dim = if def.is_dimensionless() {
-                DIMENSIONLESS_TYPE
+            let dims = if def.is_dimensionless() {
+                vec![]
             } else {
-                let dim = next_dimension;
-                next_dimension <<= 1;
-                dim
+                next_dimension += 1;
+                vec![next_dimension]
             };
 
-            let unit = BaseUnit::new(def.name.into(), 1.0, dim);
+            let unit = BaseUnit::new(def.name.into(), 1.0, dims);
+            if !unit.dimensionality.is_empty() {
+                self.dimensions
+                    .insert(unit.dimensionality[0].abs(), def.dimension.to_string());
+                self.insert_root_unit(unit.clone());
+            }
 
-            self.insert_root_unit(unit.clone());
             // Symbol
             if let Some(symbol) = def.symbol {
                 self.insert_def(symbol.to_string(), &vec![], unit.clone());
@@ -693,9 +701,6 @@ impl Registry {
             self.insert_def(def.name.to_string() + "s", &vec![], unit.clone());
             // Non-plural
             self.insert_def(def.name.to_string(), &def.aliases, unit);
-
-            dimensions.insert(def.dimension, dim);
-            self.dimensions.insert(dim, def.dimension.to_string());
         }
     }
 }
@@ -780,9 +785,9 @@ mod test_registry {
         {
             let mut map = HashMap::default();
             map.extend([
-                ("percent".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
-                ("percents".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
-                ("%".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+                ("percent".to_string(), BaseUnit::new("percent".to_string(), 0.01, vec![])),
+                ("percents".to_string(), BaseUnit::new("percent".to_string(), 0.01, vec![])),
+                ("%".to_string(), BaseUnit::new("percent".to_string(), 0.01, vec![])),
             ]);
             Some(map)
         }
@@ -794,9 +799,9 @@ mod test_registry {
         {
             let mut map = HashMap::default();
             map.extend([
-                ("percent".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
-                ("percents".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
-                ("%".to_string(), BaseUnit::new("percent".to_string(), 0.01, 0)),
+                ("percent".to_string(), BaseUnit::new("percent".to_string(), 0.01, vec![])),
+                ("percents".to_string(), BaseUnit::new("percent".to_string(), 0.01, vec![])),
+                ("%".to_string(), BaseUnit::new("percent".to_string(), 0.01, vec![])),
             ]);
             Some(map)
         }
@@ -808,10 +813,10 @@ mod test_registry {
         {
             let mut map = HashMap::default();
             map.extend([
-                ("meter".to_string(), BaseUnit::new("meter".to_string(), 1.0, 1)),
-                ("meters".to_string(), BaseUnit::new("meter".to_string(), 1.0, 1)),
-                ("kilometer".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 1)),
-                ("kilometers".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 1)),
+                ("meter".to_string(), BaseUnit::new("meter".to_string(), 1.0, vec![1])),
+                ("meters".to_string(), BaseUnit::new("meter".to_string(), 1.0, vec![1])),
+                ("kilometer".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, vec![1])),
+                ("kilometers".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, vec![1])),
             ]);
             Some(map)
         }
@@ -823,10 +828,10 @@ mod test_registry {
         {
             let mut map = HashMap::default();
             map.extend([
-                ("unit1".to_string(), BaseUnit::new("unit1".to_string(), 1.0, 0)),
-                ("unit1s".to_string(), BaseUnit::new("unit1".to_string(), 1.0, 0)),
-                ("unit2".to_string(), BaseUnit::new("unit2".to_string(), 2.0, 0)),
-                ("unit2s".to_string(), BaseUnit::new("unit2".to_string(), 2.0, 0)),
+                ("unit1".to_string(), BaseUnit::new("unit1".to_string(), 1.0, vec![])),
+                ("unit1s".to_string(), BaseUnit::new("unit1".to_string(), 1.0, vec![])),
+                ("unit2".to_string(), BaseUnit::new("unit2".to_string(), 2.0, vec![])),
+                ("unit2s".to_string(), BaseUnit::new("unit2".to_string(), 2.0, vec![])),
             ]);
             Some(map)
         }
@@ -838,10 +843,10 @@ mod test_registry {
         {
             let mut map = HashMap::default();
             map.extend([
-                ("radian".to_string(), BaseUnit::new("radian".to_string(), 1.0, 0)),
-                ("radians".to_string(), BaseUnit::new("radian".to_string(), 1.0, 0)),
-                ("steradian".to_string(), BaseUnit::new("steradian".to_string(), 1.0, 0)),
-                ("steradians".to_string(), BaseUnit::new("steradian".to_string(), 1.0, 0)),
+                ("radian".to_string(), BaseUnit::new("radian".to_string(), 1.0, vec![])),
+                ("radians".to_string(), BaseUnit::new("radian".to_string(), 1.0, vec![])),
+                ("steradian".to_string(), BaseUnit::new("steradian".to_string(), 1.0, vec![])),
+                ("steradians".to_string(), BaseUnit::new("steradian".to_string(), 1.0, vec![])),
             ]);
             Some(map)
         }
@@ -852,12 +857,12 @@ mod test_registry {
         {
             let mut map = HashMap::default();
             map.extend([
-                ("hour".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
-                ("hours".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
+                ("hour".to_string(), BaseUnit::new("hour".to_string(), 60.0, vec![])),
+                ("hours".to_string(), BaseUnit::new("hour".to_string(), 60.0, vec![])),
                 // Symbol should not have plural form
-                ("h".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
-                ("hr".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
-                ("hrs".to_string(), BaseUnit::new("hour".to_string(), 60.0, 0)),
+                ("h".to_string(), BaseUnit::new("hour".to_string(), 60.0, vec![])),
+                ("hr".to_string(), BaseUnit::new("hour".to_string(), 60.0, vec![])),
+                ("hrs".to_string(), BaseUnit::new("hour".to_string(), 60.0, vec![])),
             ]);
             Some(map)
         }
@@ -869,16 +874,16 @@ mod test_registry {
         {
             let mut map = HashMap::default();
             map.extend([
-                ("second".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
-                ("seconds".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
-                ("millisecond".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
-                ("milliseconds".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
-                ("s".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
-                ("millis".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
-                ("sec".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
-                ("secs".to_string(), BaseUnit::new("second".to_string(), 1.0, 1)),
-                ("millisec".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
-                ("millisecs".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, 1)),
+                ("second".to_string(), BaseUnit::new("second".to_string(), 1.0, vec![1])),
+                ("seconds".to_string(), BaseUnit::new("second".to_string(), 1.0, vec![1])),
+                ("millisecond".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, vec![1])),
+                ("milliseconds".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, vec![1])),
+                ("s".to_string(), BaseUnit::new("second".to_string(), 1.0, vec![1])),
+                ("millis".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, vec![1])),
+                ("sec".to_string(), BaseUnit::new("second".to_string(), 1.0, vec![1])),
+                ("secs".to_string(), BaseUnit::new("second".to_string(), 1.0, vec![1])),
+                ("millisec".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, vec![1])),
+                ("millisecs".to_string(), BaseUnit::new("millisecond".to_string(), 1e-3, vec![1])),
             ]);
             Some(map)
         }
@@ -890,16 +895,16 @@ mod test_registry {
         {
             let mut map = HashMap::default();
             map.extend([
-                ("meter".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
-                ("meters".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
-                ("kilometer".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
-                ("kilometers".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
-                ("m".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
-                ("kilom".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
-                ("metre".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
-                ("metres".to_string(), BaseUnit::new("meter".to_string(), 1.0, 0)),
-                ("kilometre".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
-                ("kilometres".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, 0)),
+                ("meter".to_string(), BaseUnit::new("meter".to_string(), 1.0, vec![])),
+                ("meters".to_string(), BaseUnit::new("meter".to_string(), 1.0, vec![])),
+                ("kilometer".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, vec![])),
+                ("kilometers".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, vec![])),
+                ("m".to_string(), BaseUnit::new("meter".to_string(), 1.0, vec![])),
+                ("kilom".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, vec![])),
+                ("metre".to_string(), BaseUnit::new("meter".to_string(), 1.0, vec![])),
+                ("metres".to_string(), BaseUnit::new("meter".to_string(), 1.0, vec![])),
+                ("kilometre".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, vec![])),
+                ("kilometres".to_string(), BaseUnit::new("kilometer".to_string(), 1000.0, vec![])),
             ]);
             Some(map)
         }
@@ -911,10 +916,10 @@ mod test_registry {
         {
             let mut map = HashMap::default();
             map.extend([
-                ("u1".to_string(), BaseUnit::new("u1".to_string(), 1000.0, 0)),
-                ("u1s".to_string(), BaseUnit::new("u1".to_string(), 1000.0, 0)),
-                ("u2".to_string(), BaseUnit::new("u2".to_string(), 1000.0 * 1000.0, 0)),
-                ("u2s".to_string(), BaseUnit::new("u2".to_string(), 1000.0 * 1000.0, 0)),
+                ("u1".to_string(), BaseUnit::new("u1".to_string(), 1000.0, vec![])),
+                ("u1s".to_string(), BaseUnit::new("u1".to_string(), 1000.0, vec![])),
+                ("u2".to_string(), BaseUnit::new("u2".to_string(), 1000.0 * 1000.0, vec![])),
+                ("u2s".to_string(), BaseUnit::new("u2".to_string(), 1000.0 * 1000.0, vec![])),
             ]);
             Some(map)
         }

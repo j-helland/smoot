@@ -13,7 +13,7 @@ lto = "fat"
 strip = true
 
 [dependencies]
-bitcode = { version = "0.6.5", features = ["serde"] }
+bitcode = { version = "0.6.5" }
 mimalloc = "0.1.43"
 numpy = "0.24.0"
 pyo3 = "0.24.1"
