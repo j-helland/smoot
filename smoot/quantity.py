@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from numbers import Real
-from typing import Any, Callable, Generic, Iterable, TypeVar, Union
+from typing import Any, Callable, Generic, Iterable, Iterator, TypeVar, Union
 import typing
 from typing_extensions import Self
 
@@ -77,16 +77,17 @@ class Quantity(Generic[T, R]):
                 )
                 raise TypeError(msg)
 
-        t = type(value)
         quantity: F64Quantity | ArrayF64Quantity
-        if t is str:
+        if isinstance(value, str):
             # String containing a quantity expression e.g. '1 meter'
             if units is not None:
                 msg = f"Cannot pass a string to parse with separate units {units}"
                 raise ValueError(msg)
             quantity = F64Quantity.parse(value, registry=registry)
 
-        elif t in (int, float, np.int64, np.int32, np.float64, np.float32):
+        elif isinstance(
+            value, (int, float, np.int64, np.int32, np.float64, np.float32)
+        ):
             # Numeric value and a unit.
             # The unit itself may be a string expression.
             factor, _units = (
@@ -94,7 +95,7 @@ class Quantity(Generic[T, R]):
             )
             quantity = F64Quantity(value=value, units=_units, factor=factor)
 
-        elif t in (list, tuple, np.ndarray):
+        elif isinstance(value, (list, tuple, np.ndarray)):
             # Array value and a unit.
             # The unit itself may be a string expression.
             factor, _units = (
@@ -109,7 +110,7 @@ class Quantity(Generic[T, R]):
             quantity = ArrayF64Quantity(value=arr, units=_units, factor=factor)
 
         else:
-            msg = f"Unsupported type {t}"
+            msg = f"Unsupported type {type(value)}"
             raise NotImplementedError(msg)
 
         self.__inner: F64Quantity | ArrayF64Quantity = quantity
@@ -305,6 +306,17 @@ class Quantity(Generic[T, R]):
 
     def __hash__(self) -> int:
         return hash(self.__inner)
+
+    def __iter__(self) -> Iterator[Quantity]:
+        it_inner = iter(self.__inner)
+
+        def it_outer():
+            for nx in it_inner:
+                new = object.__new__(self.__class__)
+                new.__inner = nx
+                yield new
+
+        return it_outer()
 
     # ==================================================
     # Pickle support

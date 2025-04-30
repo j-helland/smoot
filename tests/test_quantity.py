@@ -560,3 +560,18 @@ def test_quantity_x_unit_operations(
     """Units and quantities must interop."""
     assert op(quantity, unit) == expected
     assert op(unit, quantity) == expected
+
+
+def test_array_quantity_is_iterable() -> None:
+    # Iteration returns scalar quantities
+    q = Q([1, 2, 3], units.meter)
+    assert list(iter(q)) == [Q(x, units.meter) for x in range(1, 4)]
+
+    # Iteration returns array quantities
+    q = Q([[1], [2], [3]], units.meter)
+    assert list(iter(q)) == [Q([x], units.meter) for x in range(1, 4)]
+
+
+def test_non_array_quantity_is_not_iterable() -> None:
+    with pytest.raises(TypeError):
+        iter(Q(1))

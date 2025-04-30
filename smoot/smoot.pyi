@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from numbers import Real
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterator
 from typing_extensions import Self
 
 if TYPE_CHECKING:
@@ -197,6 +197,7 @@ class ArrayF64Quantity:
     def ito_root_units(self, registry: UnitRegistry) -> None: ...
     def sqrt(self) -> Self: ...
     def __len__(self) -> int: ...
+    def __iter__(self) -> Iterator[ArrayF64Quantity | F64Quantity]: ...
     def __eq__(self, other: Any) -> bool: ...
     def __add__(
         self, other: Self | NDArray[np.float64] | NDArray[np.int64]
