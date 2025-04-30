@@ -114,6 +114,10 @@ impl Registry {
             .expect("Missing dimension")
     }
 
+    pub fn get_unit_symbol(&self, name: &String) -> Option<&String> {
+        self.symbols.get(name)
+    }
+
     pub fn len(&self) -> usize {
         self.units.len()
     }

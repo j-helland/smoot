@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from numbers import Real
-from typing import Any, Callable, Generic, Iterable, TypeVar, Union
+from typing import Any, Callable, Generic, Iterable, Iterator, TypeVar, Union
 import typing
 from typing_extensions import Self
 
@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 
 import smoot
 from smoot.numpy_functions import NP_HANDLED_FUNCTIONS, NP_HANDLED_UFUNCS
+from smoot.common import UnitFormat
 from smoot.utils import warn_for_large_arrays
 
 from .smoot import (
@@ -77,16 +78,17 @@ class Quantity(Generic[T, R]):
                 )
                 raise TypeError(msg)
 
-        t = type(value)
         quantity: F64Quantity | ArrayF64Quantity
-        if t is str:
+        if isinstance(value, str):
             # String containing a quantity expression e.g. '1 meter'
             if units is not None:
                 msg = f"Cannot pass a string to parse with separate units {units}"
                 raise ValueError(msg)
             quantity = F64Quantity.parse(value, registry=registry)
 
-        elif t in (int, float, np.int64, np.int32, np.float64, np.float32):
+        elif isinstance(
+            value, (int, float, np.int64, np.int32, np.float64, np.float32)
+        ):
             # Numeric value and a unit.
             # The unit itself may be a string expression.
             factor, _units = (
@@ -94,7 +96,7 @@ class Quantity(Generic[T, R]):
             )
             quantity = F64Quantity(value=value, units=_units, factor=factor)
 
-        elif t in (list, tuple, np.ndarray):
+        elif isinstance(value, (list, tuple, np.ndarray)):
             # Array value and a unit.
             # The unit itself may be a string expression.
             factor, _units = (
@@ -109,7 +111,7 @@ class Quantity(Generic[T, R]):
             quantity = ArrayF64Quantity(value=arr, units=_units, factor=factor)
 
         else:
-            msg = f"Unsupported type {t}"
+            msg = f"Unsupported type {type(value)}"
             raise NotImplementedError(msg)
 
         self.__inner: F64Quantity | ArrayF64Quantity = quantity
@@ -303,8 +305,26 @@ class Quantity(Generic[T, R]):
     def __repr__(self) -> str:
         return f"<Quantity('{self.__inner}')>"
 
+    def __format__(self, format_spec: str) -> str:
+        fmt = UnitFormat.from_format_spec(format_spec)
+        return self.__inner.get_formatted_string(
+            registry=self.__registry._UnitRegistry__inner,
+            unit_format=fmt.value,
+        )
+
     def __hash__(self) -> int:
         return hash(self.__inner)
+
+    def __iter__(self) -> Iterator[Quantity]:
+        it_inner = iter(self.__inner)
+
+        def it_outer():
+            for nx in it_inner:
+                new = object.__new__(self.__class__)
+                new.__inner = nx
+                yield new
+
+        return it_outer()
 
     # ==================================================
     # Pickle support

@@ -29,6 +29,7 @@ var/
 include/
 man/
 venv/
+.venv*/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -45,7 +46,6 @@ htmlcov/
 .cache
 nosetests.xml
 coverage.xml
-.hypothesis/
 
 # Translations
 *.mo

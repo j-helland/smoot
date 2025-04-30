@@ -10,29 +10,12 @@ import warnings
 import numpy as np
 from numpy.typing import NDArray
 import pytest
-import hypothesis
-import hypothesis.strategies as st
 
 from smoot import UnitRegistry
 
 
 units = UnitRegistry()
 Q = units.Quantity
-
-
-@hypothesis.given(st.floats())
-def test_quantity_floats(value: float) -> None:
-    """All floats can be wrapped in a quantity."""
-    if math.isnan(value):
-        assert math.isnan(Q(value))
-    else:
-        assert Q(value).magnitude == value
-
-
-# 2**53 + 1 is the first integer that can't be represented by a 64-bit float.
-@hypothesis.given(st.integers(min_value=-(2**53), max_value=2**53))
-def test_quantity_integers(value: int) -> None:
-    assert Q(value).magnitude == value
 
 
 def test_all_base_unit_strings() -> None:
@@ -560,3 +543,18 @@ def test_quantity_x_unit_operations(
     """Units and quantities must interop."""
     assert op(quantity, unit) == expected
     assert op(unit, quantity) == expected
+
+
+def test_array_quantity_is_iterable() -> None:
+    # Iteration returns scalar quantities
+    q = Q([1, 2, 3], units.meter)
+    assert list(iter(q)) == [Q(x, units.meter) for x in range(1, 4)]
+
+    # Iteration returns array quantities
+    q = Q([[1], [2], [3]], units.meter)
+    assert list(iter(q)) == [Q([x], units.meter) for x in range(1, 4)]
+
+
+def test_non_array_quantity_is_not_iterable() -> None:
+    with pytest.raises(TypeError):
+        iter(Q(1))

@@ -99,13 +99,10 @@ where
         }
 
         if !self.unit.is_compatible_with(unit) {
-            return Err(SmootError::IncompatibleUnitTypes(
-                self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into()),
-                unit.get_units_string(true)
-                    .unwrap_or("dimensionless".into()),
-            ));
+            return Err(SmootError::IncompatibleUnitTypes(format!(
+                "Incompatible unit types {} and {}",
+                self.unit, unit
+            )));
         }
         self.convert_to(unit, factor)
     }
@@ -164,8 +161,6 @@ where
             return Err(SmootError::InvalidOperation(format!(
                 "sin expected dimensionless quantity but got {}",
                 self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into())
             )));
         }
         Ok(Quantity::new(self.magnitude.sin(), self.unit.clone()))
@@ -176,8 +171,6 @@ where
             return Err(SmootError::InvalidOperation(format!(
                 "cos expected dimensionless quantity but got {}",
                 self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into())
             )));
         }
         Ok(Quantity::new(self.magnitude.cos(), self.unit.clone()))
@@ -188,8 +181,6 @@ where
             return Err(SmootError::InvalidOperation(format!(
                 "tan expected dimensionless quantity but got {}",
                 self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into())
             )));
         }
         Ok(Quantity::new(self.magnitude.tan(), self.unit.clone()))
@@ -200,8 +191,6 @@ where
             return Err(SmootError::InvalidOperation(format!(
                 "arcsin expected dimensionless quantity but got {}",
                 self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into())
             )));
         }
         Ok(Quantity::new(self.magnitude.arcsin(), self.unit.clone()))
@@ -212,8 +201,6 @@ where
             return Err(SmootError::InvalidOperation(format!(
                 "arccos expected dimensionless quantity but got {}",
                 self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into())
             )));
         }
         Ok(Quantity::new(self.magnitude.arccos(), self.unit.clone()))
@@ -224,8 +211,6 @@ where
             return Err(SmootError::InvalidOperation(format!(
                 "arctan expected dimensionless quantity but got {}",
                 self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into())
             )));
         }
         Ok(Quantity::new(self.magnitude.arctan(), self.unit.clone()))
@@ -243,8 +228,6 @@ where
             return Err(SmootError::InvalidOperation(format!(
                 "ln expected dimensionless quantity but got {}",
                 self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into())
             )));
         }
         Ok(Quantity::new(self.magnitude.ln(), self.unit.clone()))
@@ -255,8 +238,6 @@ where
             return Err(SmootError::InvalidOperation(format!(
                 "log10 expected dimensionless quantity but got {}",
                 self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into())
             )));
         }
         Ok(Quantity::new(self.magnitude.log10(), self.unit.clone()))
@@ -266,9 +247,7 @@ where
         if !self.is_dimensionless() {
             return Err(SmootError::InvalidOperation(format!(
                 "log2 expected dimensionless quantity but got {}",
-                self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into())
+                self.unit,
             )));
         }
         Ok(Quantity::new(self.magnitude.log2(), self.unit.clone()))
@@ -278,9 +257,7 @@ where
         if !self.is_dimensionless() {
             return Err(SmootError::InvalidOperation(format!(
                 "exp expected dimensionless quantity but got {}",
-                self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into())
+                self.unit,
             )));
         }
         Ok(Quantity::new(self.magnitude.exp(), self.unit.clone()))
@@ -641,11 +618,8 @@ where
     fn add(mut self, rhs: N) -> Self::Output {
         if !self.unit.is_dimensionless() {
             return Err(SmootError::InvalidOperation(format!(
-                "Invalid Quantity operation '{}' + '{}'",
-                self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into()),
-                "dimensionaless",
+                "Invalid Quantity operation '{}' + 'dimensionless'",
+                self.unit,
             )));
         }
         self.magnitude += rhs;
@@ -660,10 +634,7 @@ impl<N: Number> Add<ArrayD<N>> for Quantity<N, ArrayD<N>> {
         if !self.unit.is_dimensionless() {
             return Err(SmootError::InvalidOperation(format!(
                 "Invalid Quantity operation '{}' + '{}'",
-                self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into()),
-                "dimensionaless",
+                self.unit, "dimensionaless",
             )));
         }
         self.magnitude = self.magnitude + rhs;
@@ -761,10 +732,7 @@ where
         if !self.unit.is_dimensionless() {
             return Err(SmootError::InvalidOperation(format!(
                 "Invalid Quantity operation '{}' - '{}'",
-                self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into()),
-                "dimensionaless",
+                self.unit, "dimensionaless",
             )));
         }
         self.magnitude -= rhs;
@@ -779,10 +747,7 @@ impl<N: Number> Sub<ArrayD<N>> for Quantity<N, ArrayD<N>> {
         if !self.unit.is_dimensionless() {
             return Err(SmootError::InvalidOperation(format!(
                 "Invalid Quantity operation '{}' - '{}'",
-                self.unit
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into()),
-                "dimensionaless",
+                self.unit, "dimensionaless",
             )));
         }
         self.magnitude = self.magnitude - rhs;
