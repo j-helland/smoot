@@ -6,11 +6,11 @@ static GLOBAL: MiMalloc = MiMalloc;
 use bitcode::{Decode, Encode};
 use numpy::{
     PyArray, PyArrayDyn, PyArrayMethods,
-    ndarray::{ArrayD, Axis},
+    ndarray::{Array, ArrayD, Axis, Dimension, IntoDimension, IxDyn},
 };
 use pyo3::{
     Bound, IntoPyObjectExt, pyfunction, pymodule,
-    types::{PyDict, PyModule},
+    types::{PyDict, PyModule, PyTuple},
 };
 use pyo3::{
     create_exception,
@@ -813,6 +813,70 @@ macro_rules! create_array_quantity_type {
             //==================================================
             // numpy API
             //==================================================
+            #[getter(shape)]
+            fn shape<'a, 'b>(&self, py: Python<'a>) -> PyResult<Bound<'b, PyTuple>>
+            where
+                'a: 'b,
+            {
+                PyTuple::new(py, self.inner.magnitude.shape())
+            }
+
+            #[getter(size)]
+            fn size(&self) -> usize {
+                self.inner.magnitude.len()
+            }
+
+            #[getter(ndim)]
+            fn ndim(&self) -> usize {
+                self.inner.magnitude.ndim()
+            }
+
+            fn transpose(&self) -> Self {
+                Self {
+                    inner: quantity::Quantity::new(
+                        self.inner.magnitude.t().to_owned(),
+                        self.inner.unit.clone(),
+                    ),
+                }
+            }
+
+            fn flatten(&self) -> Self {
+                Self {
+                    inner: quantity::Quantity::new(
+                        Array::from_iter(self.inner.magnitude.iter().cloned()).into_dyn(),
+                        self.inner.unit.clone(),
+                    ),
+                }
+            }
+
+            fn reshape(&mut self, shape: Vec<usize>) -> PyResult<()> {
+                let dim = shape.into_dimension();
+                let arr = &mut self.inner.magnitude;
+                if arr.len() != dim.size() {
+                    return Err(PyValueError::new_err(format!(
+                        "Invalid shape {:?} != {:?}",
+                        arr.shape(),
+                        dim
+                    )));
+                }
+
+                // Inplace reshape without an intermediary copy
+                let mut tmp = ArrayD::<$base_type>::zeros(IxDyn(&[]));
+                std::mem::swap(arr, &mut tmp);
+                tmp = tmp
+                    .into_shape_with_order(dim)
+                    .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                std::mem::swap(arr, &mut tmp);
+
+                Ok(())
+            }
+
+            fn count_nonzero(&self) -> usize {
+                self.inner
+                    .magnitude
+                    .iter()
+                    .fold(0, |acc, e| acc + !e.approx_eq(0.0) as usize)
+            }
 
             fn get_formatted_string(
                 &self,

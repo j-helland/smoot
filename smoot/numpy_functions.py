@@ -1,12 +1,13 @@
 """Bespoke implementations of numpy functions using numpy's __array_ufunc__ and __array_function__ mechanisms."""
 
 from __future__ import annotations
+import copy
 from enum import Enum, auto
 from typing import Any, Callable, Final, Iterable, Iterator
 import warnings
 
 import numpy as np
-from numpy.typing import NDArray
+from numpy.typing import NDArray, ArrayLike
 
 import smoot
 
@@ -40,7 +41,7 @@ def _implements(func_name: str, func_type: _FunctionType) -> Callable:
 # Automated function implementations
 # ==================================================
 def _upcast(
-    x: smoot.Quantity | Any, y: smoot.Quantity
+    x: smoot.Quantity | Any, y: smoot.Quantity | Any
 ) -> tuple[smoot.Quantity, smoot.Quantity]:
     """Assumes that x and y cannot both be non-Quantity types."""
     x_is_quantity = isinstance(x, smoot.Quantity)
@@ -96,6 +97,40 @@ def _unary_internal_impl(
         new = object.__new__(x.__class__)
         new._Quantity__inner = getattr(x._Quantity__inner, internal_name)()
         return new
+
+
+def _join_arrays_impl(
+    func_name: str,
+    func_type: _FunctionType,
+) -> None:
+    func = getattr(np, func_name)
+
+    @_implements(func_name, func_type)
+    def impl(
+        arrays: Iterable[smoot.Quantity | ArrayLike], *args, **kwargs
+    ) -> smoot.Quantity:
+        magnitudes: list[ArrayLike] = []
+        unit: smoot.Unit | None = None
+
+        for item in arrays:
+            if isinstance(item, smoot.Quantity):
+                if unit is None:
+                    unit = item.u
+                elif not item.u.is_compatible_with(unit):
+                    msg = f"Expected consistent units for concatenate. Got '{unit}' and '{item.u}'."
+                    raise ValueError(msg)
+        if unit is None:
+            msg = "Concatenate found no units in arrays"
+            raise ValueError(msg)
+
+        for item in arrays:
+            if isinstance(item, smoot.Quantity):
+                magnitudes.append(item.m_as(unit))
+            else:
+                magnitudes.append(item)
+
+        result_magnitude = func(tuple(magnitudes), *args, **kwargs)
+        return unit._Unit__registry.Quantity(result_magnitude, unit)
 
 
 def _binary_unchanged_units(
@@ -161,11 +196,55 @@ for func_name, func_type in (
     ("trunc", _FunctionType.ufunc),
     # array dispatch function
     ("sum", _FunctionType.function),
+    ("nansum", _FunctionType.function),
     ("amax", _FunctionType.function),
     ("amin", _FunctionType.function),
+    ("max", _FunctionType.function),
+    ("nanmax", _FunctionType.function),
+    ("min", _FunctionType.function),
+    ("nanmin", _FunctionType.function),
     ("around", _FunctionType.function),
     ("average", _FunctionType.function),
+    ("mean", _FunctionType.function),
+    ("nanmean", _FunctionType.function),
+    ("median", _FunctionType.function),
+    ("nanmedian", _FunctionType.function),
+    ("std", _FunctionType.function),
+    ("var", _FunctionType.function),
+    ("nanvar", _FunctionType.function),
+    ("nanstd", _FunctionType.function),
     ("broadcast_to", _FunctionType.function),
+    ("cumsum", _FunctionType.function),
+    ("nancumsum", _FunctionType.function),
+    ("delete", _FunctionType.function),
+    ("diagonal", _FunctionType.function),
+    ("diff", _FunctionType.function),
+    ("expand_dims", _FunctionType.function),
+    ("ediff1d", _FunctionType.function),
+    ("fix", _FunctionType.function),
+    ("flip", _FunctionType.function),
+    ("gradient", _FunctionType.function),
+    ("moveaxis", _FunctionType.function),
+    ("nan_to_num", _FunctionType.function),
+    ("percentile", _FunctionType.function),
+    ("nanpercentile", _FunctionType.function),
+    ("quantile", _FunctionType.function),
+    ("nanquantile", _FunctionType.function),
+    ("ptp", _FunctionType.function),
+    ("swapaxes", _FunctionType.function),
+    ("sort", _FunctionType.function),
+    ("tile", _FunctionType.function),
+    ("trim_zeros", _FunctionType.function),
+    ("ravel", _FunctionType.function),
+    ("squeeze", _FunctionType.function),
+    ("round", _FunctionType.function),
+    ("rot90", _FunctionType.function),
+    ("rollaxis", _FunctionType.function),
+    ("roll", _FunctionType.function),
+    ("resize", _FunctionType.function),
+    ("repeat", _FunctionType.function),
+    ("take", _FunctionType.function),
+    ("trace", _FunctionType.function),
 ):
     _unary_unchanged_units(func_name, func_type)
 
@@ -186,6 +265,8 @@ for func_name, func_type, in_units, out_units in (
     ("deg2rad", _FunctionType.ufunc, "degree", "radian"),
     ("rad2deg", _FunctionType.ufunc, "radian", "degree"),
     # array dispatch function
+    ("cumprod", _FunctionType.function, "dimensionless", None),
+    ("nancumprod", _FunctionType.function, "dimensionless", None),
 ):
     _unary_requires_unit(func_name, func_type, in_units, out_units)
 
@@ -219,6 +300,16 @@ for func_name, func_type, internal_name in (
 ):
     _unary_internal_impl(func_name, func_type, internal_name)
 
+for func_name, func_type in (
+    ("concatenate", _FunctionType.function),
+    ("hstack", _FunctionType.function),
+    ("vstack", _FunctionType.function),
+    ("column_stack", _FunctionType.function),
+    ("dstack", _FunctionType.function),
+    ("stack", _FunctionType.function),
+):
+    _join_arrays_impl(func_name, func_type)
+
 # Functions for which the output units match the units of the first argument.
 for func_name, func_type, requires_compatible_units in (
     # ufunc
@@ -232,6 +323,7 @@ for func_name, func_type, requires_compatible_units in (
     ("nextafter", _FunctionType.ufunc, True),
     # array dispatch function
     ("append", _FunctionType.function, True),
+    ("insert", _FunctionType.function, True),
 ):
     _binary_unchanged_units(func_name, func_type, requires_compatible_units)
 
@@ -257,6 +349,8 @@ for func_name, func_type in (
     # array dispatch function
     ("allclose", _FunctionType.function),
     ("array_equal", _FunctionType.function),
+    ("isclose", _FunctionType.function),
+    ("isin", _FunctionType.function),
 ):
     _binary_boolean_output(func_name, func_type)
 
@@ -367,7 +461,9 @@ def _get_first_unit(arr: Iterable[Any]) -> smoot.Unit:
 
 def _upcast_many(arr: Iterable[Any], units: smoot.Unit) -> Iterator[smoot.Quantity]:
     return (
-        a.to(units) if isinstance(a, smoot.Quantity) else units.__registry.Quantity(a)
+        a.to(units)
+        if isinstance(a, smoot.Quantity)
+        else units._Unit__registry.Quantity(a)
         for a in arr
     )
 
@@ -411,11 +507,6 @@ def _array_repr(arr: smoot.Quantity, *args, **kwargs) -> str:
 @_implements("array_str", _FunctionType.function)
 def _array_str(a: smoot.Quantity, *args, **kwargs) -> str:
     return np.array_str(a.magnitude, *args, **kwargs)
-
-
-@_implements("astype", _FunctionType.function)
-def _astype(x, dtype, /, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("astype")
 
 
 @_implements("atleast_1d", _FunctionType.function)
@@ -514,36 +605,17 @@ def _clip(
     )
 
 
-@_implements("column_stack", _FunctionType.function)
-def _column_stack(tup) -> smoot.Quantity:
-    raise NotImplementedError("column_stack")
-
-
-@_implements("common_type", _FunctionType.function)
-def _common_type(*arrays) -> smoot.Quantity:
-    raise NotImplementedError("common_type")
-
-
 @_implements("compress", _FunctionType.function)
-def _compress(condition, a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("compress")
-
-
-@_implements("concatenate", _FunctionType.function)
-def _concatenate(
-    arrays: tuple[smoot.Quantity | Any, ...], *args, **kwargs
+def _compress(
+    condition: ArrayLike, a: smoot.Quantity, *args, **kwargs
 ) -> smoot.Quantity:
-    raise NotImplementedError("concatenate")
-
-
-@_implements("convolve", _FunctionType.function)
-def _convolve(a, v, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("convolve")
+    result_magnitude = np.compress(condition, a.m, *args, **kwargs)
+    return a.__class__(result_magnitude, a.u)
 
 
 @_implements("copy", _FunctionType.function)
-def _copy(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("copy")
+def _copy(a: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
+    return copy.copy(a)
 
 
 @_implements("copyto", _FunctionType.function)
@@ -562,100 +634,39 @@ def _copyto(
 
 
 @_implements("correlate", _FunctionType.function)
-def _correlate(a, v, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("correlate")
+def _correlate(
+    a: smoot.Quantity | ArrayLike,
+    v: smoot.Quantity | ArrayLike,
+    *args,
+    **kwargs,
+) -> smoot.Quantity:
+    a, v = _upcast(a, v)
+    magnitude = np.correlate(a.m, v.m, *args, **kwargs)
+    units = a.u * v.u
+    return a.__class__(magnitude, units)
 
 
 @_implements("count_nonzero", _FunctionType.function)
-def _count_nonzero(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("count_nonzero")
-
-
-@_implements("cov", _FunctionType.function)
-def _cov(m, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("cov")
+def _count_nonzero(a, *args, **kwargs) -> int:
+    return a._Quantity__inner.count_nonzero()
 
 
 @_implements("cross", _FunctionType.function)
 def _cross(a, b, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("cross")
-
-
-@_implements("cumprod", _FunctionType.function)
-def _cumprod(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("cumprod")
-
-
-@_implements("cumsum", _FunctionType.function)
-def _cumsum(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("cumsum")
-
-
-@_implements("cumulative_prod", _FunctionType.function)
-def _cumulative_prod(x, /, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("cumulative_prod")
-
-
-@_implements("cumulative_sum", _FunctionType.function)
-def _cumulative_sum(x, /, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("cumulative_sum")
-
-
-@_implements("delete", _FunctionType.function)
-def _delete(arr, obj, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("delete")
-
-
-@_implements("diag", _FunctionType.function)
-def _diag(v, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("diag")
-
-
-@_implements("diag_indices_from", _FunctionType.function)
-def _diag_indices_from(arr) -> smoot.Quantity:
-    raise NotImplementedError("diag_indices_from")
-
-
-@_implements("diagflat", _FunctionType.function)
-def _diagflat(v, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("diagflat")
-
-
-@_implements("diagonal", _FunctionType.function)
-def _diagonal(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("diagonal")
-
-
-@_implements("diff", _FunctionType.function)
-def _diff(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("diff")
-
-
-@_implements("digitize", _FunctionType.function)
-def _digitize(x, bins, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("digitize")
+    a, b = _upcast(a, b)
+    magnitude = np.cross(a.m, b.m, *args, **kwargs)
+    units = a.u * b.u
+    return a.__class__(magnitude, units)
 
 
 @_implements("dot", _FunctionType.function)
 def _dot(
     x: smoot.Quantity | Any, y: smoot.Quantity | Any, *args, **kwargs
 ) -> smoot.Quantity:
-    raise NotImplementedError("dot")
-
-
-@_implements("dsplit", _FunctionType.function)
-def _dsplit(ary, indices_or_sections) -> smoot.Quantity:
-    raise NotImplementedError("dsplit")
-
-
-@_implements("dstack", _FunctionType.function)
-def _dstack(tup) -> smoot.Quantity:
-    raise NotImplementedError("dstack")
-
-
-@_implements("ediff1d", _FunctionType.function)
-def _ediff1d(ary, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("ediff1d")
+    x, y = _upcast(x, y)
+    magnitude = np.dot(x.m, y.m, *args, **kwargs)
+    units = x.u * y.u
+    return x.__class__(magnitude, units)
 
 
 @_implements("einsum", _FunctionType.function)
@@ -674,686 +685,293 @@ def _einsum(
     )
 
 
-@_implements("einsum_path", _FunctionType.function)
-def _einsum_path(*operands, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("einsum_path")
-
-
-@_implements("empty_like", _FunctionType.function)
-def __empty_like(x: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("empty_like")
-
-
-@_implements("expand_dims", _FunctionType.function)
-def _expand_dims(a, axis) -> smoot.Quantity:
-    raise NotImplementedError("expand_dims")
-
-
-@_implements("extract", _FunctionType.function)
-def _extract(condition, arr) -> smoot.Quantity:
-    raise NotImplementedError("extract")
-
-
-@_implements("fill_diagonal", _FunctionType.function)
-def _fill_diagonal(a, val, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("fill_diagonal")
-
-
-@_implements("fix", _FunctionType.function)
-def _fix(x, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("fix")
-
-
-@_implements("flatnonzero", _FunctionType.function)
-def _flatnonzero(a) -> smoot.Quantity:
-    raise NotImplementedError("flatnonzero")
-
-
-@_implements("flip", _FunctionType.function)
-def _flip(m, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("flip")
-
-
-@_implements("fliplr", _FunctionType.function)
-def _fliplr(m) -> smoot.Quantity:
-    raise NotImplementedError("fliplr")
-
-
-@_implements("flipud", _FunctionType.function)
-def _flipud(m) -> smoot.Quantity:
-    raise NotImplementedError("flipud")
-
-
 @_implements("full_like", _FunctionType.function)
-def _full_like(a, fill_value, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("full_like")
-
-
-@_implements("geomspace", _FunctionType.function)
-def _geomspace(start, stop, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("geomspace")
-
-
-@_implements("gradient", _FunctionType.function)
-def _gradient(f, *varargs, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("gradient")
-
-
-@_implements("histogram", _FunctionType.function)
-def _histogram(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("histogram")
-
-
-@_implements("histogram2d", _FunctionType.function)
-def _histogram2d(x, y, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("histogram2d")
-
-
-@_implements("histogram_bin_edges", _FunctionType.function)
-def _histogram_bin_edges(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("histogram_bin_edges")
-
-
-@_implements("histogramdd", _FunctionType.function)
-def _histogramdd(sample, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("histogramdd")
-
-
-@_implements("hsplit", _FunctionType.function)
-def _hsplit(ary, indices_or_sections) -> smoot.Quantity:
-    raise NotImplementedError("hsplit")
-
-
-@_implements("hstack", _FunctionType.function)
-def _hstack(tup, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("hstack")
-
-
-@_implements("i0", _FunctionType.function)
-def _i0(x) -> smoot.Quantity:
-    raise NotImplementedError("i0")
-
-
-@_implements("imag", _FunctionType.function)
-def _imag(val) -> smoot.Quantity:
-    raise NotImplementedError("imag")
-
-
-@_implements("in1d", _FunctionType.function)
-def _in1d(ar1, ar2, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("in1d")
+def _full_like(a: smoot.Quantity, fill_value, *args, **kwargs) -> smoot.Quantity:
+    magnitude = np.full_like(a.m, fill_value, *args, **kwargs)
+    return a.__class__(magnitude, a.u)
 
 
 @_implements("insert", _FunctionType.function)
 def _insert(arr, obj, values, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("insert")
+    unit: smoot.Unit | None = None
+
+    # Check if the main array is a Quantity
+    if isinstance(arr, smoot.Quantity):
+        unit = arr.u
+
+    # Check if values is a Quantity
+    if isinstance(values, smoot.Quantity):
+        if unit is None:
+            unit = values.u
+        elif not values.u.is_compatible_with(unit):
+            msg = f"Unit mismatch between arr ({unit}) and values ({values.u})"
+            raise ValueError(msg)
+
+    # Check if values contains any Quantity elements (for non-Quantity values)
+    if unit is None and not isinstance(values, smoot.Quantity):
+        # Flatten and check each element in values for Quantity instances
+        def check_elements(item):
+            nonlocal unit
+            if isinstance(item, smoot.Quantity):
+                if unit is None:
+                    unit = item.u
+                elif not item.u.is_compatible_with(unit):
+                    msg = f"Unit mismatch in values: {item.u} vs {unit}"
+                    raise ValueError(msg)
+            elif isinstance(item, (list, tuple)):
+                for sub_item in item:
+                    check_elements(sub_item)
+
+        try:
+            check_elements(values)
+        except TypeError:
+            # values is not iterable, skip
+            pass
+
+    if unit is None:
+        msg = "No units found in arr or values"
+        raise ValueError(msg)
+
+    # Convert arr to magnitude
+    if isinstance(arr, smoot.Quantity):
+        arr_magnitude = arr.m_as(unit)
+    else:
+        arr_magnitude = arr
+
+    # Convert values to magnitude
+    def convert_values(item):
+        if isinstance(item, smoot.Quantity):
+            return item.m_as(unit)
+        elif isinstance(item, (list, tuple)):
+            return [convert_values(sub_item) for sub_item in item]
+        else:
+            return item
+
+    if isinstance(values, smoot.Quantity):
+        values_magnitude = values.m_as(unit)
+    else:
+        values_magnitude = convert_values(values)
+
+    # Perform the insert operation
+    result_magnitude = np.insert(arr_magnitude, obj, values_magnitude, *args, **kwargs)
+
+    # Return as a Quantity with the determined unit
+    return unit._Unit__registry.Quantity(result_magnitude, unit)
 
 
 @_implements("interp", _FunctionType.function)
 def _interp(x, xp, fp, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("interp")
+    if isinstance(x, smoot.Quantity):
+        units = x.u
+    elif isinstance(xp, smoot.Quantity):
+        units = xp.u
+    else:
+        units = fp.u
+
+    x, xp, fp = _upcast_many((x, xp, fp), units)
+    magnitude = np.interp(x.m, xp.m, fp.m, *args, **kwargs)
+    return x.__class__(magnitude, units)
 
 
 @_implements("intersect1d", _FunctionType.function)
 def _intersect1d(ar1, ar2, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("intersect1d")
-
-
-@_implements("isclose", _FunctionType.function)
-def _isclose(a, b, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("isclose")
+    ar1, ar2 = _upcast(ar1, ar2)
+    magnitude = np.intersect1d(ar1.m, ar2.m_as(ar1), *args, **kwargs)
+    return ar1.__class__(magnitude, ar1.u)
 
 
 @_implements("iscomplex", _FunctionType.function)
-def _iscomplex(x) -> smoot.Quantity:
-    raise NotImplementedError("iscomplex")
-
-
-@_implements("iscomplexobj", _FunctionType.function)
-def _iscomplexobj(x) -> smoot.Quantity:
-    raise NotImplementedError("iscomplexobj")
-
-
-@_implements("isin", _FunctionType.function)
-def _isin(element, test_elements, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("isin")
-
-
-@_implements("isneginf", _FunctionType.function)
-def _isneginf(x, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("isneginf")
-
-
-@_implements("isposinf", _FunctionType.function)
-def _isposinf(x, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("isposinf")
+def _iscomplex(_) -> bool:
+    # TODO(jwh): support for complex numbers
+    return False
 
 
 @_implements("isreal", _FunctionType.function)
-def _isreal(x) -> smoot.Quantity:
-    raise NotImplementedError("isreal")
-
-
-@_implements("isrealobj", _FunctionType.function)
-def _isrealobj(x) -> smoot.Quantity:
-    raise NotImplementedError("isrealobj")
-
-
-@_implements("ix_", _FunctionType.function)
-def _ix_(*args) -> smoot.Quantity:
-    raise NotImplementedError("ix_")
-
-
-@_implements("kron", _FunctionType.function)
-def _kron(a, b) -> smoot.Quantity:
-    raise NotImplementedError("kron")
+def _isreal(_) -> bool:
+    # TODO(jwh): support for complex numbers
+    return True
 
 
 @_implements("linspace", _FunctionType.function)
 def _linspace(start, stop, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("linspace")
-
-
-@_implements("logspace", _FunctionType.function)
-def _logspace(start, stop, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("logspace")
-
-
-@_implements("matrix_transpose", _FunctionType.function)
-def _matrix_transpose(x, /) -> smoot.Quantity:
-    raise NotImplementedError("matrix_transpose")
-
-
-@_implements("max", _FunctionType.function)
-def __max(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("max")
-
-
-@_implements("mean", _FunctionType.function)
-def _mean(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("mean")
-
-
-@_implements("median", _FunctionType.function)
-def _median(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("median")
+    start, stop = _upcast(start, stop)
+    magnitude = np.linspace(start.m, stop.m_as(start), *args, **kwargs)
+    return start.__class__(magnitude, start.u)
 
 
 @_implements("meshgrid", _FunctionType.function)
-def _meshgrid(*xi, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("meshgrid")
+def _meshgrid(*xi, **kwargs) -> tuple[smoot.Quantity, ...]:
+    for x in xi:
+        if isinstance(x, smoot.Quantity):
+            units = x.u
+            break
+    else:
+        msg = "Meshgrid found no quantity in its inputs"
+        raise TypeError(msg)
 
-
-@_implements("min", _FunctionType.function)
-def _min(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("min")
-
-
-@_implements("moveaxis", _FunctionType.function)
-def _moveaxis(a, source, destination) -> smoot.Quantity:
-    raise NotImplementedError("moveaxis")
-
-
-@_implements("nan_to_num", _FunctionType.function)
-def _nan_to_num(x, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nan_to_num")
+    xi = _upcast_many(xi, units)
+    magnitudes = np.meshgrid(*(x.m for x in xi), **kwargs)
+    return tuple(units._Unit__registry.Quantity(m, units) for m in magnitudes)
 
 
 @_implements("nanargmax", _FunctionType.function)
-def _nanargmax(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nanargmax")
+def _nanargmax(a: smoot.Quantity, *args, **kwargs) -> np.intp:
+    return np.nanargmax(a.magnitude, *args, **kwargs)
 
 
 @_implements("nanargmin", _FunctionType.function)
-def _nanargmin(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nanargmin")
-
-
-@_implements("nancumprod", _FunctionType.function)
-def _nancumprod(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nancumprod")
-
-
-@_implements("nancumsum", _FunctionType.function)
-def _nancumsum(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nancumsum")
-
-
-@_implements("nanmax", _FunctionType.function)
-def _nanmax(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nanmax")
-
-
-@_implements("nanmean", _FunctionType.function)
-def _nanmean(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nanmean")
-
-
-@_implements("nanmedian", _FunctionType.function)
-def _nanmedian(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nanmedian")
-
-
-@_implements("nanmin", _FunctionType.function)
-def _nanmin(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nanmin")
-
-
-@_implements("nanpercentile", _FunctionType.function)
-def _nanpercentile(a, q, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nanpercentile")
-
-
-@_implements("nanprod", _FunctionType.function)
-def _nanprod(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nanprod")
-
-
-@_implements("nanquantile", _FunctionType.function)
-def _nanquantile(a, q, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nanquantile")
-
-
-@_implements("nanstd", _FunctionType.function)
-def _nanstd(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nanstd")
-
-
-@_implements("nansum", _FunctionType.function)
-def _nansum(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nansum")
-
-
-@_implements("nanvar", _FunctionType.function)
-def _nanvar(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("nanvar")
-
-
-@_implements("ndim", _FunctionType.function)
-def _ndim(a) -> smoot.Quantity:
-    raise NotImplementedError("ndim")
+def _nanargmin(a: smoot.Quantity, *args, **kwargs) -> np.intp:
+    return np.nanargmin(a.magnitude, *args, **kwargs)
 
 
 @_implements("nonzero", _FunctionType.function)
-def _nonzero(a) -> smoot.Quantity:
-    raise NotImplementedError("nonzero")
+def _nonzero(a: smoot.Quantity) -> tuple[NDArray[np.intp], ...]:
+    return np.nonzero(a.m)
 
 
 @_implements("ones_like", _FunctionType.function)
 def _ones_like(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("ones_like")
-
-
-@_implements("outer", _FunctionType.function)
-def _outer(a, b, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("outer")
+    magnitude = np.ones_like(a.m, *args, **kwargs)
+    return a.__class__(magnitude, a.u)
 
 
 @_implements("pad", _FunctionType.function)
-def _pad(array, pad_width, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("pad")
+def _pad(
+    array: smoot.Quantity,
+    pad_width: ArrayLike,
+    *args,
+    **kwargs,
+) -> smoot.Quantity:
+    units = array.u
 
+    def _convert(arg):
+        if isinstance(arg, Iterable):
+            return tuple(map(_convert, arg))
+        elif not isinstance(arg, smoot.Quantity):
+            if arg == 0 or np.isnan(arg):
+                return array.__class__(arg, units)
+            return array.__class__(arg, "dimensionless")
+        return arg.m_as(array)
 
-@_implements("partition", _FunctionType.function)
-def _partition(a, kth, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("partition")
+    if vals := kwargs.get("constant_values"):
+        kwargs["constant_values"] = _convert(vals)
+    if vals := kwargs.get("end_values"):
+        kwargs["end_values"] = _convert(vals)
 
-
-@_implements("percentile", _FunctionType.function)
-def _percentile(a, q, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("percentile")
+    magnitude = np.pad(array.m, pad_width, *args, **kwargs)
+    return array.__class__(magnitude, units)
 
 
 @_implements("transpose", _FunctionType.function)
-def _transpose(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("transpose")
-
-
-@_implements("piecewise", _FunctionType.function)
-def _piecewise(x, condlist, funclist, *args, **kw) -> smoot.Quantity:
-    raise NotImplementedError("piecewise")
-
-
-@_implements("place", _FunctionType.function)
-def _place(arr, mask, vals) -> smoot.Quantity:
-    raise NotImplementedError("place")
-
-
-@_implements("poly", _FunctionType.function)
-def _poly(seq_of_zeros) -> smoot.Quantity:
-    raise NotImplementedError("poly")
-
-
-@_implements("polyadd", _FunctionType.function)
-def _polyadd(a1, a2) -> smoot.Quantity:
-    raise NotImplementedError("polyadd")
-
-
-@_implements("polyder", _FunctionType.function)
-def _polyder(p, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("polyder")
-
-
-@_implements("polydiv", _FunctionType.function)
-def _polydiv(u, v) -> smoot.Quantity:
-    raise NotImplementedError("polydiv")
-
-
-@_implements("polyfit", _FunctionType.function)
-def _polyfit(x, y, deg, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("polyfit")
-
-
-@_implements("polyint", _FunctionType.function)
-def _polyint(p, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("polyint")
-
-
-@_implements("polymul", _FunctionType.function)
-def _polymul(a1, a2) -> smoot.Quantity:
-    raise NotImplementedError("polymul")
-
-
-@_implements("polysub", _FunctionType.function)
-def _polysub(a1, a2) -> smoot.Quantity:
-    raise NotImplementedError("polysub")
-
-
-@_implements("polyval", _FunctionType.function)
-def _polyval(p, x) -> smoot.Quantity:
-    raise NotImplementedError("polyval")
+def _transpose(a: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
+    magnitude = np.transpose(a.m, *args, **kwargs)
+    return a.__class__(magnitude, a.u)
 
 
 @_implements("prod", _FunctionType.function)
-def _prod(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("prod")
+def _prod(
+    a: smoot.Quantity, axis: int | tuple[int, ...] | None = None, *args, **kwargs
+) -> smoot.Quantity:
+    magnitude = np.prod(a.m, axis, *args, **kwargs)
+    if axis is None:
+        new_dim = a.size
+    elif isinstance(axis, Iterable):
+        new_dim = 1
+        shape = a.shape
+        for ax in axis:
+            new_dim *= shape[ax]
+    else:
+        new_dim = a.shape[axis]
+    return a.__class__(magnitude, a.u**new_dim)
 
 
-@_implements("ptp", _FunctionType.function)
-def _ptp(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("ptp")
-
-
-@_implements("put", _FunctionType.function)
-def _put(a, ind, v, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("put")
-
-
-@_implements("put_along_axis", _FunctionType.function)
-def _put_along_axis(arr, indices, values, axis) -> smoot.Quantity:
-    raise NotImplementedError("put_along_axis")
-
-
-@_implements("quantile", _FunctionType.function)
-def _quantile(a, q, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("quantile")
-
-
-@_implements("ravel", _FunctionType.function)
-def _ravel(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("ravel")
-
-
-@_implements("real", _FunctionType.function)
-def _real(val) -> smoot.Quantity:
-    raise NotImplementedError("real")
-
-
-@_implements("real_if_close", _FunctionType.function)
-def _real_if_close(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("real_if_close")
-
-
-@_implements("repeat", _FunctionType.function)
-def _repeat(a, repeats, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("repeat")
+@_implements("nanprod", _FunctionType.function)
+def _nanprod(
+    a: smoot.Quantity, axis: int | tuple[int, ...] | None = None, *args, **kwargs
+) -> smoot.Quantity:
+    magnitude = np.nanprod(a.m, axis, *args, **kwargs)
+    if axis is None:
+        new_dim = a.size
+    elif isinstance(axis, Iterable):
+        new_dim = 1
+        shape = a.shape
+        for ax in axis:
+            new_dim *= shape[ax]
+    else:
+        new_dim = a.shape[axis]
+    return a.__class__(magnitude, a.u**new_dim)
 
 
 @_implements("reshape", _FunctionType.function)
-def _reshape(a, /, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("reshape")
-
-
-@_implements("resize", _FunctionType.function)
-def _resize(a, new_shape) -> smoot.Quantity:
-    raise NotImplementedError("resize")
-
-
-@_implements("roll", _FunctionType.function)
-def _roll(a, shift, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("roll")
-
-
-@_implements("rollaxis", _FunctionType.function)
-def _rollaxis(a, axis, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("rollaxis")
-
-
-@_implements("roots", _FunctionType.function)
-def _roots(p) -> smoot.Quantity:
-    raise NotImplementedError("roots")
-
-
-@_implements("rot90", _FunctionType.function)
-def _rot90(m, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("rot90")
-
-
-@_implements("round", _FunctionType.function)
-def _round(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("round")
-
-
-@_implements("save", _FunctionType.function)
-def _save(file, arr, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("save")
-
-
-@_implements("savetxt", _FunctionType.function)
-def _savetxt(fname, X, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("savetxt")
-
-
-@_implements("savez", _FunctionType.function)
-def _savez(file, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("savez")
-
-
-@_implements("savez_compressed", _FunctionType.function)
-def _savez_compressed(file, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("savez_compressed")
+def _reshape(
+    a: smoot.Quantity, /, shape: tuple[int, ...], *args, **kwargs
+) -> smoot.Quantity:
+    a._Quantity__inner.reshape(shape)
+    return a
 
 
 @_implements("searchsorted", _FunctionType.function)
-def _searchsorted(a, v, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("searchsorted")
-
-
-@_implements("select", _FunctionType.function)
-def _select(condlist, choicelist, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("select")
-
-
-@_implements("setdiff1d", _FunctionType.function)
-def _setdiff1d(ar1, ar2, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("setdiff1d")
-
-
-@_implements("setxor1d", _FunctionType.function)
-def _setxor1d(ar1, ar2, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("setxor1d")
+def _searchsorted(
+    a: smoot.Quantity, v: smoot.Quantity | int | float, *args, **kwargs
+) -> np.intp | NDArray[np.intp]:
+    a, v = _upcast(a, v)
+    return np.searchsorted(a.m, v.m_as(a), *args, **kwargs)
 
 
 @_implements("shape", _FunctionType.function)
-def _shape(a) -> smoot.Quantity:
-    raise NotImplementedError("shape")
-
-
-@_implements("sinc", _FunctionType.function)
-def _sinc(x) -> smoot.Quantity:
-    raise NotImplementedError("sinc")
+def _shape(a: smoot.Quantity) -> tuple[int, ...]:
+    return a._Quantity__inner.shape
 
 
 @_implements("size", _FunctionType.function)
-def _size(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("size")
+def _size(a: smoot.Quantity) -> int:
+    return a._Quantity__inner.size
 
 
-@_implements("sort", _FunctionType.function)
-def _sort(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("sort")
+@_implements("ndim", _FunctionType.function)
+def _ndim(a: smoot.Quantity) -> int:
+    return a._Quantity__inner.ndim
 
 
-@_implements("sort_complex", _FunctionType.function)
-def _sort_complex(a) -> smoot.Quantity:
-    raise NotImplementedError("sort_complex")
-
-
-@_implements("split", _FunctionType.function)
-def _split(ary, indices_or_sections, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("split")
-
-
-@_implements("squeeze", _FunctionType.function)
-def _squeeze(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("squeeze")
-
-
-@_implements("stack", _FunctionType.function)
-def _stack(arrays, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("stack")
-
-
-@_implements("std", _FunctionType.function)
-def _std(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("std")
-
-
-@_implements("swapaxes", _FunctionType.function)
-def _swapaxes(a, axis1, axis2) -> smoot.Quantity:
-    raise NotImplementedError("swapaxes")
-
-
-@_implements("take", _FunctionType.function)
-def _take(a, indices, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("take")
-
-
-@_implements("take_along_axis", _FunctionType.function)
-def _take_along_axis(arr, indices, axis) -> smoot.Quantity:
-    raise NotImplementedError("take_along_axis")
-
-
-@_implements("tensordot", _FunctionType.function)
-def _tensordot(a, b, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("tensordot")
-
-
-@_implements("tile", _FunctionType.function)
-def _tile(A, reps) -> smoot.Quantity:
-    raise NotImplementedError("tile")
-
-
-@_implements("trace", _FunctionType.function)
-def _trace(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("trace")
-
-
+@_implements("trapz", _FunctionType.function)
 @_implements("trapezoid", _FunctionType.function)
-def _trapezoid(y, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("trapezoid")
+def _trapezoid(y: smoot.Quantity, x=None, dx=1.0, **kwargs) -> smoot.Quantity:
+    units = y.u
+    if x is not None:
+        if isinstance(x, smoot.Quantity):
+            units *= x.u
+            xm = x.m
+        else:
+            xm = x
+        magnitude = np.trapezoid(y.m, xm, **kwargs)
+    else:
+        if isinstance(dx, smoot.Quantity):
+            units *= dx.u
+            dxm = dx.m
+        else:
+            dxm = dx
+        magnitude = np.trapezoid(y.m, dx=dxm, **kwargs)
 
-
-@_implements("tril", _FunctionType.function)
-def _tril(m, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("tril")
-
-
-@_implements("tril_indices_from", _FunctionType.function)
-def _tril_indices_from(arr, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("tril_indices_from")
-
-
-@_implements("trim_zeros", _FunctionType.function)
-def _trim_zeros(filt, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("trim_zeros")
-
-
-@_implements("triu", _FunctionType.function)
-def _triu(m, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("triu")
-
-
-@_implements("triu_indices_from", _FunctionType.function)
-def _triu_indices_from(arr, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("triu_indices_from")
-
-
-@_implements("union1d", _FunctionType.function)
-def _union1d(ar1, ar2) -> smoot.Quantity:
-    raise NotImplementedError("union1d")
-
-
-@_implements("unique", _FunctionType.function)
-def _unique(ar, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("unique")
-
-
-@_implements("unique_all", _FunctionType.function)
-def _unique_all(x) -> smoot.Quantity:
-    raise NotImplementedError("unique_all")
-
-
-@_implements("unique_counts", _FunctionType.function)
-def _unique_counts(x) -> smoot.Quantity:
-    raise NotImplementedError("unique_counts")
-
-
-@_implements("unique_inverse", _FunctionType.function)
-def _unique_inverse(x) -> smoot.Quantity:
-    raise NotImplementedError("unique_inverse")
-
-
-@_implements("unique_values", _FunctionType.function)
-def _unique_values(x) -> smoot.Quantity:
-    raise NotImplementedError("unique_values")
-
-
-@_implements("unstack", _FunctionType.function)
-def _unstack(x, /, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("unstack")
+    return y.__class__(magnitude, units)
 
 
 @_implements("unwrap", _FunctionType.function)
-def _unwrap(p, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("unwrap")
-
-
-@_implements("vander", _FunctionType.function)
-def _vander(x, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("vander")
-
-
-@_implements("var", _FunctionType.function)
-def _var(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("var")
-
-
-@_implements("vsplit", _FunctionType.function)
-def _vsplit(ary, indices_or_sections) -> smoot.Quantity:
-    raise NotImplementedError("vsplit")
-
-
-@_implements("vstack", _FunctionType.function)
-def _vstack(tup, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("vstack")
+def _unwrap(p: smoot.Quantity, discont=None, axis=-1, **kwargs) -> smoot.Quantity:
+    discont = np.pi if discont is None else discont
+    magnitude = np.unwrap(p.m_as("radian"), discont, axis, **kwargs)
+    return p.__class__(magnitude, "radian").to(p)
 
 
 @_implements("where", _FunctionType.function)
-def _where(condition, x: smoot.Quantity, y: smoot.Quantity) -> smoot.Quantity:
-    raise NotImplementedError("where")
+def _where(
+    condition, x: smoot.Quantity | ArrayLike, y: smoot.Quantity | ArrayLike
+) -> smoot.Quantity:
+    x, y = _upcast(x, y)
+    magnitude = np.where(condition, x.m, y.m_as(x))
+    return x.__class__(magnitude, x.u)
 
 
 @_implements("zeros_like", _FunctionType.function)
-def _zeros_like(a, *args, **kwargs) -> smoot.Quantity:
-    raise NotImplementedError("zeros_like")
+def _zeros_like(a: smoot.Quantity, *args, **kwargs) -> smoot.Quantity:
+    magnitude = np.zeros_like(a.m, *args, **kwargs)
+    return a.__class__(magnitude, a.u)

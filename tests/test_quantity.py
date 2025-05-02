@@ -4,7 +4,7 @@ import inspect
 import math
 import operator
 import pickle
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 import warnings
 
 import numpy as np
@@ -291,22 +291,6 @@ def test_binary_array_operators(
     assert (op(x, y) == expected).all()
 
 
-@pytest.mark.parametrize(
-    argnames=("x", "op", "expected"),
-    argvalues=(
-        (Q([-1, -2, -3]), abs, Q([1, 2, 3])),
-        (Q([-1, -2, -3]), operator.neg, Q([1, 2, 3])),
-    ),
-)
-def test_unary_array_operators(
-    x: Q | NDArray[np.int64],
-    op: Callable[[Q | NDArray[np.int64]], Q],
-    expected: Q,
-) -> None:
-    """Unary array operators produce expected values."""
-    assert (op(x) == expected).all()
-
-
 def test_matmul_produces_scalar() -> None:
     """vector/vector matmul should produce a scalar quantity"""
     assert (Q([1, 2, 3]) @ Q([3, 2, 1])) == Q(10)
@@ -360,8 +344,14 @@ def test_matmul_produces_scalar() -> None:
         (Q([0, 1, 0], "meter"), np.any, True),
         (Q([1, 2, 3], "meter"), np.amax, Q(3, "meter")),
         (Q([1, 2, 3], "meter"), np.amin, Q(1, "meter")),
+        (Q([1, 2, 3], "meter"), np.max, Q(3, "meter")),
+        (Q([1, 2, 3], "meter"), np.min, Q(1, "meter")),
+        (Q([1, 2, 3], "meter"), np.nanmax, Q(3, "meter")),
+        (Q([1, 2, 3], "meter"), np.nanmin, Q(1, "meter")),
         (Q([1, 2, 3], "meter"), np.argmax, 2),
         (Q([1, 2, 3], "meter"), np.argmin, 0),
+        (Q([1, 2, 3], "meter"), np.nanargmax, 2),
+        (Q([1, 2, 3], "meter"), np.nanargmin, 0),
         (Q([3, 2, 1], "meter"), np.argsort, np.array([2, 1, 0])),
         (Q([0, 1, 2], "meter"), np.argwhere, np.array([[1], [2]])),
         (Q([0.1, 1.1, 2.5], "meter"), np.around, Q(np.around([0.1, 1.1, 2.5]), "meter")),
@@ -372,10 +362,52 @@ def test_matmul_produces_scalar() -> None:
         (Q(1, "meter"), np.atleast_2d, Q([[1]], "meter")),
         (Q(1, "meter"), np.atleast_3d, Q([[[1]]], "meter")),
         (Q([1, 2, 3], "meter"), np.average, Q(np.average([1, 2, 3]), "meter")),
+        (Q([1, 2, 3], "meter"), np.mean, Q(np.mean([1, 2, 3]), "meter")),
+        (Q([1, 2, 3], "meter"), np.nanmean, Q(np.mean([1, 2, 3]), "meter")),
+        (Q([1, 2, 3], "meter"), np.median, Q(np.median([1, 2, 3]), "meter")),
+        (Q([1, 2, 3], "meter"), np.nanmedian, Q(np.median([1, 2, 3]), "meter")),
         ([Q([1, 2]), np.array([3, 4])], np.block, Q([1, 2, 3, 4])),
         (Q([1, 2, 3], "meter"), np.sum, Q(6, "meter")),
-        # (Q([1, 2, 3], "meter"), np.cumsum, Q([1, 3, 6], "meter")),
-        # (Q([1, 2, 3], "meter"), np.cumprod, Q([1, 2, 6], "meter ** 3")),
+        (Q([1, 2, 3], "meter"), np.nansum, Q(6, "meter")),
+        (Q([0, 0, 1, 2, 3], "meter"), np.count_nonzero, 3),
+        (Q([1, 2, 3]), np.cumprod, Q([1, 2, 6])),
+        (Q([1, 2, 3]), np.nancumprod, Q([1, 2, 6])),
+        (Q([1, 2, 3]), np.nancumprod, Q([1, 2, 6])),
+        (Q([1, 2, 3], "meter"), np.cumsum, Q([1, 3, 6], "meter")),
+        (Q([1, 2, 3], "meter"), np.nancumsum, Q([1, 3, 6], "meter")),
+        (Q([[1, 0], [0, 1]], "meter"), np.diagonal, Q([1, 1], "meter")),
+        (Q([1, 2, 3], "meter"), np.diff, Q([1, 1], "meter")),
+        (Q([1, 2, 3], "meter"), np.ediff1d, Q([1, 1], "meter")),
+        (Q([1, 2, 3], "meter"), np.fix, Q([1, 2, 3], "meter")),
+        (Q([1, 2, 3], "meter"), np.gradient, Q([1, 1, 1], "meter")),
+        (Q([1, 2, math.nan], "meter"), np.nan_to_num, Q([1, 2, 0], "meter")),
+        (Q([[1], [2], [3]], "meter"), np.transpose, Q([[1, 2, 3]], "meter")),
+        (Q([1, 2, 3], "meter"), np.ptp, Q(2, "meter")),
+        (Q([1, 2, 3], "meter"), np.std, Q(np.std([1, 2, 3]), "meter")),
+        (Q([1, 2, 3], "meter"), np.var, Q(np.var([1, 2, 3]), "meter")),
+        (Q([1, 2, 3], "meter"), np.nanvar, Q(np.var([1, 2, 3]), "meter")),
+        (Q([1, 2, 3], "meter"), np.nanstd, Q(np.nanstd([1, 2, 3]), "meter")),
+        (Q([1, 2, 3], "meter"), np.shape, (3,)),
+        (Q([1, 2, 3], "meter"), np.size, 3),
+        (Q([1, 2, 3], "meter"), np.ndim, 1),
+        (Q([3, 2, 1], "meter"), np.sort, Q([1, 2, 3], "meter")),
+        (Q([0, 0, 1, 0, 2, 0, 3, 0, 0], "meter"), np.trim_zeros, Q([1, 0, 2, 0, 3], "meter")),
+        (Q([1, 2, 3], "radian"), np.unwrap, Q(np.unwrap([1, 2, 3]), "radian")),
+        (Q([1, 2, 3], "radian"), np.zeros_like, Q([0, 0, 0], "radian")),
+        (Q([1, 2, 3], "radian"), np.ones_like, Q([1, 1, 1], "radian")),
+        (Q([1, 2, 3], "radian"), np.iscomplex, False),
+        (Q([1, 2, 3], "radian"), np.isreal, True),
+        (Q([[1, 2, 3], [4, 5, 6]], "meter"), np.ravel, Q([1, 2, 3, 4, 5, 6], "meter")),
+        (Q(np.array([1]), "meter"), np.squeeze, Q(np.array(1), "meter")),
+        (Q([1, 2, 3], "meter"), np.round, Q([1, 2, 3], "meter")),
+        (Q([[1, 2, 3]], "meter"), np.rot90, Q([[3], [2], [1]], "meter")),
+        (Q([1, 2, 3], units.meter), np.copy, Q([1, 2, 3], units.meter)),
+        ([[1], Q([2], units.meter), Q([3], units.km)], np.concatenate, Q([1, 2, 3000], units.meter)),
+        ([[1], Q([2], units.meter), Q([3], units.km)], np.vstack, Q([[1], [2], [3000]], units.meter)),
+        ([[1], Q([2], units.meter), Q([3], units.km)], np.hstack, Q([1, 2, 3000], units.meter)),
+        ([[1], Q([2], units.meter), Q([3], units.km)], np.stack, Q([[1], [2], [3000]], units.meter)),
+        ([[1], Q([2], units.meter), Q([3], units.km)], np.dstack, Q([[[1, 2, 3000]]], units.meter)),
+        ([[1], Q([2], units.meter), Q([3], units.km)], np.column_stack, Q([[1, 2, 3000]], units.meter)),
     ),
 )
 # fmt: on
@@ -445,6 +477,34 @@ def test_unary_array_funcs(value: Q, ufunc: np.ufunc, expected: Any) -> None:
         (Q([1, 2, 3], "meter"), np.append, Q(4, "km"), Q([1, 2, 3, 4000], "meter")),
         (Q([1, 2, 3], "meter"), np.array_equal, Q([1, 2, 3], "km"), np.array([False, False, False])),
         (Q([[1], [2], [3]], "meter"), np.array_equiv, Q([1, 2, 3], "km"), np.array([False, False, False])),
+        (Q([1, 2, 3], "meter"), np.correlate, Q([3, 2, 1], "gram"), Q([10], "meter * gram")),
+        (Q([1, 2, 3], "meter"), np.cross, Q([3, 2, 1], "gram"), Q([-4, 8, -4], "meter * gram")),
+        (Q([1, 2, 3], "meter"), np.dot, Q([3, 2, 1], "gram"), Q(10, "meter * gram")),
+        (Q([[1, 2, 3], [4, 5, 6]], "meter"), np.delete, [1, 0], Q([3, 4, 5, 6], "meter")),
+        (Q([1, 2, 3], "meter"), np.expand_dims, 0, Q([[1, 2, 3]], "meter")),
+        (Q([1, 2, 3], "meter"), np.flip, 0, Q([3, 2, 1], "meter")),
+        (Q([1, 2, 3], "meter"), np.full_like, 1, Q([1, 1, 1], "meter")),
+        (Q([1, 2, 3], "meter"), np.isclose, Q([3, 2, 1], "meter"), np.array([False, True, False])),
+        (Q([1, 2, 3], "meter"), np.isclose, Q([3, 2, 1], "km"), np.array([False, False, False])),
+        (Q([1, 2, 3], "meter"), np.intersect1d, Q([3e-3, 3, 2, 1], "km"), Q([3], "meter")),
+        (Q(1, "meter"), np.isin, Q([1e-3], "km"), True),
+        (Q(1, "meter"), np.linspace, Q(3e-3, "km"), Q(np.linspace(1, 3), "meter")),
+        (Q([1, 2, 3], "meter"), np.percentile, 0.5, Q(1.01, "meter")),
+        (Q([1, 2, 3], "meter"), np.quantile, 0.5, Q(2.0, "meter")),
+        (Q([1, 2, 3], "meter"), np.nanpercentile, 0.5, Q(1.01, "meter")),
+        (Q([1, 2, 3], "meter"), np.nanquantile, 0.5, Q(2.0, "meter")),
+        (Q([1, 2, 3], "meter"), np.tile, 2, Q([1, 2, 3, 1, 2, 3], "meter")),
+        (Q([1, 2, 3], "meter"), np.rollaxis, 0, Q([1, 2, 3], "meter")),
+        (Q([1, 2, 3], "meter"), np.roll, 0, Q([1, 2, 3], "meter")),
+        (Q([1, 2, 3], "meter"), np.resize, (1,3), Q([[1, 2, 3]], "meter")),
+        (Q([1, 2, 3], "meter"), np.reshape, (1,3), Q([[1, 2, 3]], "meter")),
+        (Q([1, 2, 3], "meter"), np.pad, 1, Q([0, 1, 2, 3, 0], "meter")),
+        (Q([1, 2, 3], "meter"), np.searchsorted, Q(1, "km"), 3),
+        (Q([[1, 2, 3], [4, 5, 6]], "meter"), np.prod, None, Q(720, "meter ** 6")),
+        (Q([[1, 2, 3], [4, 5, 6]], "meter"), np.prod, 0, Q([4, 10, 18], "meter ** 2")),
+        (Q([[1, 2, 3], [4, 5, 6]], "meter"), np.prod, 1, Q([6, 120], "meter ** 3")),
+        (Q([[1, 2, 3], [4, 5, 6]], "meter"), np.prod, (0,1), Q(720, "meter ** 6")),
+        (Q([[1, 2, 3], [4, 5, 6]], "meter"), np.nanprod, None, Q(720, "meter ** 6")),
     ),
 )
 # fmt: on
@@ -496,6 +556,62 @@ def test_copyto() -> None:
         warnings.simplefilter("ignore", UserWarning)
         np.copyto(arr, q2)
     assert (arr == np.array([1.0, 2.0, 3.0])).all()
+
+
+def test_interp() -> None:
+    xp = Q([1, 2, 3], "meter")
+    fp = Q([3, 2, 0], "meter")
+    assert np.interp(Q(2.5e-3, "km"), xp, fp) == Q(1.0, "meter")
+
+
+def test_meshgrid() -> None:
+    x = np.linspace(Q(1, "meter"), Q(3, "meter"))
+    y = np.linspace(Q(1, "km"), Q(3, "km"))
+    xx, yy = np.meshgrid(x, y)
+    xx_e, yy_e = np.meshgrid(np.linspace(1.0, 3.0), 1000 * np.linspace(1.0, 3.0))
+    assert xx.u == yy.u == units.meter
+    assert np.allclose(xx.m, xx_e)
+    assert np.allclose(yy.m, yy_e)
+
+
+def test_moveaxis() -> None:
+    q = Q([[1], [2]])
+    qq = np.moveaxis(q, 0, 1)
+    assert (qq == Q([[1, 2]])).all()
+
+
+def test_swapaxes() -> None:
+    q = Q([[1], [2]])
+    qq = np.swapaxes(q, 0, 1)
+    assert (qq == Q([[1, 2]])).all()
+
+
+def test_trapezoid() -> None:
+    # x flow
+    y = Q([1, 2, 3], "meter")
+    x = Q([3, 2, 1], "gram")
+    res = np.trapezoid(y, x)
+    expected = np.trapezoid([1, 2, 3], [3, 2, 1])
+    assert res == Q(expected, "meter * gram")
+
+    # dx flow
+    expected = np.trapezoid([1, 2, 3], dx=0.1)
+    assert np.trapezoid(y, dx=Q(0.1, "gram")) == Q(expected, "meter * gram")
+
+
+def test_nonzero() -> None:
+    x = Q([1, 2, 3], "meter")
+    actual = np.nonzero(x)
+    expected = np.nonzero(np.array([1, 2, 3]))
+    assert all((a == e).all() for a, e in zip(actual, expected))
+    assert all((a == e).all() for a, e in zip(x.nonzero(), expected))
+
+
+def test_insert() -> None:
+    x = Q([1, 2, 3], "meter")
+    actual = np.insert(x, 0, Q(1, "km"))
+    expected = Q([1000, 1, 2, 3], "meter")
+    assert (actual == expected).all()
 
 
 def test_pickle_roundtrip() -> None:
@@ -558,3 +674,42 @@ def test_array_quantity_is_iterable() -> None:
 def test_non_array_quantity_is_not_iterable() -> None:
     with pytest.raises(TypeError):
         iter(Q(1))
+
+
+@pytest.mark.parametrize(
+    argnames=("value", "func", "args", "expected"),
+    argvalues=(
+        (Q([1, 2, 3], "meter"), Q.argmax, (), 2),
+        (Q([1, 2, 3], "meter"), Q.argmin, (), 0),
+        (Q([1, 2, 3], "meter"), Q.argsort, (), [0, 1, 2]),
+        (Q([1, 2, 3], "meter"), Q.clip, (Q(0, "meter"), Q(1, "meter")), Q([1, 1, 1], "meter")),
+        (Q([[1, 2], [3, 4], [5, 6]], "meter"), Q.compress, ([0, 1],), Q([2], "meter")),
+        (Q([1, 2, 3], "meter"), Q.cumsum, (), Q([1, 3, 6], "meter")),
+        (Q([[1, 0], [0, 1]], "meter"), Q.diagonal, (), Q([1, 1], "meter")),
+        (Q([1, 2, 3], "meter"), Q.dot, (Q([3, 2, 1], "meter"),), Q(10, "meter ** 2")),
+        (Q([1, 2, 3], "meter"), Q.max, (), Q(3, "meter")),
+        (Q([1, 2, 3], "meter"), Q.min, (), Q(1, "meter")),
+        (Q([1, 2, 3], "meter"), Q.mean, (), Q(2, "meter")),
+        (Q([1, 2, 3], "meter"), Q.prod, (), Q(6, "meter ** 3")),
+        (Q([1, 2, 3], "meter"), Q.ravel, (), Q([1, 2, 3], "meter")),
+        (Q([1, 2, 3], "meter"), Q.repeat, (2,), Q([1, 1, 2, 2, 3, 3], "meter")),
+        (Q([1, 2, 3], "meter"), Q.reshape, ((1,3),), Q([[1, 2, 3]], "meter")),
+        (Q([1, 2, 3], "meter"), Q.round, (), Q([1, 2, 3], "meter")),
+        (Q([1, 2, 3], "meter"), Q.searchsorted, (Q(1, "meter"),), 0),
+        (Q([1, 2, 3], "meter"), Q.sort, (), Q([1, 2, 3], "meter")),
+        (Q([1, 2, 3], "meter"), Q.squeeze, (), Q([1, 2, 3], "meter")),
+        (Q([1, 2, 3], "meter"), Q.std, (), Q(np.std([1, 2, 3]), "meter")),
+        (Q([1, 2, 3], "meter"), Q.sum, (), Q(6, "meter")),
+        (Q([1, 2, 3], "meter"), Q.take, ([0],), Q([1], "meter")),
+        (Q([[1, 0], [0, 1]], "meter"), Q.trace, (), Q(2, "meter")),
+        (Q([1, 2, 3], "meter"), Q.var, (), Q(np.var([1, 2, 3]), "meter")),
+        (Q([1, 2, 3], "meter"), Q.transpose, (), Q([1, 2, 3], "meter")),
+    ),
+)
+def test_numpy_api(value: Q, func: Callable, args: tuple[Any, ...], expected: Any) -> None:
+    actual = func(value, *args) 
+    eq = actual == expected
+    if isinstance(eq, Iterable):
+        assert eq.all(), f"{actual} != {expected}"
+    else:
+        assert eq, f"{actual} != {expected}"
