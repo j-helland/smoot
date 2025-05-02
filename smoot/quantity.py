@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from numbers import Real
-from typing import Any, Callable, Generic, Iterable, Iterator, TypeVar, Union
+from typing import Any, Generic, Iterable, Iterator, TypeVar, Union
 import typing
 from typing_extensions import Self
 
@@ -10,18 +10,14 @@ import numpy as np
 from numpy.typing import NDArray
 
 import smoot
-from smoot.numpy_functions import NP_HANDLED_FUNCTIONS, NP_HANDLED_UFUNCS
 from smoot.common import UnitFormat
+from smoot.interfaces import SupportsPickle, SupportsNumpy
 from smoot.utils import warn_for_large_arrays
 
 from .smoot import (
     Unit as InnerUnit,
     F64Quantity,
-    # I64Quantity,
     ArrayF64Quantity,
-    # ArrayI64Quantity,
-    # array_i64_to_f64_quantity,
-    # i64_to_f64_quantity,
     UnitRegistry,
 )
 
@@ -47,7 +43,11 @@ ValueLike = Union[str, T]
 UnitsLike = Union[str, smoot.Unit]
 
 
-class Quantity(Generic[T, R]):
+class Quantity(
+    Generic[T, R],
+    SupportsNumpy,
+    SupportsPickle,
+):
     __slots__ = ("__inner", "__registry")
 
     def __init__(
@@ -507,32 +507,6 @@ class Quantity(Generic[T, R]):
 
     def __int__(self) -> int:
         return int(self.__inner)
-
-    # ==================================================
-    # numpy support
-    # ==================================================
-    def __array_ufunc__(
-        self,
-        ufunc: np.ufunc,
-        method: str,
-        *inputs: Self,
-        **kwargs: Any,
-    ) -> Quantity[T, R] | type(NotImplemented):
-        if (func := NP_HANDLED_UFUNCS.get(ufunc.__name__)) is None:
-            return NotImplemented
-        return func(*inputs, **kwargs)
-
-    def __array_function__(
-        self,
-        func: Callable,
-        types: tuple[type, ...],
-        args: tuple[Any, ...],
-        kwargs: dict[str, Any],
-    ) -> Quantity[T, R] | type(NotImplemented):
-        func_name = ".".join(func.__module__.split(".")[1:] + [func.__name__])
-        if (func := NP_HANDLED_FUNCTIONS.get(func_name)) is None:
-            return NotImplemented
-        return func(*args, **kwargs)
 
     # ==================================================
     # private utils
