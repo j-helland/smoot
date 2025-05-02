@@ -96,10 +96,10 @@ impl BaseUnit {
     pub fn conversion_factor(&self, target: &Self) -> SmootResult<f64> {
         // Fast check with unit types, slower vector equality check for more detail.
         if !is_dim_eq(&self.dimensionality, &target.dimensionality) {
-            return Err(SmootError::IncompatibleUnitTypes(
-                self.name.clone(),
-                target.name.clone(),
-            ));
+            return Err(SmootError::IncompatibleUnitTypes(format!(
+                "Incompatible units {} and {}",
+                self.name, target.name
+            )));
         }
 
         // convert to the base unit, then to the target unit

@@ -7,6 +7,7 @@ use std::{
 };
 
 use bitcode::{Decode, Encode};
+use bitflags::bitflags;
 use hashable::Hashable;
 use itertools::Itertools;
 use rustc_hash::FxBuildHasher;
@@ -21,6 +22,16 @@ use crate::{
 };
 
 pub struct Dimensionality(pub HashMap<String, i32, FxBuildHasher>);
+
+bitflags! {
+    #[derive(PartialEq)]
+    pub struct UnitFormat : u8 {
+        const Default = 0;
+        const Compact = 1;
+        const WithoutSpaces = 1 << 1;
+        const WithScalingFactor = 1 << 2;
+    }
+}
 
 #[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
 pub struct Unit {
@@ -101,8 +112,7 @@ impl Unit {
         self.dimensionality = sqrt_dimensionality(&self.dimensionality).map_err(|_| {
             SmootError::InvalidOperation(format!(
                 "sqrt would result in a non-integral power for {}",
-                self.get_units_string(true)
-                    .unwrap_or("dimensionless".to_string())
+                self,
             ))
         })?;
         Ok(())
@@ -137,13 +147,10 @@ impl Unit {
     /// Err if this unit is incompatible with the target unit (e.g. meter is incompatible with gram).
     pub fn conversion_factor(&self, other: &Self) -> SmootResult<f64> {
         if !self.is_compatible_with(other) {
-            return Err(SmootError::IncompatibleUnitTypes(
-                self.get_units_string(true)
-                    .unwrap_or("dimensionless".into()),
-                other
-                    .get_units_string(true)
-                    .unwrap_or("dimensionless".into()),
-            ));
+            return Err(SmootError::IncompatibleUnitTypes(format!(
+                "Incompatible units {} and {}",
+                self, other
+            )));
         }
 
         let mut numerator_conversion_factor = 1.0;
@@ -196,10 +203,41 @@ impl Unit {
     }
 
     /// Convert this unit into a displayable string representation.
-    pub fn get_units_string(&self, with_scaling_factor: bool) -> Option<String> {
+    ///
+    /// Parameters
+    /// ----------
+    /// with_scaling_factor
+    ///     If true, returns a string like `1 / meter` instead of `/ meter`.
+    pub fn get_units_string(
+        &self,
+        registry: Option<&Registry>,
+        format: UnitFormat,
+    ) -> Option<String> {
         if self.numerator_units.is_empty() && self.denominator_units.is_empty() {
             return None;
         }
+
+        // Return the name of this unit, respecting formatting options.
+        let f_get_name = |name: &String| -> String {
+            if format == UnitFormat::Default {
+                return name.clone();
+            }
+            if format.intersects(UnitFormat::Compact) {
+                registry
+                    .and_then(|r| r.get_unit_symbol(name))
+                    .unwrap_or(name)
+                    .clone()
+            } else {
+                name.clone()
+            }
+        };
+        let f_fmt_result = |result: String| -> String {
+            if format.intersects(UnitFormat::WithoutSpaces) {
+                result.replace(" ", "")
+            } else {
+                result
+            }
+        };
 
         let nums = self
             .numerator_units
@@ -216,24 +254,24 @@ impl Unit {
             .iter()
             .map(|u| {
                 if u.power == 1 {
-                    u.name.clone()
+                    f_get_name(&u.name).clone()
                 } else {
-                    format!("{} ** {}", u.name, u.power)
+                    format!("{} ** {}", f_get_name(&u.name), u.power)
                 }
             })
             .join(" * ");
 
         if denoms.is_empty() {
-            return Some(numerator);
+            return Some(f_fmt_result(numerator));
         }
 
         let mut denominator = denoms
             .iter()
             .map(|u| {
                 if u.power == 1 {
-                    u.name.clone()
+                    f_get_name(&u.name).clone()
                 } else {
-                    format!("{} ** {}", u.name, u.power)
+                    format!("{} ** {}", f_get_name(&u.name), u.power)
                 }
             })
             .join(" * ");
@@ -245,15 +283,17 @@ impl Unit {
             denominator = format!("({})", denominator);
         }
 
-        if numerator.is_empty() {
-            if with_scaling_factor {
+        let result = if numerator.is_empty() {
+            if format.intersects(UnitFormat::WithScalingFactor) {
                 Some(format!("1 / {}", denominator))
             } else {
                 Some(format!("/ {}", denominator))
             }
         } else {
             Some(format!("{} / {}", numerator, denominator))
-        }
+        };
+
+        result.map(f_fmt_result)
     }
 
     /// Sync the dimensionality of this unit with its numerator and denominator base units.
@@ -546,8 +586,8 @@ impl fmt::Display for Unit {
             f,
             "{}",
             // Default to displaying unitless units as `dimensionless`.
-            self.get_units_string(true)
-                .unwrap_or("dimensionless".into())
+            self.get_units_string(None, UnitFormat::Default | UnitFormat::WithScalingFactor)
+                .unwrap_or("dimensionless".to_string())
         )
     }
 }
@@ -604,9 +644,7 @@ impl Add for Unit {
         if !self.is_compatible_with(&rhs) {
             return Err(SmootError::InvalidOperation(format!(
                 "Invalid Unit operation '{}' + '{}'",
-                self.get_units_string(true)
-                    .unwrap_or("dimensionless".into()),
-                rhs.get_units_string(true).unwrap_or("dimensionless".into()),
+                self, rhs,
             )));
         }
         Ok(self)
@@ -620,9 +658,7 @@ impl Sub for Unit {
         if !self.is_compatible_with(&rhs) {
             return Err(SmootError::InvalidOperation(format!(
                 "Invalid Unit operation '{}' - '{}'",
-                self.get_units_string(true)
-                    .unwrap_or("dimensionless".into()),
-                rhs.get_units_string(true).unwrap_or("dimensionless".into()),
+                self, rhs,
             )));
         }
         Ok(self)
@@ -765,7 +801,41 @@ mod test_unit {
         ; "Named dimensionless unit"
     )]
     fn test_get_units_string(u: Unit, expected: Option<&str>) {
-        assert_eq!(u.get_units_string(true), expected.map(String::from));
+        assert_eq!(
+            u.get_units_string(None, UnitFormat::Default | UnitFormat::WithScalingFactor),
+            expected.map(String::from)
+        );
+    }
+
+    #[case(
+        Unit::new(vec![UNIT_METER.powi(2)], vec![]),
+        Some("m ** 2"),
+        UnitFormat::Compact
+        ; "Compact"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.clone()], vec![UNIT_SECOND.clone()]),
+        Some("m / s"),
+        UnitFormat::Compact
+        ; "Numerator and denominator"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.powi(2)], vec![]),
+        Some("m**2"),
+        UnitFormat::Compact | UnitFormat::WithoutSpaces
+        ; "Compact without spaces"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.clone()], vec![UNIT_SECOND.clone()]),
+        Some("m/s"),
+        UnitFormat::Compact | UnitFormat::WithoutSpaces
+        ; "Compact without spaces numerator and denominator"
+    )]
+    fn test_get_compact_units_string(u: Unit, expected: Option<&str>, format: UnitFormat) {
+        assert_eq!(
+            u.get_units_string(Some(&TEST_REGISTRY), format),
+            expected.map(String::from)
+        )
     }
 
     #[case(

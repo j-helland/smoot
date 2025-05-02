@@ -202,6 +202,24 @@ macro_rules! create_unit_type {
                 Ok(new)
             }
 
+            fn get_formatted_string(
+                &self,
+                registry: &UnitRegistry,
+                unit_format: u8,
+            ) -> PyResult<String> {
+                let format = handle_err(unit::UnitFormat::from_bits(unit_format).ok_or(
+                    error::SmootError::NoSuchElement(format!(
+                        "Unknown format flags {:b}",
+                        unit_format
+                    )),
+                ))?;
+                registry.get().map(|r| {
+                    self.inner
+                        .get_units_string(Some(&r), format)
+                        .unwrap_or_else(|| "dimensionless".to_string())
+                })
+            }
+
             fn __hash__(&self) -> u64 {
                 let mut hasher = DefaultHasher::new();
                 self.inner.hash(&mut hasher);
@@ -209,9 +227,7 @@ macro_rules! create_unit_type {
             }
 
             fn __str__(&self) -> String {
-                self.inner
-                    .get_units_string(true)
-                    .unwrap_or_else(|| "dimensionless".into())
+                format!("{}", self.inner)
             }
 
             fn __repr__(&self) -> String {
@@ -378,6 +394,28 @@ macro_rules! create_quantity_type {
                 }
             }
 
+            fn get_formatted_string(
+                &self,
+                registry: &UnitRegistry,
+                unit_format: u8,
+            ) -> PyResult<String> {
+                let format = handle_err(unit::UnitFormat::from_bits(unit_format).ok_or(
+                    error::SmootError::NoSuchElement(format!(
+                        "Unknown format flags {:b}",
+                        unit_format
+                    )),
+                ))?;
+                registry
+                    .get()
+                    .map(|r| {
+                        self.inner
+                            .unit
+                            .get_units_string(Some(&r), format)
+                            .unwrap_or_else(|| "dimensionless".to_string())
+                    })
+                    .map(|unit_string| format!("{} {}", self.inner.magnitude, unit_string))
+            }
+
             //==================================================
             // math API
             //==================================================
@@ -446,7 +484,7 @@ macro_rules! create_quantity_type {
                     self.inner.magnitude,
                     self.inner
                         .unit
-                        .get_units_string(false)
+                        .get_units_string(None, unit::UnitFormat::Default)
                         .unwrap_or("dimensionless".into())
                 )
             }
@@ -776,6 +814,28 @@ macro_rules! create_array_quantity_type {
             // numpy API
             //==================================================
 
+            fn get_formatted_string(
+                &self,
+                registry: &UnitRegistry,
+                unit_format: u8,
+            ) -> PyResult<String> {
+                let format = handle_err(unit::UnitFormat::from_bits(unit_format).ok_or(
+                    error::SmootError::NoSuchElement(format!(
+                        "Unknown format flags {:b}",
+                        unit_format
+                    )),
+                ))?;
+                registry
+                    .get()
+                    .map(|r| {
+                        self.inner
+                            .unit
+                            .get_units_string(Some(&r), format)
+                            .unwrap_or_else(|| "dimensionless".to_string())
+                    })
+                    .map(|unit_string| format!("{} {}", self.inner.magnitude, unit_string))
+            }
+
             //==================================================
             // math API
             //==================================================
@@ -848,7 +908,7 @@ macro_rules! create_array_quantity_type {
                     self.inner.magnitude,
                     self.inner
                         .unit
-                        .get_units_string(false)
+                        .get_units_string(None, unit::UnitFormat::Default)
                         .unwrap_or("dimensionless".into())
                 )
             }

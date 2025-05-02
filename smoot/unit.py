@@ -6,6 +6,7 @@ import numpy as np
 from typing_extensions import Self
 
 import smoot
+from smoot.common import UnitFormat
 from smoot.utils import warn_for_large_arrays
 from .smoot import (
     Unit as InnerUnit,
@@ -122,6 +123,13 @@ class Unit:
 
     def __repr__(self) -> str:
         return f"<Unit('{self}')>"
+
+    def __format__(self, format_spec: str) -> str:
+        fmt = UnitFormat.from_format_spec(format_spec) | UnitFormat.with_scaling_factor
+        return self.__inner.get_formatted_string(
+            registry=self.__registry._UnitRegistry__inner,
+            unit_format=fmt.value,
+        )
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Unit):

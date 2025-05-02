@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 
 import smoot
 from smoot.numpy_functions import NP_HANDLED_FUNCTIONS, NP_HANDLED_UFUNCS
+from smoot.common import UnitFormat
 from smoot.utils import warn_for_large_arrays
 
 from .smoot import (
@@ -303,6 +304,13 @@ class Quantity(Generic[T, R]):
 
     def __repr__(self) -> str:
         return f"<Quantity('{self.__inner}')>"
+
+    def __format__(self, format_spec: str) -> str:
+        fmt = UnitFormat.from_format_spec(format_spec)
+        return self.__inner.get_formatted_string(
+            registry=self.__registry._UnitRegistry__inner,
+            unit_format=fmt.value,
+        )
 
     def __hash__(self) -> int:
         return hash(self.__inner)
