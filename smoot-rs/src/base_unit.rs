@@ -33,6 +33,8 @@ pub struct BaseUnit {
     /// has a multiplier of `1000`, while `meter` has a multiplier of `1`.
     pub multiplier: f64,
 
+    pub offset: Option<f64>,
+
     /// The active physical dimensions for this unit.
     pub dimensionality: Vec<Dimension>,
 
@@ -44,10 +46,28 @@ pub struct BaseUnit {
 impl BaseUnit {
     pub fn new(name: String, multiplier: f64, mut dimensionality: Vec<Dimension>) -> Self {
         debug_assert!(dimensionality.iter().all(|&d| d != 0));
-        dimensionality.sort();
+        dimensionality.sort_unstable();
         Self {
             name,
             multiplier,
+            offset: None,
+            dimensionality,
+            power: 1,
+        }
+    }
+
+    pub fn new_offset(
+        name: String,
+        multiplier: f64,
+        offset: f64,
+        mut dimensionality: Vec<Dimension>,
+    ) -> Self {
+        debug_assert!(dimensionality.iter().all(|&d| d != 0));
+        dimensionality.sort_unstable();
+        Self {
+            name,
+            multiplier,
+            offset: Some(offset),
             dimensionality,
             power: 1,
         }
@@ -58,6 +78,7 @@ impl BaseUnit {
         Self {
             name: String::new(),
             multiplier,
+            offset: None,
             dimensionality: vec![],
             power: 1,
         }
@@ -129,7 +150,7 @@ impl BaseUnit {
         if p.is_negative() {
             self.dimensionality.iter_mut().for_each(|d| *d = d.neg());
         }
-        self.dimensionality.sort();
+        self.dimensionality.sort_unstable();
     }
 
     pub fn powi(&self, p: i32) -> Self {
@@ -167,7 +188,7 @@ impl BaseUnit {
 
         self.dimensionality
             .extend(other.dimensionality.iter().map(|d| -d));
-        self.dimensionality.sort();
+        self.dimensionality.sort_unstable();
         self.simplify();
     }
 }
@@ -300,7 +321,7 @@ impl MulAssign for BaseUnit {
     fn mul_assign(&mut self, rhs: Self) {
         self.multiplier *= rhs.get_multiplier();
         self.dimensionality.extend(rhs.dimensionality);
-        self.dimensionality.sort();
+        self.dimensionality.sort_unstable();
     }
 }
 
@@ -319,7 +340,7 @@ impl DivAssign for BaseUnit {
         self.multiplier /= rhs.get_multiplier();
         self.dimensionality
             .extend(rhs.dimensionality.into_iter().map(|d| -d));
-        self.dimensionality.sort();
+        self.dimensionality.sort_unstable();
         self.simplify();
     }
 }
@@ -378,12 +399,14 @@ mod test_base_unit {
         let mut actual = BaseUnit {
             name: String::new(),
             multiplier: 1.0,
+            offset: None,
             dimensionality: vec![-3, -2, -1, 1, 2, 2, 3, 3],
             power: 1,
         };
         let expected = BaseUnit {
             name: String::new(),
             multiplier: 1.0,
+            offset: None,
             dimensionality: vec![2, 3],
             power: 1,
         };
@@ -458,12 +481,14 @@ mod test_base_unit {
         let u1 = BaseUnit {
             name: "u1".into(),
             multiplier: 1.0,
+            offset: None,
             dimensionality: vec![0, 0, -1, -1, 2],
             power: 1,
         };
         let u2 = BaseUnit {
             name: "u2".into(),
             multiplier: 1.0,
+            offset: None,
             dimensionality: vec![0, -1, -1, 2],
             power: 1,
         };

@@ -9,6 +9,7 @@ use xxhash_rust::xxh3::xxh3_64;
 
 use crate::base_unit::{BaseUnit, DIMENSIONLESS, Dimension};
 use crate::error::{SmootError, SmootResult};
+use crate::utils::ApproxEq;
 
 use super::registry_parser::{
     DimensionDefinition, NodeData, Operator, ParseTree, PrefixDefinition, UnitDefinition,
@@ -59,6 +60,8 @@ pub struct Registry {
     checksum: u64,
 }
 impl Registry {
+    const OFFSET_IDENTIFIER: &'static str = "offset";
+
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
@@ -238,7 +241,7 @@ impl Registry {
 
             // Add symbol e.g. 's' for 'second'
             let data: UnitAliasData = def.into();
-            if let Some(symbol) = data.symbol {
+            if let Some(symbol) = &data.symbol {
                 let new_alias = data.to_alias(symbol.to_string(), data.name.clone());
                 insert_ignore_conflict!(
                     linked_hash_map,
@@ -265,7 +268,7 @@ impl Registry {
         // Define dimensions
         //==================================================
         // These are the base cases for recursive unit definitions like `smoot = 1.7018 * meter`.
-        self.define_root_units(&dim_defs);
+        self.define_root_units(&dim_defs)?;
 
         //==================================================
         // Evaluate unit definitions
@@ -277,14 +280,14 @@ impl Registry {
     }
 
     /// Insert a unit definition.
-    fn insert_def(&mut self, name: String, aliases: &Vec<&str>, mut unit: BaseUnit) -> &BaseUnit {
+    fn insert_def(&mut self, name: String, aliases: &[String], mut unit: BaseUnit) -> &BaseUnit {
         // Make sure all created base units are fully simplified.
         // Shrink capacity for more efficient storage when the registry is cached to disk.
         unit.simplify();
         unit.dimensionality.shrink_to_fit();
 
         // Ignore any aliases named `_`
-        for &alias in aliases.iter().filter(|&&a| a.ne("_")) {
+        for alias in aliases.iter() {
             let _ = self.units.entry(alias.into()).or_insert(unit.clone());
         }
         self.units.entry(name).or_insert(unit)
@@ -311,7 +314,7 @@ impl Registry {
             let rtree = def.expression.right.as_ref().unwrap();
             let unit = self.eval_expression_tree(def.lineno, rtree, unit_defs)?;
 
-            let unit = match def.expression.val {
+            let mut unit = match def.expression.val {
                 // Regular unit definitions like `byte = 8 * bit` should assign the lhs name `byte`.
                 NodeData::Op(Operator::Assign) => {
                     let mut unit = BaseUnit::clone(&unit);
@@ -329,9 +332,21 @@ impl Registry {
                 }
             };
 
+            for &(mod_name, mod_val) in def.modifiers.iter() {
+                match mod_name {
+                    Registry::OFFSET_IDENTIFIER => unit.offset = Some(mod_val),
+                    _ => {
+                        return Err(SmootError::ExpressionError(format!(
+                            "line:{} Invalid unit modifier '{}'",
+                            def.lineno, mod_name,
+                        )));
+                    }
+                }
+            }
+
             let _ = self.insert_def(name.clone(), &def.aliases, unit);
             // Symbol
-            if let Some(symbol) = def.symbol {
+            if let Some(symbol) = &def.symbol {
                 insert_ignore_conflict!(
                     hash_map,
                     self.symbols,
@@ -492,6 +507,31 @@ impl Registry {
         prefix + name
     }
 
+    fn make_delta_unit<'a>(def: &UnitDefinition<'a>) -> UnitDefinition<'a> {
+        let new_name = Registry::add_prefix("delta_".to_string(), &def.name);
+
+        let mut aliases = Vec::with_capacity(def.aliases.len() * 2); // delta_ and Δ
+        for alias in def.aliases.iter() {
+            aliases.push(Registry::add_prefix("delta_".to_string(), alias));
+            aliases.push(Registry::add_prefix("Δ".to_string(), alias));
+        }
+
+        // Take the expression right of assignment e.g. `y` from `x = y`.
+        let right_expr = *def.expression.right.as_ref().unwrap().clone();
+
+        UnitDefinition {
+            name: new_name.clone(),
+            symbol: def
+                .symbol
+                .as_ref()
+                .map(|s| Registry::add_prefix("Δ".to_string(), s)),
+            expression: ParseTree::new(Operator::Assign.into(), new_name.into(), right_expr),
+            modifiers: vec![(Registry::OFFSET_IDENTIFIER, 0.0)],
+            aliases,
+            lineno: def.lineno,
+        }
+    }
+
     /// Parse all abstract unit and dimension definitions e.g. `meter = [length]`.
     ///
     /// These definitions reference each other (e.g. `smoot = 1.7018 * meter`) and can
@@ -519,6 +559,16 @@ impl Registry {
             if let Ok(dim_def) = registry_parser::dimension_definition(line, lineno) {
                 dim_defs.push(dim_def);
             } else if let Ok(unit_def) = registry_parser::unit_with_aliases(line, lineno) {
+                if !unit_def.modifiers.is_empty() {
+                    let delta_unit_def = Registry::make_delta_unit(&unit_def);
+                    try_insert!(
+                        linked_hash_map,
+                        lineno,
+                        unit_defs,
+                        delta_unit_def.name.clone(),
+                        delta_unit_def
+                    )?;
+                }
                 try_insert!(
                     linked_hash_map,
                     lineno,
@@ -584,7 +634,7 @@ impl Registry {
         //            we'll have any more suffixes.
         for &suffix in ["", "s"].iter() {
             // Add aliases e.g. 'sec' and 'secs' for 'second'
-            for &alias in data.aliases.iter() {
+            for alias in data.aliases.iter() {
                 let new_alias = data.to_alias(alias.to_string(), data.name.clone());
                 insert_ignore_conflict!(
                     linked_hash_map,
@@ -618,7 +668,7 @@ impl Registry {
 
                 // Add prefixed symbol e.g. 'millis' and 'ms' for 'second'.
                 // No plural forms for symbols e.g. 'ms' [length] would conflict with 'ms' [time].
-                if let Some(symbol) = data.symbol {
+                if let Some(symbol) = &data.symbol {
                     for prefix_alias in prefix_def.aliases.iter() {
                         let alias_name = Self::add_prefix(prefix_alias.clone(), symbol);
                         let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
@@ -631,7 +681,7 @@ impl Registry {
                 };
 
                 // Add all combinations of prefix aliases and unit aliases e.g. 'msec' and 'msecs'.
-                for &alias in data.aliases.iter() {
+                for alias in data.aliases.iter() {
                     for prefix_alias in prefix_def.aliases.iter() {
                         let alias_name = Self::add_prefix(prefix_alias.clone(), alias);
                         let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
@@ -673,7 +723,7 @@ impl Registry {
     }
 
     /// Create root units from dimension definitions like `meter = [length]`.
-    fn define_root_units(&mut self, dim_defs: &Vec<DimensionDefinition>) {
+    fn define_root_units(&mut self, dim_defs: &Vec<DimensionDefinition>) -> SmootResult<()> {
         let mut next_dimension: Dimension = DIMENSIONLESS;
         for def in dim_defs.iter() {
             let dims = if def.is_dimensionless() {
@@ -683,7 +733,28 @@ impl Registry {
                 vec![next_dimension]
             };
 
-            let unit = BaseUnit::new(def.name.into(), 1.0, dims);
+            let unit = if def.modifiers.is_empty() {
+                BaseUnit::new(def.name.to_string(), 1.0, dims)
+            } else {
+                // Verify modifiers
+                for &(mod_name, value) in def.modifiers.iter() {
+                    if mod_name != Registry::OFFSET_IDENTIFIER {
+                        return Err(SmootError::ExpressionError(format!(
+                            "line:{} Invalid unit modifier '{}'",
+                            def.lineno, mod_name,
+                        )));
+                    }
+                    if !value.approx_eq(0.0) {
+                        // approx equality is fine, we set `0.0` explicitly below
+                        return Err(SmootError::ExpressionError(format!(
+                            "line:{} Dimension definition offset must be 0, got '{}'",
+                            def.lineno, value,
+                        )));
+                    }
+                }
+                BaseUnit::new_offset(def.name.to_string(), 1.0, 0.0, dims)
+            };
+
             if !unit.dimensionality.is_empty() {
                 self.dimensions
                     .insert(unit.dimensionality[0].abs(), def.dimension.to_string());
@@ -691,8 +762,8 @@ impl Registry {
             }
 
             // Symbol
-            if let Some(symbol) = def.symbol {
-                self.insert_def(symbol.to_string(), &vec![], unit.clone());
+            if let Some(symbol) = &def.symbol {
+                self.insert_def(symbol.to_string(), &[], unit.clone());
                 insert_ignore_conflict!(
                     hash_map,
                     self.symbols,
@@ -702,10 +773,11 @@ impl Registry {
             }
             // Plural unit
             // No aliases needed since non-plural covers it
-            self.insert_def(def.name.to_string() + "s", &vec![], unit.clone());
+            self.insert_def(def.name.to_string() + "s", &[], unit.clone());
             // Non-plural
             self.insert_def(def.name.to_string(), &def.aliases, unit);
         }
+        Ok(())
     }
 }
 
@@ -713,9 +785,9 @@ impl Registry {
 struct UnitAliasData<'a> {
     name: String,
     lineno: usize,
-    aliases: Vec<&'a str>,
+    aliases: Vec<String>,
     modifiers: Vec<(&'a str, f64)>,
-    symbol: Option<&'a str>,
+    symbol: Option<String>,
 }
 impl<'a> From<UnitDefinition<'a>> for UnitAliasData<'a> {
     fn from(value: UnitDefinition<'a>) -> Self {
@@ -927,6 +999,25 @@ mod test_registry {
             ]);
             Some(map)
         }
+    )]
+    #[case(
+        "kelvin = [temperature]; offset: 0\n\
+        degree_Celsius = kelvin; offset: 273.15 = °C",
+        {
+            let mut map = HashMap::default();
+            map.extend([
+                ("kelvin".to_string(), BaseUnit::new_offset("kelvin".to_string(), 1.0, 0.0, vec![1])),
+                ("kelvins".to_string(), BaseUnit::new_offset("kelvin".to_string(), 1.0, 0.0, vec![1])),
+                ("degree_Celsius".to_string(), BaseUnit::new_offset("degree_Celsius".to_string(), 1.0, 273.15, vec![1])),
+                ("degree_Celsiuss".to_string(), BaseUnit::new_offset("degree_Celsius".to_string(), 1.0, 273.15, vec![1])),
+                ("°C".to_string(), BaseUnit::new_offset("degree_Celsius".to_string(), 1.0, 273.15, vec![1])),
+                ("delta_degree_Celsius".to_string(), BaseUnit::new_offset("delta_degree_Celsius".to_string(), 1.0, 0.0, vec![1])),
+                ("delta_degree_Celsiuss".to_string(), BaseUnit::new_offset("delta_degree_Celsius".to_string(), 1.0, 0.0, vec![1])),
+                ("Δ°C".to_string(), BaseUnit::new_offset("delta_degree_Celsius".to_string(), 1.0, 0.0, vec![1])),
+            ]);
+            Some(map)
+        }
+        ; "Offset units"
     )]
     fn test_registry_load_from_str(
         data: &str,

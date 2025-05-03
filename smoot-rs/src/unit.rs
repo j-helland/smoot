@@ -314,7 +314,7 @@ impl Unit {
                 .map(|d| -d),
         );
 
-        self.dimensionality.sort();
+        self.dimensionality.sort_unstable();
         simplify_dimensionality(&mut self.dimensionality);
     }
 
@@ -359,7 +359,7 @@ impl Unit {
                         last.multiplier = next.multiplier;
                         last.power += next.power;
                         last.dimensionality.extend(next.dimensionality);
-                        last.dimensionality.sort();
+                        last.dimensionality.sort_unstable();
                         last.simplify();
                         return;
                     }

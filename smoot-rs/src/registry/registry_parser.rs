@@ -13,10 +13,10 @@ pub(crate) struct PrefixDefinition {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DimensionDefinition<'a> {
     pub(crate) name: &'a str,
-    pub(crate) symbol: Option<&'a str>,
+    pub(crate) symbol: Option<String>,
     pub(crate) dimension: &'a str,
     pub(crate) modifiers: Vec<(&'a str, f64)>,
-    pub(crate) aliases: Vec<&'a str>,
+    pub(crate) aliases: Vec<String>,
     pub(crate) lineno: usize,
 }
 impl DimensionDefinition<'_> {
@@ -28,10 +28,10 @@ impl DimensionDefinition<'_> {
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct UnitDefinition<'a> {
     pub(crate) name: String,
-    pub(crate) symbol: Option<&'a str>,
+    pub(crate) symbol: Option<String>,
     pub(crate) expression: ParseTree,
     pub(crate) modifiers: Vec<(&'a str, f64)>,
-    pub(crate) aliases: Vec<&'a str>,
+    pub(crate) aliases: Vec<String>,
     pub(crate) lineno: usize,
 }
 
@@ -180,10 +180,10 @@ peg::parser! {
             = __ ";" __ modifier:symbol() ":" __ value:numeric_expression()
             { (modifier, value) }
 
-        rule alias() -> &'input str = eq() s:symbol() { s }
-        rule alias_symbol() -> Option<&'input str>
+        rule alias() -> String = eq() s:symbol() { s.to_string() }
+        rule alias_symbol() -> Option<String>
             = s:alias()?
-            { s.filter(|&text| text != "_") }
+            { s.filter(|text| text != "_") }
 
         /// Matches comments of the form `# comment comment comment`.
         pub rule comment() -> &'input str
@@ -220,7 +220,7 @@ peg::parser! {
                 comment()?
             {
                 UnitDefinition {
-                    name: name.into(),
+                    name: name.to_string(),
                     symbol,
                     expression: ParseTree::new(
                         Operator::Assign.into(),
@@ -264,7 +264,7 @@ peg::parser! {
                 PrefixDefinition {
                     name: name.to_string(),
                     multiplier,
-                    aliases: aliases.into_iter().map(String::from).collect(),
+                    aliases,
                     lineno,
                 }
             }
@@ -417,7 +417,7 @@ mod test_unit_parser {
         "speed_of_light = 299792458 m/s = c = c_0",
         Some(UnitDefinition {
             name: "speed_of_light".into(),
-            symbol: "c".into(),
+            symbol: Some("c".to_string()),
             expression: ParseTree::new(
                 Operator::Assign.into(),
                 "speed_of_light".into(),
@@ -432,7 +432,7 @@ mod test_unit_parser {
                 )
             ),
             modifiers: vec![],
-            aliases: vec!["c_0"],
+            aliases: vec!["c_0".to_string()],
             lineno: 0,
         })
         ; "Assignment operator is handled and aliases are parsed"
@@ -457,7 +457,7 @@ mod test_unit_parser {
         "decibel = 1 ; logbase: 10; logfactor: 10 = dB",
         Some(UnitDefinition {
             name: "decibel".into(),
-            symbol: "dB".into(),
+            symbol: Some("dB".to_string()),
             expression: ParseTree::new(
                 Operator::Assign.into(),
                 "decibel".into(),
@@ -496,7 +496,7 @@ mod test_unit_parser {
                 1.into(),
             ),
             modifiers: vec![],
-            aliases: vec!["alias"],
+            aliases: vec!["alias".to_string()],
             lineno: 0,
         })
         ; "No symbol with alias"
@@ -518,10 +518,10 @@ mod test_unit_parser {
         "second = [time] = s = sec",
         Some(DimensionDefinition {
             name: "second",
-            symbol: Some("s"),
+            symbol: Some("s".to_string()),
             dimension: "[time]",
             modifiers: vec![],
-            aliases: vec!["sec"],
+            aliases: vec!["sec".to_string()],
             lineno: 0,
         })
         ; "Dimension definition with symbol and alias"
