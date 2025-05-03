@@ -1,3 +1,6 @@
+# Untracked stuff for local dev
+scratch/
+
 .git/
 .github/
 
