@@ -3,7 +3,7 @@ use std::{
     ops::{Div, DivAssign, Mul, MulAssign, Neg},
 };
 
-use crate::hash::Hash;
+use crate::{converter::Converter, hash::Hash, utils::ApproxEq};
 use bitcode::{Decode, Encode};
 use hashable::Hashable;
 use num_traits::PrimInt;
@@ -24,7 +24,7 @@ pub const DIMENSIONLESS: Dimension = 0;
 pub type DimensionType = u64;
 pub const DIMENSIONLESS_TYPE: DimensionType = 0;
 
-#[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
+#[derive(Encode, Decode, Hashable, Clone, Debug)]
 pub struct BaseUnit {
     /// A human-readable identifier for this unit.
     pub name: String,
@@ -33,7 +33,9 @@ pub struct BaseUnit {
     /// has a multiplier of `1000`, while `meter` has a multiplier of `1`.
     pub multiplier: f64,
 
-    pub offset: Option<f64>,
+    /// Offset for non-mulitiplicative units like temperatures (e.g. degC, degF).
+    /// NOTE: `NaN` values are used as sentinels to indicate that this unit does not have an offset.
+    pub offset: f64,
 
     /// The active physical dimensions for this unit.
     pub dimensionality: Vec<Dimension>,
@@ -41,6 +43,26 @@ pub struct BaseUnit {
     /// Holds user-applied exponents to a unit. Also useful for disply purposes e.g. creating a string `meter ** 2`.
     /// A BaseUnit will never be parsed from unit definitions with a non-unit power.
     pub power: i32,
+
+    /// Specifies the conversion implementation to use when converting to/from this unit.
+    /// For example, offset units like temperatures need different conversion logic than multiplicative units like lengths.
+    pub converter: Converter,
+}
+
+impl PartialEq for BaseUnit {
+    fn eq(&self, other: &Self) -> bool {
+        // Treat all NaN values as equal for the sake of comparison.
+        // NaN is simply used as a sentinel value for offsets.
+        let is_offset_eq =
+            (self.offset.is_nan() && other.offset.is_nan()) || self.offset.approx_eq(other.offset);
+
+        is_offset_eq
+            && self.name == other.name
+            && self.multiplier.approx_eq(other.multiplier)
+            && self.dimensionality == other.dimensionality
+            && self.power == other.power
+            && self.converter == other.converter
+    }
 }
 
 impl BaseUnit {
@@ -50,9 +72,10 @@ impl BaseUnit {
         Self {
             name,
             multiplier,
-            offset: None,
+            offset: f64::NAN,
             dimensionality,
             power: 1,
+            converter: Converter::Multiplicative,
         }
     }
 
@@ -67,9 +90,10 @@ impl BaseUnit {
         Self {
             name,
             multiplier,
-            offset: Some(offset),
+            offset,
             dimensionality,
             power: 1,
+            converter: Converter::Offset,
         }
     }
 
@@ -78,9 +102,10 @@ impl BaseUnit {
         Self {
             name: String::new(),
             multiplier,
-            offset: None,
+            offset: f64::NAN,
             dimensionality: vec![],
             power: 1,
+            converter: Converter::Multiplicative,
         }
     }
 
@@ -104,34 +129,18 @@ impl BaseUnit {
         self.name.is_empty()
     }
 
+    /// Return true if this unit has an offset i.e. is non-multiplicative.
+    pub fn is_offset(&self) -> bool {
+        !self.offset.is_nan()
+    }
+
     /// Get the multiplicative factor associated with this base unit.
     pub fn get_multiplier(&self) -> f64 {
         self.multiplier.powi(self.power)
     }
 
-    /// Get the multiplicative factor needed to convert this unit into a target unit.
-    ///
-    /// Return
-    /// ------
-    /// Err if the units are incompatible (e.g. meter and gram).
-    pub fn conversion_factor(&self, target: &Self) -> SmootResult<f64> {
-        // Fast check with unit types, slower vector equality check for more detail.
-        if !is_dim_eq(&self.dimensionality, &target.dimensionality) {
-            return Err(SmootError::IncompatibleUnitTypes(format!(
-                "Incompatible units {} and {}",
-                self.name, target.name
-            )));
-        }
-
-        // convert to the base unit, then to the target unit
-        Ok(self.conversion_factor_unchecked(target))
-    }
-
-    /// Return the multiplicative factor needed to convert this unit into the target unit,
-    /// assuming that both units have compatible dimensionality.
-    #[inline(always)]
-    pub fn conversion_factor_unchecked(&self, target: &Self) -> f64 {
-        self.get_multiplier() / target.get_multiplier()
+    pub fn is_compatible_with(&self, other: &Self) -> bool {
+        is_dim_eq(&self.dimensionality, &other.dimensionality) && self.converter == other.converter
     }
 
     pub fn ipowi(&mut self, p: i32) {
@@ -354,8 +363,6 @@ mod test_base_unit {
 
     use test_case::case;
 
-    use crate::assert_is_close;
-
     use super::*;
 
     #[case(vec![], vec![], true; "Dimensionless")]
@@ -399,16 +406,18 @@ mod test_base_unit {
         let mut actual = BaseUnit {
             name: String::new(),
             multiplier: 1.0,
-            offset: None,
+            offset: f64::NAN,
             dimensionality: vec![-3, -2, -1, 1, 2, 2, 3, 3],
             power: 1,
+            converter: Converter::Multiplicative,
         };
         let expected = BaseUnit {
             name: String::new(),
             multiplier: 1.0,
-            offset: None,
+            offset: f64::NAN,
             dimensionality: vec![2, 3],
             power: 1,
+            converter: Converter::Multiplicative,
         };
         actual.simplify();
         assert_eq!(actual, expected);
@@ -441,64 +450,6 @@ mod test_base_unit {
     )]
     fn test_is_multidimensional(unit: BaseUnit, expected: bool) {
         assert_eq!(unit.is_multidimensional(), expected);
-    }
-
-    #[test]
-    /// The conversion factor between compatible units is computed correctly.
-    fn test_conversion_factor() -> SmootResult<()> {
-        // Given two units with the same type
-        let u1 = BaseUnit::new("u1".into(), 1.0, vec![]);
-        let u2 = BaseUnit::new("u2".into(), 2.0, vec![]);
-
-        // Then a self conversion factor is 1.0
-        assert_eq!(u1.conversion_factor(&u1)?, 1.0);
-
-        // The conversion factor and reciprocal match.
-        assert_is_close!(u1.conversion_factor(&u2)?, 0.5);
-        assert_is_close!(u2.conversion_factor(&u1)?, 2.0);
-
-        Ok(())
-    }
-
-    #[test]
-    /// Trying to convert between incompatible units is an error.
-    fn test_conversion_factor_incompatible_types() {
-        // Given two units with disparate types
-        let u1 = BaseUnit::new("u1".into(), 1.0, vec![]);
-        let u2 = BaseUnit::new("u2".into(), 2.0, vec![1]);
-
-        // Then the result is an error
-        let result = u1.conversion_factor(&u2);
-        assert!(result.is_err());
-
-        // commutative
-        let result = u2.conversion_factor(&u1);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_conversion_factor_unequal_dimensionality() {
-        let u1 = BaseUnit {
-            name: "u1".into(),
-            multiplier: 1.0,
-            offset: None,
-            dimensionality: vec![0, 0, -1, -1, 2],
-            power: 1,
-        };
-        let u2 = BaseUnit {
-            name: "u2".into(),
-            multiplier: 1.0,
-            offset: None,
-            dimensionality: vec![0, -1, -1, 2],
-            power: 1,
-        };
-
-        let result = u1.conversion_factor(&u2);
-        assert!(result.is_err());
-
-        // commutative
-        let result = u2.conversion_factor(&u1);
-        assert!(result.is_err());
     }
 
     #[test]

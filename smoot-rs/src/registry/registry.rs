@@ -8,6 +8,7 @@ use rustc_hash::FxBuildHasher;
 use xxhash_rust::xxh3::xxh3_64;
 
 use crate::base_unit::{BaseUnit, DIMENSIONLESS, Dimension};
+use crate::converter::Converter;
 use crate::error::{SmootError, SmootResult};
 use crate::utils::ApproxEq;
 
@@ -334,7 +335,10 @@ impl Registry {
 
             for &(mod_name, mod_val) in def.modifiers.iter() {
                 match mod_name {
-                    Registry::OFFSET_IDENTIFIER => unit.offset = Some(mod_val),
+                    Registry::OFFSET_IDENTIFIER => {
+                        unit.offset = mod_val;
+                        unit.converter = Converter::Offset;
+                    }
                     _ => {
                         return Err(SmootError::ExpressionError(format!(
                             "line:{} Invalid unit modifier '{}'",
@@ -342,6 +346,13 @@ impl Registry {
                         )));
                     }
                 }
+            }
+
+            // Delta units for offsets are defined internally. They might inherit Some(offset) from the root BaseUnit (e.g. "kelvin; offset = 0"),
+            // which needs to be forcibly unset here to make conversions and operations work correctly.
+            if name.starts_with("delta_") {
+                unit.offset = f64::NAN;
+                unit.converter = Converter::Multiplicative;
             }
 
             let _ = self.insert_def(name.clone(), &def.aliases, unit);
@@ -526,7 +537,7 @@ impl Registry {
                 .as_ref()
                 .map(|s| Registry::add_prefix("Δ".to_string(), s)),
             expression: ParseTree::new(Operator::Assign.into(), new_name.into(), right_expr),
-            modifiers: vec![(Registry::OFFSET_IDENTIFIER, 0.0)],
+            modifiers: vec![],
             aliases,
             lineno: def.lineno,
         }
@@ -1011,13 +1022,13 @@ mod test_registry {
                 ("degree_Celsius".to_string(), BaseUnit::new_offset("degree_Celsius".to_string(), 1.0, 273.15, vec![1])),
                 ("degree_Celsiuss".to_string(), BaseUnit::new_offset("degree_Celsius".to_string(), 1.0, 273.15, vec![1])),
                 ("°C".to_string(), BaseUnit::new_offset("degree_Celsius".to_string(), 1.0, 273.15, vec![1])),
-                ("delta_degree_Celsius".to_string(), BaseUnit::new_offset("delta_degree_Celsius".to_string(), 1.0, 0.0, vec![1])),
-                ("delta_degree_Celsiuss".to_string(), BaseUnit::new_offset("delta_degree_Celsius".to_string(), 1.0, 0.0, vec![1])),
-                ("Δ°C".to_string(), BaseUnit::new_offset("delta_degree_Celsius".to_string(), 1.0, 0.0, vec![1])),
+                ("delta_degree_Celsius".to_string(), BaseUnit::new("delta_degree_Celsius".to_string(), 1.0, vec![1])),
+                ("delta_degree_Celsiuss".to_string(), BaseUnit::new("delta_degree_Celsius".to_string(), 1.0, vec![1])),
+                ("Δ°C".to_string(), BaseUnit::new("delta_degree_Celsius".to_string(), 1.0, vec![1])),
             ]);
             Some(map)
         }
-        ; "Offset units"
+        ; "Offset units create delta variants"
     )]
     fn test_registry_load_from_str(
         data: &str,

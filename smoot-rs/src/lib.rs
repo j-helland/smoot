@@ -8,6 +8,7 @@ pub mod unit;
 pub mod utils;
 
 mod base_unit;
+mod converter;
 
 #[cfg(test)]
 mod test_utils;

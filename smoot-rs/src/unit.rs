@@ -36,10 +36,10 @@ bitflags! {
 #[derive(Encode, Decode, Hashable, Clone, Debug, PartialEq)]
 pub struct Unit {
     /// e.g. `meter` in `meter / second`.
-    numerator_units: Vec<BaseUnit>,
+    pub(crate) numerator_units: Vec<BaseUnit>,
 
     /// Reciprocal base units for this unit e.g. `second` in `meter / second`.
-    denominator_units: Vec<BaseUnit>,
+    pub(crate) denominator_units: Vec<BaseUnit>,
 
     /// The active dimensions for this unit, derived from the numerator and denominator base units.
     dimensionality: Vec<Dimension>,
@@ -140,38 +140,17 @@ impl Unit {
         is_dim_eq(&self.dimensionality, &other.dimensionality)
     }
 
-    /// Compute the multiplicative factor necessary to convert this unit into the target unit.
-    ///
-    /// Return
-    /// ------
-    /// Err if this unit is incompatible with the target unit (e.g. meter is incompatible with gram).
-    pub fn conversion_factor(&self, other: &Self) -> SmootResult<f64> {
-        if !self.is_compatible_with(other) {
-            return Err(SmootError::IncompatibleUnitTypes(format!(
-                "Incompatible units {} and {}",
-                self, other
-            )));
-        }
-
-        let mut numerator_conversion_factor = 1.0;
-        for (from, to) in self
-            .numerator_units
+    /// Return true if values of this unit can be converted into the target unit.
+    pub fn are_converters_compatible(&self, other: &Self) -> bool {
+        self.numerator_units
             .iter()
-            .zip(other.numerator_units.iter())
-        {
-            numerator_conversion_factor *= from.conversion_factor(to)?;
-        }
-
-        let mut denominator_conversion_factor = 1.0;
-        for (from, to) in self
-            .denominator_units
-            .iter()
-            .zip(other.denominator_units.iter())
-        {
-            denominator_conversion_factor *= from.conversion_factor(to)?;
-        }
-
-        Ok(numerator_conversion_factor / denominator_conversion_factor)
+            .map(|u| &u.converter)
+            .eq(other.numerator_units.iter().map(|u| &u.converter))
+            && self
+                .denominator_units
+                .iter()
+                .map(|u| &u.converter)
+                .eq(other.denominator_units.iter().map(|u| &u.converter))
     }
 
     pub fn get_dimensionality(&self, registry: &Registry) -> Option<Dimensionality> {
@@ -431,8 +410,8 @@ impl Unit {
             }
 
             if u1_type == u2_type {
-                let factor = u1.conversion_factor_unchecked(u2);
-                if no_reduction && !factor.approx_eq(1.0) {
+                let multiplicative_factor = u1.get_multiplier() / u2.get_multiplier();
+                if no_reduction && !multiplicative_factor.approx_eq(1.0) {
                     // Make sure we don't reduce units with disparate scales in no_reduction mode.
                     inum += 1;
                     iden += 1;
@@ -440,7 +419,7 @@ impl Unit {
                 }
 
                 // Now there must be a cancellation.
-                result_conversion_factor *= factor;
+                result_conversion_factor *= multiplicative_factor;
             }
 
             // Unit exponents (e.g. meter ** 2) may result in a cancellation without completely removing
@@ -715,40 +694,6 @@ mod test_unit {
             .get_unit("avogadro_constant")
             .expect("No unit 'avogadro_constant'")
     });
-
-    #[case(
-        Unit::new_dimensionless(),
-        Unit::new_dimensionless(),
-        Some(1.0)
-        ; "Trivial conversion factor"
-    )]
-    #[case(
-        Unit::new(vec![UNIT_SECOND.clone()], vec![]),
-        Unit::new(vec![UNIT_MINUTE.clone()], vec![]),
-        Some(1.0 / 60.0)
-        ; "Basic conversion factor"
-    )]
-    #[case(
-        Unit::new(vec![UNIT_METER.clone()], vec![UNIT_SECOND.clone()]),
-        Unit::new(vec![UNIT_KILOMETER.clone()], vec![UNIT_HOUR.clone()]),
-        Some(60.0 * 60.0 / 1000.0)
-        ; "Composite conversion factor"
-    )]
-    #[case(
-        Unit::new(vec![UNIT_METER.clone()], vec![]),
-        Unit::new(vec![UNIT_SECOND.clone()], vec![]),
-        None
-        ; "Incompatible units"
-    )]
-    fn test_conversion_factor(u1: Unit, u2: Unit, expected: Option<f64>) -> SmootResult<()> {
-        if let Some(expected) = expected {
-            assert_is_close!(u1.conversion_factor(&u2)?, expected);
-            assert_is_close!(u2.conversion_factor(&u1)?, 1.0 / expected);
-        } else {
-            assert!(u1.conversion_factor(&u2).is_err());
-        }
-        Ok(())
-    }
 
     #[case(
         Unit::new_dimensionless(),
@@ -1179,6 +1124,12 @@ mod test_unit {
         Unit::new(vec![], vec![UNIT_METER.powi(2)]),
         1e-3
         ; "Denominator"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.clone(), UNIT_KILOMETER.clone()], vec![]),
+        Unit::new(vec![UNIT_KILOMETER.powi(2)], vec![]),
+        1e-3
+        ; "Numerator reversed"
     )]
     #[case(
         Unit::new(vec![UNIT_JOULE.clone()], vec![UNIT_NEWTON.clone()]),

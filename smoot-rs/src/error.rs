@@ -6,6 +6,9 @@ pub enum SmootError {
     SmootError,
 
     #[error("{0}")]
+    InternalError(String),
+
+    #[error("{0}")]
     IncompatibleUnitTypes(String),
 
     #[error("{0}")]
