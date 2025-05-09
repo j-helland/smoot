@@ -41,29 +41,19 @@ peg::parser! {
                     .ok_or("Unknown unit")
             }
 
-        rule reciprocal_unit(registry: &Registry) -> Unit
-            = d:decimal::<f64>() __ "/" __ u:unit_expression(registry)
-            {
-                let mut u = u.powi(-1);
-                u.iscale(d);
-                u
-            }
-
         /// Core parser with operator precedence.
         /// We only need to support a few basic operators; addition and subtraction don't make sense for units.
         pub rule unit_expression(registry: &Registry) -> Unit
             = precedence!
             {
                 // multiplication
-                u1:(@) __ "*" __ u2:@ { u1 * u2 }
-                u1:(@) __ u2:@ { u1 * u2 }
-                d:decimal() __ "*" __ u:@ { Unit::new_constant(d) * u }
-                d:decimal() __ u:@ { Unit::new_constant(d) * u }
+                u1:(@) __ "*"? __ u2:@ { u1.into_delta() * u2.into_delta() }
+                d:decimal() __ "*"? __ u:@ { Unit::new_constant(d) * u }
                 u:@ __ "*" __ d:decimal() { u * Unit::new_constant(d) }
                 u:@ __ d:decimal() { u * Unit::new_constant(d) }
                 // division
-                u1:(@) __ "/" __ u2:@ { u1 / u2 }
-                d:decimal() __ "/" __ u:@ { Unit::new_constant(d) / u }
+                u1:(@) __ "/" __ u2:@ { u1.into_delta() / u2.into_delta() }
+                d:decimal() __ "/" __ u:@ { Unit::new_constant(d) / u.into_delta() }
                 u:@ __ "/" __ d:decimal() { u / Unit::new_constant(d) }
                 --
                 u:@ __ ("**" / "^") __ n:integer() { u.powi(n) }
@@ -86,18 +76,32 @@ peg::parser! {
             = q1:quantity(registry) __ "-" __ q2:expression(registry)
             {? (q1 - q2).or(Err("Incompatible units")) }
 
+        /// Multiply operator requires conditional parsing to handle incompatible units.
+        rule quantity_mul(registry: &Registry) -> Quantity<f64, f64>
+            = q1:quantity(registry) __ "*" __ q2:expression(registry)
+            {? (q1 * q2).or(Err("Incompatible units")) }
+
+        /// Divide operator requires conditional parsing to handle incompatible units.
+        rule quantity_div(registry: &Registry) -> Quantity<f64, f64>
+            = q1:quantity(registry) __ "/" __ q2:expression(registry)
+            {? (q1 / q2).or(Err("Incompatible units")) }
+
+        /// Power operator requires conditional parsing to handle incompatible units.
+        rule quantity_powi(registry: &Registry) -> Quantity<f64, f64>
+            = q:quantity(registry) __ ("**" / "^") __ n:integer() !['.']
+            {? q.powi(n).or(Err("Incompatible units")) }
+
         pub rule expression(registry: &Registry) -> Quantity<f64, f64>
             = precedence!
             {
                 q:quantity_add(registry) { q }
                 q:quantity_sub(registry) { q }
                 --
-                q1:(@) __ "*" __ q2:@ { q1 * q2 }
-                q1:(@) __ "/" __ q2:@ { q1 / q2 }
-                d:decimal::<f64>() __ "/" __ u:unit_expression(registry) { d / u }
+                q:quantity_mul(registry) { q }
+                q:quantity_div(registry) { q }
+                d:decimal::<f64>() __ "/" __ u:unit_expression(registry) { d / u.into_delta() }
                 --
-                q1:@ __ "**" __ n:integer() !['.'] { q1.powi(n) }
-                q1:@ __ "^" __ n:integer() !['.'] { q1.powi(n) }
+                q:quantity_powi(registry) { q }
                 --
                 q:quantity(registry) { q }
                 "-" q:expression(registry) { -q }
@@ -140,6 +144,8 @@ mod test_expression_parser {
             .get_unit("percent")
             .expect("No unit 'percent'")
     });
+    static UNIT_DEGC: LazyLock<&BaseUnit> =
+        LazyLock::new(|| TEST_REGISTRY.get_unit("degC").expect("No unit 'degC'"));
 
     fn parse_unit(s: &str, registry: &Registry) -> SmootResult<Unit> {
         expression_parser::unit_expression(s, registry)
@@ -282,6 +288,26 @@ mod test_expression_parser {
         "%",
         Some(Unit::new(vec![UNIT_PERCENT.clone()], vec![]))
         ; "Special symbol"
+    )]
+    #[case(
+        "degC",
+        Some(Unit::new(vec![UNIT_DEGC.clone()], vec![]))
+        ; "Offset unit"
+    )]
+    #[case(
+        "1 degC",
+        Some(Unit::new(vec![BaseUnit::new_constant(1.0), UNIT_DEGC.clone()], vec![]))
+        ; "Offset unit unaffected by numeric multiplication"
+    )]
+    #[case(
+        "1 / degC",
+        Some(Unit::new(vec![BaseUnit::new_constant(1.0)], vec![UNIT_DEGC.clone().into_delta()]))
+        ; "Offset unit to delta from division"
+    )]
+    #[case(
+        "degC meter",
+        Some(Unit::new(vec![UNIT_METER.clone(), UNIT_DEGC.clone().into_delta()], vec![]))
+        ; "Offset unit to delta from multiplication with another unit"
     )]
     fn test_unit_parsing(s: &str, expected: Option<Unit>) -> SmootResult<()> {
         let result = parse_unit(s, &TEST_REGISTRY);
@@ -463,6 +489,17 @@ mod test_expression_parser {
             ),
         ))
         ; "Reciprocal unit"
+    )]
+    #[case(
+        "1 / degC",
+        Some(Quantity::new(
+            1.0,
+            Unit::new(
+                vec![],
+                vec![UNIT_DEGC.clone().into_delta()]
+            ),
+        ))
+        ; "Reciprocal offset unit becomes delta"
     )]
     fn test_expression_parsing(s: &str, expected: Option<Quantity<f64, f64>>) -> SmootResult<()> {
         let result = parse_quantity(s, &TEST_REGISTRY);

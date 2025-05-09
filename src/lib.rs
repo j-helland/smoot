@@ -546,22 +546,22 @@ macro_rules! create_quantity_type {
                 Ok(Self { inner })
             }
 
-            fn __mul__(&self, other: &Self) -> Self {
-                Self {
-                    inner: &self.inner * &other.inner,
-                }
+            fn __mul__(&self, other: &Self) -> PyResult<Self> {
+                Ok(Self {
+                    inner: handle_err(&self.inner * &other.inner)?,
+                })
             }
 
-            fn __truediv__(&self, other: &Self) -> Self {
-                Self {
-                    inner: &self.inner / &other.inner,
-                }
+            fn __truediv__(&self, other: &Self) -> PyResult<Self> {
+                Ok(Self {
+                    inner: handle_err(&self.inner / &other.inner)?,
+                })
             }
 
-            fn __floordiv__(&self, other: &Self) -> Self {
-                let mut new = self.__truediv__(other);
+            fn __floordiv__(&self, other: &Self) -> PyResult<Self> {
+                let mut new = self.__truediv__(other)?;
                 new.inner.magnitude = new.inner.magnitude.floor();
-                new
+                Ok(new)
             }
 
             fn __mod__(&self, other: &Self) -> PyResult<Self> {
@@ -577,9 +577,7 @@ macro_rules! create_quantity_type {
                         other
                     ))));
                 }
-                Ok(Self {
-                    inner: self.inner.clone().powi(p as i32),
-                })
+                handle_err(self.inner.clone().powi(p as i32)).map(|inner| Self { inner })
             }
 
             fn __neg__(&self) -> Self {
@@ -1067,9 +1065,8 @@ macro_rules! create_array_quantity_type {
                         other
                     ))));
                 }
-                Ok(Self {
-                    inner: self.inner.clone().powi(other.round() as i32),
-                })
+                handle_err(self.inner.clone().powi(other.round() as i32))
+                    .map(|inner| Self { inner })
             }
 
             fn __matmul__(&self, other: &Self) -> PyResult<Self> {

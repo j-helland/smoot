@@ -35,15 +35,21 @@ impl<T: ApproxEq + Copy> ApproxEq for &Vec<T> {
 }
 
 pub trait Powi {
-    fn powi(self, p: i32) -> Self;
+    type Output;
+
+    fn powi(self, p: i32) -> Self::Output;
 }
 impl Powi for f64 {
-    fn powi(self, p: i32) -> Self {
+    type Output = f64;
+
+    fn powi(self, p: i32) -> Self::Output {
         self.powi(p)
     }
 }
 impl Powi for i64 {
-    fn powi(self, p: i32) -> Self {
+    type Output = i64;
+
+    fn powi(self, p: i32) -> Self::Output {
         // Any negative power is an integer reciprocal, which must be zero.
         // Mask these cases out.
         let neg_mask = !(p as i64).signed_shr(63);
@@ -51,12 +57,16 @@ impl Powi for i64 {
     }
 }
 impl Powi for ArrayD<f64> {
-    fn powi(self, p: i32) -> Self {
+    type Output = ArrayD<f64>;
+
+    fn powi(self, p: i32) -> Self::Output {
         self.mapv(|f| f.powi(p))
     }
 }
 impl Powi for ArrayD<i64> {
-    fn powi(self, p: i32) -> Self {
+    type Output = ArrayD<i64>;
+
+    fn powi(self, p: i32) -> Self::Output {
         self.mapv(|i| i.powi(p))
     }
 }

@@ -15,10 +15,10 @@ use crate::registry::Registry;
 #[macro_export]
 macro_rules! assert_is_close {
     ($a:expr, $b:expr) => {
-        assert!((($a as f64 - $b as f64).abs() / $a as f64).abs() < 1e-6);
+        assert!((($a as f64 - $b as f64).abs() / ($a as f64 + 1e-16)).abs() < 1e-6);
     };
     ($a:expr, $b:expr, $rel_tol:expr) => {
-        assert!((($a as f64 - $b as f64).abs() / $a as f64).abs() < $rel_tol);
+        assert!((($a as f64 - $b as f64).abs() / ($a as f64 + 1e-16)).abs() < $rel_tol);
     };
 }
 

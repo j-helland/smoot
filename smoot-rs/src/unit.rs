@@ -14,6 +14,7 @@ use rustc_hash::FxBuildHasher;
 
 use crate::{
     base_unit::{BaseUnit, Dimension, is_dim_eq, simplify_dimensionality, sqrt_dimensionality},
+    converter::Converter,
     error::{SmootError, SmootResult},
     hash::Hash,
     parser::expression_parser,
@@ -151,6 +152,32 @@ impl Unit {
                 .iter()
                 .map(|u| &u.converter)
                 .eq(other.denominator_units.iter().map(|u| &u.converter))
+    }
+
+    pub fn is_offset(&self) -> bool {
+        self.numerator_units
+            .iter()
+            .chain(self.denominator_units.iter())
+            .any(|u| u.converter == Converter::Offset)
+    }
+
+    /// Convert all offset BaseUnits into delta units.
+    pub fn into_delta(self) -> Self {
+        let numerator = self
+            .numerator_units
+            .into_iter()
+            .map(|u| u.into_delta())
+            .collect();
+        let denominator = self
+            .denominator_units
+            .into_iter()
+            .map(|u| u.into_delta())
+            .collect();
+        Self {
+            numerator_units: numerator,
+            denominator_units: denominator,
+            dimensionality: self.dimensionality,
+        }
     }
 
     pub fn get_dimensionality(&self, registry: &Registry) -> Option<Dimensionality> {

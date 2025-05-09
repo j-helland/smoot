@@ -518,7 +518,7 @@ impl Registry {
         prefix + name
     }
 
-    fn make_delta_unit<'a>(def: &UnitDefinition<'a>) -> UnitDefinition<'a> {
+    fn make_delta_unit_def<'a>(def: &UnitDefinition<'a>) -> UnitDefinition<'a> {
         let new_name = Registry::add_prefix("delta_".to_string(), &def.name);
 
         let mut aliases = Vec::with_capacity(def.aliases.len() * 2); // delta_ and Δ
@@ -571,7 +571,7 @@ impl Registry {
                 dim_defs.push(dim_def);
             } else if let Ok(unit_def) = registry_parser::unit_with_aliases(line, lineno) {
                 if !unit_def.modifiers.is_empty() {
-                    let delta_unit_def = Registry::make_delta_unit(&unit_def);
+                    let delta_unit_def = Registry::make_delta_unit_def(&unit_def);
                     try_insert!(
                         linked_hash_map,
                         lineno,

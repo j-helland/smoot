@@ -1,12 +1,12 @@
 use std::{
     cmp::Ordering,
-    ops::{Div, DivAssign, Mul, MulAssign, Neg},
+    ops::{AddAssign, Div, DivAssign, Mul, MulAssign, Neg, SubAssign},
 };
 
 use crate::{converter::Converter, hash::Hash, utils::ApproxEq};
 use bitcode::{Decode, Encode};
 use hashable::Hashable;
-use num_traits::PrimInt;
+use num_traits::{FromPrimitive, PrimInt};
 use wide::i8x16;
 
 use crate::error::{SmootError, SmootResult};
@@ -141,6 +141,35 @@ impl BaseUnit {
 
     pub fn is_compatible_with(&self, other: &Self) -> bool {
         is_dim_eq(&self.dimensionality, &other.dimensionality) && self.converter == other.converter
+    }
+
+    pub fn into_delta(self) -> Self {
+        if !self.is_offset() {
+            self
+        } else {
+            // TODO: get delta unit from registry?
+            Self::new(
+                "delta_".to_string() + self.name.as_str(),
+                self.multiplier,
+                self.dimensionality.clone(),
+            )
+        }
+    }
+
+    pub fn convert_from<S, N>(&self, value: &mut S)
+    where
+        N: FromPrimitive,
+        S: MulAssign<N> + AddAssign<N>,
+    {
+        self.converter.convert_from(value, self);
+    }
+
+    pub fn convert_to<S, N>(&self, value: &mut S)
+    where
+        N: FromPrimitive,
+        S: DivAssign<N> + SubAssign<N>,
+    {
+        self.converter.convert_to(value, self);
     }
 
     pub fn ipowi(&mut self, p: i32) {

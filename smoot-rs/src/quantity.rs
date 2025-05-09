@@ -8,6 +8,7 @@ use hashable::Hashable;
 use ndarray::{Array, ArrayD, Ix1, Ix2, Zip};
 
 use crate::{
+    converter::Converter,
     error::{SmootError, SmootResult},
     hash::Hash,
     parser::expression_parser,
@@ -107,12 +108,6 @@ where
         if self.unit.eq(unit) {
             return Ok(());
         }
-        if !self.unit.is_compatible_with(unit) {
-            return Err(SmootError::IncompatibleUnitTypes(format!(
-                "Incompatible unit types {} and {}",
-                self.unit, unit
-            )));
-        }
         self.convert_to(unit, factor)
     }
 
@@ -157,6 +152,7 @@ where
             )));
         }
 
+        // numerator
         for (u_from, u_to) in from.numerator_units.iter().zip(to.numerator_units.iter()) {
             if u_from.converter != u_to.converter {
                 return Err(SmootError::IncompatibleUnitTypes(format!(
@@ -164,10 +160,11 @@ where
                     from, to
                 )));
             }
-            u_from.converter.convert_from(value, u_from);
-            u_to.converter.convert_to(value, u_to);
+            u_from.convert_from(value);
+            u_to.convert_to(value);
         }
 
+        // denominator
         for (u_from, u_to) in from
             .denominator_units
             .iter()
@@ -180,9 +177,43 @@ where
                 )));
             }
             // Reverse from/to order to get the reciprocal
-            u_to.converter.convert_from(value, u_to);
-            u_from.converter.convert_to(value, u_from);
+            u_to.convert_from(value);
+            u_from.convert_to(value);
         }
+
+        Ok(())
+    }
+
+    fn convert_value_with(
+        value: &mut S,
+        converter: Converter,
+        from: &Unit,
+        to: &Unit,
+    ) -> SmootResult<()> {
+        if !from.is_compatible_with(to) {
+            return Err(SmootError::IncompatibleUnitTypes(format!(
+                "Cannot convert {} to {}",
+                from, to
+            )));
+        }
+
+        // numerator
+        for (u_from, u_to) in from.numerator_units.iter().zip(to.numerator_units.iter()) {
+            converter.convert_from(value, u_from);
+            converter.convert_to(value, u_to);
+        }
+
+        // denominator
+        for (u_from, u_to) in from
+            .denominator_units
+            .iter()
+            .zip(to.denominator_units.iter())
+        {
+            // Reverse from/to order to get the reciprocal
+            converter.convert_from(value, u_to);
+            converter.convert_to(value, u_from);
+        }
+
         Ok(())
     }
 }
@@ -433,10 +464,18 @@ where
 
 impl<N: Number, S: Storage<N>> Powi for Quantity<N, S>
 where
-    S: Powi + ConvertMagnitude,
+    S: Powi<Output = S> + ConvertMagnitude,
 {
-    fn powi(self, p: i32) -> Self {
-        Quantity::new(self.magnitude.powi(p), self.unit.powi(p))
+    type Output = SmootResult<Quantity<N, S>>;
+
+    fn powi(self, p: i32) -> Self::Output {
+        if self.unit.is_offset() {
+            return Err(SmootError::IncompatibleUnitTypes(format!(
+                "Ambiguous operation with offset unit: {} ** {}",
+                self.unit, p
+            )));
+        }
+        Ok(Quantity::new(self.magnitude.powi(p), self.unit.powi(p)))
     }
 }
 
@@ -547,23 +586,37 @@ impl<N: Number, S: Storage<N>> Mul for Quantity<N, S>
 where
     S: MulAssign + ConvertMagnitude,
 {
-    type Output = Quantity<N, S>;
+    type Output = SmootResult<Quantity<N, S>>;
 
     fn mul(mut self, rhs: Self) -> Self::Output {
+        if self.unit.is_offset() || rhs.unit.is_offset() {
+            return Err(SmootError::IncompatibleUnitTypes(format!(
+                "Ambiguous operation between offset unit: {} * {}",
+                self.unit, rhs.unit
+            )));
+        }
+
         self *= rhs;
-        self
+        Ok(self)
     }
 }
 impl<N: Number, S: Storage<N>> Mul<&Quantity<N, S>> for &Quantity<N, S>
 where
     S: MulAssign + ConvertMagnitude,
 {
-    type Output = Quantity<N, S>;
+    type Output = SmootResult<Quantity<N, S>>;
 
     fn mul(self, rhs: &Quantity<N, S>) -> Self::Output {
+        if self.unit.is_offset() || rhs.unit.is_offset() {
+            return Err(SmootError::IncompatibleUnitTypes(format!(
+                "Ambiguous operation between offset unit: {} * {}",
+                self.unit, rhs.unit
+            )));
+        }
+
         let mut new = self.clone();
         new *= rhs;
-        new
+        Ok(new)
     }
 }
 /// Scalar multiplication
@@ -640,7 +693,19 @@ where
     type Output = SmootResult<Quantity<N, S>>;
 
     fn add(mut self, mut rhs: Self) -> Self::Output {
-        Self::convert_value(&mut rhs.magnitude, &rhs.unit, &self.unit)?;
+        if self.unit.is_offset() && rhs.unit.is_offset() {
+            return Err(SmootError::IncompatibleUnitTypes(format!(
+                "Ambiguous operation between offset units: {} + {}",
+                self.unit, rhs.unit,
+            )));
+        }
+
+        Quantity::convert_value_with(
+            &mut rhs.magnitude,
+            Converter::Multiplicative,
+            &rhs.unit,
+            &self.unit,
+        )?;
         self.magnitude += rhs.magnitude;
         Ok(self)
     }
@@ -652,8 +717,20 @@ where
     type Output = SmootResult<Quantity<N, S>>;
 
     fn add(self, rhs: &Quantity<N, S>) -> Self::Output {
+        if self.unit.is_offset() && rhs.unit.is_offset() {
+            return Err(SmootError::IncompatibleUnitTypes(format!(
+                "Ambiguous operation between offset units: {} + {}",
+                self.unit, rhs.unit,
+            )));
+        }
+
         let mut rhs_magnitude = rhs.magnitude.clone();
-        Quantity::convert_value(&mut rhs_magnitude, &rhs.unit, &self.unit)?;
+        Quantity::convert_value_with(
+            &mut rhs_magnitude,
+            Converter::Multiplicative,
+            &rhs.unit,
+            &self.unit,
+        )?;
 
         let mut new = self.clone();
         new.magnitude += rhs_magnitude;
@@ -747,7 +824,25 @@ where
     type Output = SmootResult<Quantity<N, S>>;
 
     fn sub(mut self, mut rhs: Self) -> Self::Output {
-        Self::convert_value(&mut rhs.magnitude, &rhs.unit, &self.unit)?;
+        if self.unit.is_offset() && rhs.unit.is_offset() {
+            // This operation will create a delta unit.
+            // Cases like `degC - degC -> delta_degC` are the only allowed arithmetic operations between offset units.
+            Quantity::convert_value_with(
+                &mut rhs.magnitude,
+                Converter::Offset,
+                &rhs.unit,
+                &self.unit,
+            )?;
+            self.unit = self.unit.into_delta();
+        } else {
+            Quantity::convert_value_with(
+                &mut rhs.magnitude,
+                Converter::Multiplicative,
+                &rhs.unit,
+                &self.unit,
+            )?;
+        }
+
         self.magnitude -= rhs.magnitude;
         Ok(self)
     }
@@ -759,10 +854,28 @@ where
     type Output = SmootResult<Quantity<N, S>>;
 
     fn sub(self, rhs: &Quantity<N, S>) -> Self::Output {
-        let mut rhs_magnitude = rhs.magnitude.clone();
-        Quantity::convert_value(&mut rhs_magnitude, &rhs.unit, &self.unit)?;
-
         let mut new = self.clone();
+        let mut rhs_magnitude = rhs.magnitude.clone();
+
+        if self.unit.is_offset() && rhs.unit.is_offset() {
+            // This operation will create a delta unit.
+            // Cases like `degC - degC -> delta_degC` are the only allowed arithmetic operations between offset units.
+            Quantity::convert_value_with(
+                &mut rhs_magnitude,
+                Converter::Offset,
+                &rhs.unit,
+                &new.unit,
+            )?;
+            new.unit = self.unit.clone().into_delta();
+        } else {
+            Quantity::convert_value_with(
+                &mut rhs_magnitude,
+                Converter::Multiplicative,
+                &rhs.unit,
+                &new.unit,
+            )?;
+        }
+
         new.magnitude -= rhs_magnitude;
         Ok(new)
     }
@@ -819,23 +932,37 @@ impl<N: Number, S: Storage<N>> Div for Quantity<N, S>
 where
     S: DivAssign + ConvertMagnitude,
 {
-    type Output = Quantity<N, S>;
+    type Output = SmootResult<Quantity<N, S>>;
 
     fn div(mut self, rhs: Self) -> Self::Output {
+        if self.unit.is_offset() || rhs.unit.is_offset() {
+            return Err(SmootError::IncompatibleUnitTypes(format!(
+                "Ambiguous operation between offset unit: {} / {}",
+                self.unit, rhs.unit
+            )));
+        }
+
         self /= rhs;
-        self
+        Ok(self)
     }
 }
 impl<N: Number, S: Storage<N>> Div<&Quantity<N, S>> for &Quantity<N, S>
 where
     S: DivAssign + ConvertMagnitude,
 {
-    type Output = Quantity<N, S>;
+    type Output = SmootResult<Quantity<N, S>>;
 
     fn div(self, rhs: &Quantity<N, S>) -> Self::Output {
+        if self.unit.is_offset() || rhs.unit.is_offset() {
+            return Err(SmootError::IncompatibleUnitTypes(format!(
+                "Ambiguous operation between offset unit: {} / {}",
+                self.unit, rhs.unit
+            )));
+        }
+
         let mut new = self.clone();
         new /= rhs;
-        new
+        Ok(new)
     }
 }
 impl<N: Number, S: Storage<N>> DivAssign for Quantity<N, S>
@@ -1000,6 +1127,11 @@ mod test_quantity {
         LazyLock::new(|| TEST_REGISTRY.get_unit("degC").expect("No unit 'degC`'"));
     static UNIT_DEG_F: LazyLock<&BaseUnit> =
         LazyLock::new(|| TEST_REGISTRY.get_unit("degF").expect("No unit 'degF`'"));
+    static UNIT_DELTA_DEG_C: LazyLock<&BaseUnit> = LazyLock::new(|| {
+        TEST_REGISTRY
+            .get_unit("delta_degC")
+            .expect("No unit 'delta_degC`'")
+    });
 
     #[test]
     fn test_quantity_ito() -> SmootResult<()> {
@@ -1025,20 +1157,108 @@ mod test_quantity {
         assert!(q.ito(&second, None).is_err());
     }
 
-    #[test]
-    fn test_quantity_ito_with_offset_units() -> SmootResult<()> {
-        let degc = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
-        let degf = Unit::new(vec![UNIT_DEG_F.clone()], vec![]);
+    /// Check operations with offset units
+    #[case(
+        {
+            let degc = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+            let degf = Unit::new(vec![UNIT_DEG_F.clone()], vec![]);
 
-        let mut q = Quantity::new(1.0, degf.clone());
-        q.ito(&degc, None)?;
-        assert_is_close!(q.magnitude, -155.0 / 9.0);
+            let mut q = Quantity::new(1.0, degf);
+            q.ito(&degc, None)?;
+            q
+        },
+        -155.0 / 9.0
+        ; "ito degc -> degf"
+    )]
+    #[case(
+        {
+            let degc = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+            let degf = Unit::new(vec![UNIT_DEG_F.clone()], vec![]);
 
-        let mut q = Quantity::new(1.0, degc.clone());
-        q.ito(&degf, None)?;
-        assert_is_close!(q.magnitude, 33.8);
-
+            let mut q = Quantity::new(1.0, degc);
+            q.ito(&degf, None)?;
+            q
+        },
+        33.8
+        ; "ito degf -> degc"
+    )]
+    #[case(
+        {
+            let degc = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+            let delta_degc = Unit::new(vec![UNIT_DELTA_DEG_C.clone()], vec![]);
+            let q = Quantity::new(1.0, degc);
+            let qd = Quantity::new(1.0, delta_degc);
+            (&q + &qd)?
+        },
+        2.0
+        ; "degC plus delta"
+    )]
+    #[case(
+        {
+            let degc = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+            let delta_degc = Unit::new(vec![UNIT_DELTA_DEG_C.clone()], vec![]);
+            let q = Quantity::new(1.0, degc);
+            let qd = Quantity::new(1.0, delta_degc);
+            (&qd + &q)?
+        },
+        2.0
+        ; "delta plus degC (commutative)"
+    )]
+    #[case(
+        {
+            let degc = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+            let delta_degc = Unit::new(vec![UNIT_DELTA_DEG_C.clone()], vec![]);
+            let q = Quantity::new(1.0, degc);
+            let qd = Quantity::new(1.0, delta_degc);
+            (&q - &qd)?
+        },
+        0.0
+        ; "degC minus delta"
+    )]
+    #[case(
+        {
+            let degc = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+            let degf = Unit::new(vec![UNIT_DEG_F.clone()], vec![]);
+            let qc = Quantity::new(1.0, degc);
+            let qf = Quantity::new(1.0, degf);
+            (&qc - &qf)?
+        },
+        1.0 + 5.0 / 9.0 + 150.0 / 9.0
+        ; "degc - defc -> delta_degc"
+    )]
+    #[case(
+        {
+            let delta_degc = Unit::new(vec![UNIT_DELTA_DEG_C.clone()], vec![]);
+            let q = Quantity::new(1.0, delta_degc);
+            (&q - &q)?
+        },
+        0.0
+        ; "delta minus delta"
+    )]
+    fn test_quantity_offset_units(quantity: Quantity<f64, f64>, expected: f64) -> SmootResult<()> {
+        assert_is_close!(quantity.magnitude, expected);
         Ok(())
+    }
+
+    #[case(
+        {
+            let degc = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+            let q = Quantity::new(1.0, degc);
+            &q + &q
+        }
+        ; "cannot add two offset units"
+    )]
+    #[case(
+        {
+            let degc = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+            let delta_degc = Unit::new(vec![UNIT_DELTA_DEG_C.clone()], vec![]);
+            let q = Quantity::new(1.0, degc);
+            q.to(&delta_degc, None)
+        }
+        ; "cannot convert offset units to delta"
+    )]
+    fn test_quantity_invalid_offset_units(value: SmootResult<Quantity<f64, f64>>) {
+        assert!(value.is_err(), "{:#?}", value);
     }
 
     #[case(
@@ -1083,6 +1303,18 @@ mod test_quantity {
         None
         ; "Incompatible"
     )]
+    #[case(
+        Quantity::new(1.0, Unit::new(vec![UNIT_DEG_C.clone()], vec![])),
+        Unit::new(vec![UNIT_DEG_F.clone()], vec![]),
+        Some(Quantity::new(33.8, Unit::new(vec![UNIT_DEG_F.clone()], vec![])))
+        ; "degC -> degF"
+    )]
+    #[case(
+        Quantity::new(1.0, Unit::new(vec![UNIT_DEG_F.clone()], vec![])),
+        Unit::new(vec![UNIT_DEG_C.clone()], vec![]),
+        Some(Quantity::new(-155.0 / 9.0, Unit::new(vec![UNIT_DEG_C.clone()], vec![])))
+        ; "degF -> degC"
+    )]
     fn test_quantity_to(
         quantity: Quantity<f64, f64>,
         unit: Unit,
@@ -1091,7 +1323,12 @@ mod test_quantity {
         let actual = quantity.to(&unit, None);
         if let Some(expected) = expected {
             let actual = actual?;
-            assert_eq!(actual, expected, "{:#?} != {:#?}", actual, expected);
+            assert!(
+                actual.approx_eq(&expected),
+                "{:#?} != {:#?}",
+                actual,
+                expected
+            );
         } else {
             assert!(actual.is_err(), "{:#?}", actual);
         }
@@ -1156,11 +1393,12 @@ mod test_quantity {
     }
 
     #[test]
-    fn test_quantity_quantity_mul() {
+    fn test_quantity_quantity_mul() -> SmootResult<()> {
         let q1 = Quantity::new_dimensionless(1.0);
         let q2 = Quantity::new_dimensionless(2.0);
-        let q = &q1 * &q2;
+        let q = (&q1 * &q2)?;
         assert_is_close!(q.magnitude, 2.0);
+        Ok(())
     }
 
     #[test]
@@ -1396,13 +1634,14 @@ mod test_quantity {
 
     #[test]
     /// Can divide quantity by quantity
-    fn test_quantity_div_quantity() {
+    fn test_quantity_div_quantity() -> SmootResult<()> {
         let q1 = Quantity::new_dimensionless(1.0);
         let q2 = Quantity::new_dimensionless(2.0);
 
-        let q = &q1 / &q2;
+        let q = (&q1 / &q2)?;
 
         assert_is_close!(q.magnitude, 0.5);
+        Ok(())
     }
 
     #[test]
@@ -1476,7 +1715,7 @@ mod test_quantity {
     }
 
     #[test]
-    fn test_hash() {
+    fn test_hash() -> SmootResult<()> {
         let q1 = Quantity::new(
             1.0,
             Unit::new(
@@ -1486,8 +1725,9 @@ mod test_quantity {
         );
         assert_eq!(hash(&q1), hash(&q1.clone()));
 
-        let q2 = q1.clone().powi(-1);
+        let q2 = q1.clone().powi(-1)?;
         assert_ne!(hash(&q1), hash(&q2));
+        Ok(())
     }
 
     fn hash<T: Hash>(val: &T) -> u64 {
