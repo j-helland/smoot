@@ -61,6 +61,8 @@ pub struct Registry {
     checksum: u64,
 }
 impl Registry {
+    pub(crate) const DELTA_PREFIX: &'static str = "delta_";
+    const DELTA_SYMBOL: &'static str = "Δ";
     const OFFSET_IDENTIFIER: &'static str = "offset";
 
     #[allow(clippy::new_without_default)]
@@ -132,6 +134,12 @@ impl Registry {
 
     pub fn all_keys(&self) -> Vec<String> {
         self.units.keys().cloned().collect()
+    }
+
+    fn are_modifiers_offset(modifiers: &[(&str, f64)]) -> bool {
+        modifiers
+            .iter()
+            .any(|(name, _)| *name == Registry::OFFSET_IDENTIFIER)
     }
 
     /// Load a units file and cache it.
@@ -229,29 +237,43 @@ impl Registry {
         //
         // Prefixes are combinatorial. Every prefix (and prefix alias) must be attached to every unit (and unit alias).
         // Add all prefix combos as regular units so that the unit definition stage instantiates everything seamlessly.
-        for name in unit_defs.keys().cloned().collect::<Vec<_>>() {
-            let def = unit_defs.get(&name).unwrap().clone();
+        let initial_unit_defs = unit_defs.keys().cloned().collect::<Vec<_>>();
+        for name in initial_unit_defs.iter() {
+            let def = unit_defs.get(name).unwrap().clone();
 
             // Plural form of base unit e.g. 'seconds'
-            insert_ignore_conflict!(
+            try_insert!(
                 linked_hash_map,
+                def.lineno,
                 unit_defs,
                 def.name.clone() + "s",
                 def.clone()
-            );
+            )?;
 
             // Add symbol e.g. 's' for 'second'
             let data: UnitAliasData = def.into();
             if let Some(symbol) = &data.symbol {
                 let new_alias = data.to_alias(symbol.to_string(), data.name.clone());
-                insert_ignore_conflict!(
+                try_insert!(
                     linked_hash_map,
+                    data.lineno,
                     &mut unit_defs,
                     symbol.to_string(),
                     new_alias
-                );
+                )?;
             };
+        }
 
+        // Handle prefixes afterwards to give precedence to regular definitions (and their aliases).
+        // For example, we prefer "pascal = Pa" over "Pa = petayear".
+        for name in initial_unit_defs {
+            let def = unit_defs.get(&name).unwrap().clone();
+            if Registry::are_modifiers_offset(&def.modifiers) {
+                // Can't prefix offset units like `degC` because prefixes are technically multipliers and offset
+                // units are non-multiplicative.
+                continue;
+            }
+            let data: UnitAliasData = def.into();
             self.create_unit_defs_from_prefixes(&mut unit_defs, name, data);
         }
 
@@ -287,10 +309,27 @@ impl Registry {
         unit.simplify();
         unit.dimensionality.shrink_to_fit();
 
-        // Ignore any aliases named `_`
         for alias in aliases.iter() {
             let _ = self.units.entry(alias.into()).or_insert(unit.clone());
         }
+
+        // If there is already a unit matching this name, it should be identical.
+        debug_assert!(
+            self.units
+                .get(&name)
+                .cloned()
+                .map(|mut u| {
+                    // Ignore the name in equality -- this could be different because of an alias unit.
+                    u.name = unit.name.clone();
+                    u
+                })
+                .unwrap_or(unit.clone())
+                == unit,
+            "{:?}\n!=\n{:?}",
+            self.units.get(&name).unwrap(),
+            unit,
+        );
+
         self.units.entry(name).or_insert(unit)
     }
 
@@ -313,18 +352,16 @@ impl Registry {
             }
 
             let rtree = def.expression.right.as_ref().unwrap();
-            let unit = self.eval_expression_tree(def.lineno, rtree, unit_defs)?;
+            let mut unit = self.eval_expression_tree(def.lineno, rtree, unit_defs)?;
 
-            let mut unit = match def.expression.val {
+            match def.expression.val {
                 // Regular unit definitions like `byte = 8 * bit` should assign the lhs name `byte`.
                 NodeData::Op(Operator::Assign) => {
-                    let mut unit = BaseUnit::clone(&unit);
                     // Make sure the official name is correct
                     unit.name = def.name.clone();
-                    unit
                 }
                 // Generated alias expressions like `@alias km = kilometer` should use the rhs name `kilometer` for consistency.
-                NodeData::Op(Operator::AssignAlias) => unit,
+                NodeData::Op(Operator::AssignAlias) => (),
                 _ => {
                     return Err(SmootError::ExpressionError(format!(
                         "line:{} Invalid unit expression {:#?}",
@@ -333,6 +370,7 @@ impl Registry {
                 }
             };
 
+            // Assign modifiers.
             for &(mod_name, mod_val) in def.modifiers.iter() {
                 match mod_name {
                     Registry::OFFSET_IDENTIFIER => {
@@ -350,7 +388,7 @@ impl Registry {
 
             // Delta units for offsets are defined internally. They might inherit Some(offset) from the root BaseUnit (e.g. "kelvin; offset = 0"),
             // which needs to be forcibly unset here to make conversions and operations work correctly.
-            if name.starts_with("delta_") {
+            if name.starts_with(Registry::DELTA_PREFIX) {
                 unit.offset = f64::NAN;
                 unit.converter = Converter::Multiplicative;
             }
@@ -375,9 +413,9 @@ impl Registry {
         lineno: usize,
         symbol: &str,
         unit_defs: &LinkedHashMap<String, UnitDefinition>,
-    ) -> Result<&BaseUnit, SmootError> {
+    ) -> Result<BaseUnit, SmootError> {
         if self.units.contains_key(symbol) {
-            return Ok(self.units.get(symbol).unwrap());
+            return Ok(self.units.get(symbol).unwrap().clone());
         }
 
         let def = unit_defs.get(symbol).ok_or_else(|| {
@@ -391,12 +429,13 @@ impl Registry {
         })?;
 
         // Make sure the official name is correct
-        let unit = self.eval_expression_tree(def.lineno, rtree, unit_defs)?;
-        let mut unit = BaseUnit::clone(&unit);
+        let mut unit = self.eval_expression_tree(def.lineno, rtree, unit_defs)?;
         unit.name = def.name.clone();
 
         // Insert name and aliases
-        Ok(self.insert_def(def.name.clone(), &def.aliases, unit))
+        Ok(self
+            .insert_def(def.name.clone(), &def.aliases, unit)
+            .clone())
     }
 
     /// Evaluate a parsed unit expression into a unit definition.
@@ -411,9 +450,7 @@ impl Registry {
             let unit = match &tree.val {
                 NodeData::Integer(int) => BaseUnit::new_constant(f64::from(*int)),
                 NodeData::Decimal(float) => BaseUnit::new_constant(*float),
-                NodeData::Symbol(symbol) => {
-                    self.get_or_create_unit(lineno, symbol, unit_defs)?.clone()
-                }
+                NodeData::Symbol(symbol) => self.get_or_create_unit(lineno, symbol, unit_defs)?,
                 NodeData::Op(op) => {
                     return Err(SmootError::ParseTreeError(format!(
                         "line:{} Invalid operator {:?}",
@@ -438,15 +475,20 @@ impl Registry {
         }
 
         // There must always be a left unit.
-        let left_unit =
+        let mut left_unit =
             self.eval_expression_tree(lineno, tree.left.as_ref().unwrap().as_ref(), unit_defs)?;
-        let mut left_unit = BaseUnit::clone(&left_unit);
 
         // Right unit might be None for unary operators e.g. Sqrt.
         let right_unit = tree
             .right
             .as_ref()
             .map(|right| self.eval_expression_tree(lineno, right, unit_defs));
+
+        // Propagate metadata
+        if let Some(Ok(right)) = &right_unit {
+            left_unit.converter = right.converter;
+            left_unit.offset = right.offset;
+        }
 
         if let NodeData::Op(op) = &tree.val {
             return match op {
@@ -519,12 +561,18 @@ impl Registry {
     }
 
     fn make_delta_unit_def<'a>(def: &UnitDefinition<'a>) -> UnitDefinition<'a> {
-        let new_name = Registry::add_prefix("delta_".to_string(), &def.name);
+        let new_name = Registry::add_prefix(Registry::DELTA_PREFIX.to_string(), &def.name);
 
         let mut aliases = Vec::with_capacity(def.aliases.len() * 2); // delta_ and Δ
         for alias in def.aliases.iter() {
-            aliases.push(Registry::add_prefix("delta_".to_string(), alias));
-            aliases.push(Registry::add_prefix("Δ".to_string(), alias));
+            aliases.push(Registry::add_prefix(
+                Registry::DELTA_PREFIX.to_string(),
+                alias,
+            ));
+            aliases.push(Registry::add_prefix(
+                Registry::DELTA_SYMBOL.to_string(),
+                alias,
+            ));
         }
 
         // Take the expression right of assignment e.g. `y` from `x = y`.
@@ -535,7 +583,7 @@ impl Registry {
             symbol: def
                 .symbol
                 .as_ref()
-                .map(|s| Registry::add_prefix("Δ".to_string(), s)),
+                .map(|s| Registry::add_prefix(Registry::DELTA_SYMBOL.to_string(), s)),
             expression: ParseTree::new(Operator::Assign.into(), new_name.into(), right_expr),
             modifiers: vec![],
             aliases,
@@ -555,7 +603,6 @@ impl Registry {
     ) -> SmootResult<(
         LinkedHashMap<String, UnitDefinition<'input>>,
         Vec<DimensionDefinition<'input>>,
-        // HashMap<String, ParseTree>,
     )>
     where
         L: Iterator<Item = (usize, &'input str)>,
@@ -563,8 +610,6 @@ impl Registry {
         let mut unit_defs: LinkedHashMap<String, UnitDefinition> = LinkedHashMap::new();
         // Dimensions like `[length]` define the category that a unit belongs to.
         let mut dim_defs: Vec<DimensionDefinition> = Vec::new();
-        // // Derived dimensions are defined by expressions of base dimensions e.g. `[length] / [time]`.
-        // let mut derived_dim_defs: HashMap<String, ParseTree> = HashMap::new();
 
         for (lineno, line) in lines {
             if let Ok(dim_def) = registry_parser::dimension_definition(line, lineno) {
@@ -588,22 +633,7 @@ impl Registry {
                     unit_def
                 )?;
             } else if let Ok(_expr) = registry_parser::derived_dimension(line) {
-                // TODO(jwh): Left here for posterity. We don't actually use derived dimensions in Smoot but might in the future.
-                //     if let NodeData::Op(Operator::Assign) = &expr.val {
-                //         if let NodeData::Dimension(Some(dimension)) = &expr.left.as_ref().unwrap().val {
-                //             if let Some(overwrite) = derived_dim_defs.insert(dimension.clone(), expr) {
-                //                 return Err(SmootError::DimensionError(format!(
-                //                     "line:{} Line '{}' overwrote previous derived dimension {:?}",
-                //                     lineno, line, overwrite
-                //                 )));
-                //             }
-                //         } else {
-                //             return Err(SmootError::DimensionError(format!(
-                //                 "line:{} Derived dimension expression {} does not assign to a dimension",
-                //                 lineno, line
-                //             )));
-                //         }
-                //     }
+                // We don't use derived dimensions in Smoot.
             } else if let Ok(prefix_def) = registry_parser::prefix_definition(line, lineno) {
                 try_insert!(
                     hash_map,
@@ -619,10 +649,8 @@ impl Registry {
                 )));
             }
         }
-        Ok((
-            unit_defs, dim_defs,
-            // derived_dim_defs,
-        ))
+
+        Ok((unit_defs, dim_defs))
     }
 
     /// Take a unit definition and add all prefixes and suffixes as new unit definitions.

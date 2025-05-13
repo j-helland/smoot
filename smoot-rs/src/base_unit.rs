@@ -3,7 +3,7 @@ use std::{
     ops::{AddAssign, Div, DivAssign, Mul, MulAssign, Neg, SubAssign},
 };
 
-use crate::{converter::Converter, hash::Hash, utils::ApproxEq};
+use crate::{converter::Converter, hash::Hash, registry::Registry, utils::ApproxEq};
 use bitcode::{Decode, Encode};
 use hashable::Hashable;
 use num_traits::{FromPrimitive, PrimInt};
@@ -149,7 +149,7 @@ impl BaseUnit {
         } else {
             // TODO: get delta unit from registry?
             Self::new(
-                "delta_".to_string() + self.name.as_str(),
+                Registry::DELTA_PREFIX.to_string() + self.name.as_str(),
                 self.multiplier,
                 self.dimensionality.clone(),
             )
