@@ -158,7 +158,7 @@ impl Unit {
         self.numerator_units
             .iter()
             .chain(self.denominator_units.iter())
-            .any(|u| u.converter == Converter::Offset)
+            .any(|u| u.converter == Converter::Offset && !u.offset.approx_eq(0.0))
     }
 
     /// Convert all offset BaseUnits into delta units.
@@ -721,6 +721,15 @@ mod test_unit {
             .get_unit("avogadro_constant")
             .expect("No unit 'avogadro_constant'")
     });
+    static UNIT_DEGC: LazyLock<&BaseUnit> =
+        LazyLock::new(|| TEST_REGISTRY.get_unit("degC").expect("No unit 'degC'"));
+    static UNIT_KELVIN: LazyLock<&BaseUnit> =
+        LazyLock::new(|| TEST_REGISTRY.get_unit("kelvin").expect("No unit 'kelvin'"));
+    static UNIT_DELTA_DEGC: LazyLock<&BaseUnit> = LazyLock::new(|| {
+        TEST_REGISTRY
+            .get_unit("delta_degC")
+            .expect("No unit 'delta_degC'")
+    });
 
     #[case(
         Unit::new_dimensionless(),
@@ -866,6 +875,38 @@ mod test_unit {
     )]
     fn test_is_dimensionless(u: Unit, expected: bool) {
         assert_eq!(u.is_dimensionless(), expected);
+    }
+
+    #[case(
+        Unit::new(vec![UNIT_DEGC.clone()], vec![]),
+        true
+    )]
+    #[case(
+        Unit::new(vec![UNIT_KELVIN.clone()], vec![]),
+        false
+        ; "Root unit is not offset"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.clone()], vec![]),
+        false
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.clone(), UNIT_DEGC.clone()], vec![]),
+        true
+        ; "Composite unit with offset base unit is offset"
+    )]
+    #[case(
+        Unit::new(vec![], vec![UNIT_DEGC.clone()]),
+        true
+        ; "Offset denominator"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_DELTA_DEGC.clone()], vec![]),
+        false
+        ; "Delta units are not offset"
+    )]
+    fn test_is_offset(u: Unit, expected: bool) {
+        assert_eq!(u.is_offset(), expected);
     }
 
     #[test]

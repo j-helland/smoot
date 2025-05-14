@@ -1025,36 +1025,30 @@ macro_rules! create_array_quantity_type {
             }
 
             fn __add__(&self, other: &Self) -> PyResult<Self> {
-                let inner = handle_err(self.inner.clone() + &other.inner)?;
-                Ok(Self { inner })
+                handle_err(&self.inner.clone() + &other.inner).map(|inner| Self { inner })
             }
 
             fn __sub__(&self, other: &Self) -> PyResult<Self> {
-                let inner = handle_err(self.inner.clone() - &other.inner)?;
-                Ok(Self { inner })
+                handle_err(&self.inner.clone() - &other.inner).map(|inner| Self { inner })
             }
 
-            fn __mul__(&self, other: &Self) -> Self {
-                Self {
-                    inner: self.inner.clone() * &other.inner,
-                }
+            fn __mul__(&self, other: &Self) -> PyResult<Self> {
+                handle_err(&self.inner * &other.inner).map(|inner| Self { inner })
             }
 
-            fn __truediv__(&self, other: &Self) -> Self {
-                Self {
-                    inner: self.inner.clone() / &other.inner,
-                }
+            fn __truediv__(&self, other: &Self) -> PyResult<Self> {
+                handle_err(&self.inner.clone() / &other.inner).map(|inner| Self { inner })
             }
 
-            fn __floordiv__(&self, other: &Self) -> Self {
-                let mut new = self.__truediv__(other);
-                new.inner.magnitude = new.inner.magnitude.floor();
-                new
+            fn __floordiv__(&self, other: &Self) -> PyResult<Self> {
+                self.__truediv__(other).map(|mut new| {
+                    new.inner.magnitude = new.inner.magnitude.floor();
+                    new
+                })
             }
 
             fn __mod__(&self, other: &Self) -> PyResult<Self> {
-                let inner = handle_err(&self.inner % &other.inner)?;
-                Ok(Self { inner })
+                handle_err(&self.inner % &other.inner).map(|inner| Self { inner })
             }
 
             fn __pow__(&self, other: f64, _modulo: Option<i64>) -> PyResult<Self> {

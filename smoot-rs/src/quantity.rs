@@ -584,7 +584,7 @@ where
 }
 impl<N: Number, S: Storage<N>> Mul for Quantity<N, S>
 where
-    S: MulAssign + ConvertMagnitude,
+    S: Mul<Output = S> + ConvertMagnitude,
 {
     type Output = SmootResult<Quantity<N, S>>;
 
@@ -596,13 +596,15 @@ where
             )));
         }
 
-        self *= rhs;
+        self.unit *= &rhs.unit;
+        let factor = self.unit.simplify(false);
+        self.magnitude = self.magnitude * rhs.magnitude.convert(factor);
         Ok(self)
     }
 }
 impl<N: Number, S: Storage<N>> Mul<&Quantity<N, S>> for &Quantity<N, S>
 where
-    S: MulAssign + ConvertMagnitude,
+    S: Mul<Output = S> + ConvertMagnitude,
 {
     type Output = SmootResult<Quantity<N, S>>;
 
@@ -615,7 +617,9 @@ where
         }
 
         let mut new = self.clone();
-        new *= rhs;
+        new.unit *= &rhs.unit;
+        let factor = new.unit.simplify(false);
+        new.magnitude = new.magnitude * rhs.magnitude.convert(factor);
         Ok(new)
     }
 }
@@ -652,19 +656,6 @@ impl<N: Number> Mul<ArrayD<N>> for Quantity<N, ArrayD<N>> {
         self
     }
 }
-impl<N: Number> Mul<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>>
-where
-    ArrayD<N>: ConvertMagnitude,
-{
-    type Output = Self;
-
-    fn mul(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
-        self.unit.mul_assign(&rhs.unit);
-        let factor = self.unit.simplify(false);
-        self.magnitude = self.magnitude * rhs.magnitude.convert(factor);
-        self
-    }
-}
 
 /// Add quantities
 impl<N: Number, S: Storage<N>> AddAssign for Quantity<N, S>
@@ -688,7 +679,7 @@ where
 }
 impl<N: Number, S: Storage<N>> Add for Quantity<N, S>
 where
-    S: AddAssign + ConvertMagnitude,
+    S: Add<Output = S> + ConvertMagnitude,
 {
     type Output = SmootResult<Quantity<N, S>>;
 
@@ -706,13 +697,13 @@ where
             &rhs.unit,
             &self.unit,
         )?;
-        self.magnitude += rhs.magnitude;
+        self.magnitude = self.magnitude + rhs.magnitude;
         Ok(self)
     }
 }
 impl<N: Number, S: Storage<N>> Add<&Quantity<N, S>> for &Quantity<N, S>
 where
-    S: AddAssign + ConvertMagnitude,
+    S: Add<Output = S> + ConvertMagnitude,
 {
     type Output = SmootResult<Quantity<N, S>>;
 
@@ -733,7 +724,7 @@ where
         )?;
 
         let mut new = self.clone();
-        new.magnitude += rhs_magnitude;
+        new.magnitude = new.magnitude + rhs_magnitude;
         Ok(new)
     }
 }
@@ -767,19 +758,6 @@ impl<N: Number> Add<ArrayD<N>> for Quantity<N, ArrayD<N>> {
             )));
         }
         self.magnitude = self.magnitude + rhs;
-        Ok(self)
-    }
-}
-impl<N: Number> Add<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>>
-where
-    ArrayD<N>: ConvertMagnitude,
-{
-    type Output = SmootResult<Quantity<N, ArrayD<N>>>;
-
-    fn add(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
-        let mut rhs_magnitude = rhs.magnitude.clone();
-        Quantity::convert_value(&mut rhs_magnitude, &rhs.unit, &self.unit)?;
-        self.magnitude = self.magnitude + rhs_magnitude;
         Ok(self)
     }
 }
@@ -819,7 +797,7 @@ where
 }
 impl<N: Number, S: Storage<N>> Sub for Quantity<N, S>
 where
-    S: SubAssign + ConvertMagnitude,
+    S: Sub<Output = S> + ConvertMagnitude,
 {
     type Output = SmootResult<Quantity<N, S>>;
 
@@ -843,13 +821,13 @@ where
             )?;
         }
 
-        self.magnitude -= rhs.magnitude;
+        self.magnitude = self.magnitude - rhs.magnitude;
         Ok(self)
     }
 }
 impl<N: Number, S: Storage<N>> Sub<&Quantity<N, S>> for &Quantity<N, S>
 where
-    S: SubAssign + ConvertMagnitude,
+    S: Sub<Output = S> + ConvertMagnitude,
 {
     type Output = SmootResult<Quantity<N, S>>;
 
@@ -876,7 +854,7 @@ where
             )?;
         }
 
-        new.magnitude -= rhs_magnitude;
+        new.magnitude = new.magnitude - rhs_magnitude;
         Ok(new)
     }
 }
@@ -913,24 +891,11 @@ impl<N: Number> Sub<ArrayD<N>> for Quantity<N, ArrayD<N>> {
         Ok(self)
     }
 }
-impl<N: Number> Sub<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>>
-where
-    ArrayD<N>: ConvertMagnitude,
-{
-    type Output = SmootResult<Self>;
-
-    fn sub(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
-        let mut rhs_magnitude = rhs.magnitude.clone();
-        Self::convert_value(&mut rhs_magnitude, &rhs.unit, &self.unit)?;
-        self.magnitude = self.magnitude - rhs_magnitude;
-        Ok(self)
-    }
-}
 
 /// Divide quantities
 impl<N: Number, S: Storage<N>> Div for Quantity<N, S>
 where
-    S: DivAssign + ConvertMagnitude,
+    S: Div<Output = S> + ConvertMagnitude,
 {
     type Output = SmootResult<Quantity<N, S>>;
 
@@ -942,13 +907,15 @@ where
             )));
         }
 
-        self /= rhs;
+        self.unit.div_assign(&rhs.unit);
+        let factor = self.unit.simplify(false);
+        self.magnitude = self.magnitude / rhs.magnitude.convert(factor);
         Ok(self)
     }
 }
 impl<N: Number, S: Storage<N>> Div<&Quantity<N, S>> for &Quantity<N, S>
 where
-    S: DivAssign + ConvertMagnitude,
+    S: Div<Output = S> + ConvertMagnitude,
 {
     type Output = SmootResult<Quantity<N, S>>;
 
@@ -961,7 +928,9 @@ where
         }
 
         let mut new = self.clone();
-        new /= rhs;
+        new.unit.div_assign(&rhs.unit);
+        let factor = new.unit.simplify(false);
+        new.magnitude = new.magnitude / rhs.magnitude.convert(factor);
         Ok(new)
     }
 }
@@ -1006,20 +975,6 @@ impl<N: Number> Div<ArrayD<N>> for Quantity<N, ArrayD<N>> {
 
     fn div(mut self, rhs: ArrayD<N>) -> Self::Output {
         self.magnitude = self.magnitude / rhs;
-        self
-    }
-}
-impl<N: Number> Div<&Quantity<N, ArrayD<N>>> for Quantity<N, ArrayD<N>>
-where
-    ArrayD<N>: ConvertMagnitude,
-{
-    type Output = Self;
-
-    fn div(mut self, rhs: &Quantity<N, ArrayD<N>>) -> Self::Output {
-        self.magnitude = self.magnitude / rhs.magnitude.clone();
-        self.unit.div_assign(&rhs.unit);
-        let factor = self.unit.simplify(false);
-        self.magnitude.iconvert(factor);
         self
     }
 }
@@ -1127,6 +1082,8 @@ mod test_quantity {
         LazyLock::new(|| TEST_REGISTRY.get_unit("degC").expect("No unit 'degC`'"));
     static UNIT_DEG_F: LazyLock<&BaseUnit> =
         LazyLock::new(|| TEST_REGISTRY.get_unit("degF").expect("No unit 'degF`'"));
+    static UNIT_KELVIN: LazyLock<&BaseUnit> =
+        LazyLock::new(|| TEST_REGISTRY.get_unit("kelvin").expect("No unit 'kelvin`'"));
     static UNIT_DELTA_DEG_C: LazyLock<&BaseUnit> = LazyLock::new(|| {
         TEST_REGISTRY
             .get_unit("delta_degC")
@@ -1437,17 +1394,56 @@ mod test_quantity {
 
     #[test]
     /// Can element-wise multiply array quantities
-    fn test_quantity_array_quantity_array_mul() {
+    fn test_quantity_array_quantity_array_mul() -> SmootResult<()> {
         let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
         let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
         let q1 = Quantity::new_dimensionless(arr1);
         let q2 = Quantity::new_dimensionless(arr2);
 
-        let q_scaled = q1 * &q2;
+        let q_scaled = (q1 * q2)?;
 
         q_scaled.magnitude.for_each(|x| {
             assert_is_close!(*x, 2.0);
         });
+        Ok(())
+    }
+
+    #[test]
+    fn test_quantity_mul_with_offset_fails() {
+        let u_offset = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+        let u_regular = Unit::new(vec![UNIT_METER.clone()], vec![]);
+
+        let q_offset = Quantity::new(1.0, u_offset);
+        let q_regular = Quantity::new(1.0, u_regular);
+
+        assert!((&q_offset * &q_offset).is_err());
+        assert!((&q_offset * &q_regular).is_err());
+        assert!((&q_regular * &q_offset).is_err());
+    }
+
+    #[test]
+    fn test_quantity_mul_offset_with_delta_offset_fails() {
+        let u_offset = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+        let u_delta = Unit::new(vec![UNIT_DELTA_DEG_C.clone()], vec![]);
+
+        let q_offset = Quantity::new(1.0, u_offset);
+        let q_delta = Quantity::new(1.0, u_delta);
+
+        assert!((&q_offset * &q_delta).is_err());
+    }
+
+    #[test]
+    fn test_quantity_mul_root_offset_succeeds() -> SmootResult<()> {
+        let u_kelvin = Unit::new(vec![UNIT_KELVIN.clone()], vec![]);
+        let q = Quantity::new(2.0, u_kelvin);
+        assert_eq!(
+            (&q * &q)?,
+            Quantity::new(
+                4.0,
+                Unit::new(vec![UNIT_KELVIN.clone(), UNIT_KELVIN.clone()], vec![])
+            )
+        );
+        Ok(())
     }
 
     #[test]
@@ -1496,6 +1492,39 @@ mod test_quantity {
     }
 
     #[test]
+    fn test_quantity_add_with_offset_fails() {
+        let u_offset = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+        let u_regular = Unit::new(vec![UNIT_METER.clone()], vec![]);
+
+        let q_offset = Quantity::new(1.0, u_offset);
+        let q_regular = Quantity::new(1.0, u_regular);
+
+        assert!((&q_offset + &q_offset).is_err());
+        assert!((&q_offset + &q_regular).is_err());
+        assert!((&q_regular + &q_offset).is_err());
+    }
+
+    #[test]
+    fn test_quantity_add_offset_with_delta_offset() -> SmootResult<()> {
+        let u_offset = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+        let u_delta = Unit::new(vec![UNIT_DELTA_DEG_C.clone()], vec![]);
+
+        let q_offset = Quantity::new(1.0, u_offset);
+        let q_delta = Quantity::new(1.0, u_delta);
+
+        assert_is_close!((&q_offset + &q_delta)?.magnitude, 2.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_quantity_add_root_offset_succeeds() -> SmootResult<()> {
+        let u_kelvin = Unit::new(vec![UNIT_KELVIN.clone()], vec![]);
+        let q = Quantity::new(2.0, u_kelvin.clone());
+        assert_eq!((&q + &q)?, Quantity::new(4.0, u_kelvin));
+        Ok(())
+    }
+
+    #[test]
     /// Can add scalar to an array quantity
     fn test_quantity_array_scalar_add() -> SmootResult<()> {
         let arr = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
@@ -1533,7 +1562,7 @@ mod test_quantity {
         let q1 = Quantity::new_dimensionless(arr1);
         let q2 = Quantity::new_dimensionless(arr2);
 
-        let q_scaled = (q1 + &q2)?;
+        let q_scaled = (q1 + q2)?;
 
         q_scaled.magnitude.for_each(|x| {
             assert_is_close!(*x, 3.0);
@@ -1600,6 +1629,40 @@ mod test_quantity {
     }
 
     #[test]
+    fn test_quantity_sub_with_offset_fails() {
+        let u_offset = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+        let u_regular = Unit::new(vec![UNIT_METER.clone()], vec![]);
+
+        let q_offset = Quantity::new(1.0, u_offset);
+        let q_regular = Quantity::new(1.0, u_regular);
+
+        assert!((&q_offset - &q_regular).is_err());
+        assert!((&q_regular - &q_offset).is_err());
+    }
+
+    #[test]
+    fn test_quantity_sub_offset_with_delta_offset() -> SmootResult<()> {
+        let u_offset = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+        let u_delta = Unit::new(vec![UNIT_DELTA_DEG_C.clone()], vec![]);
+
+        let q_offset = Quantity::new(1.0, u_offset);
+        let q_delta = Quantity::new(1.0, u_delta.clone());
+
+        // Subtraction creates a delta unit
+        assert_eq!((&q_offset - &q_offset)?, Quantity::new(0.0, u_delta));
+        assert_is_close!((&q_offset - &q_delta)?.magnitude, 0.0);
+        Ok(())
+    }
+
+    #[test]
+    fn test_quantity_sub_root_offset_succeeds() -> SmootResult<()> {
+        let u_kelvin = Unit::new(vec![UNIT_KELVIN.clone()], vec![]);
+        let q = Quantity::new(2.0, u_kelvin.clone());
+        assert_eq!((&q - &q)?, Quantity::new(0.0, u_kelvin));
+        Ok(())
+    }
+
+    #[test]
     /// Can subtract an array from an array quantity
     fn test_quantity_array_array_sub() -> SmootResult<()> {
         let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
@@ -1623,7 +1686,7 @@ mod test_quantity {
         let q1 = Quantity::new_dimensionless(arr1);
         let q2 = Quantity::new_dimensionless(arr2);
 
-        let q = (q1 - &q2)?;
+        let q = (q1 - q2)?;
 
         q.magnitude.for_each(|x| {
             assert_is_close!(*x, -1.0);
@@ -1650,6 +1713,38 @@ mod test_quantity {
         let q = Quantity::new_dimensionless(1.0);
         let q_scaled = q / 2.0;
         assert_is_close!(q_scaled.magnitude, 0.5);
+    }
+
+    #[test]
+    fn test_quantity_div_with_offset_fails() {
+        let u_offset = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+        let u_regular = Unit::new(vec![UNIT_METER.clone()], vec![]);
+
+        let q_offset = Quantity::new(1.0, u_offset);
+        let q_regular = Quantity::new(1.0, u_regular);
+
+        assert!((&q_offset / &q_offset).is_err());
+        assert!((&q_offset / &q_regular).is_err());
+        assert!((&q_regular / &q_offset).is_err());
+    }
+
+    #[test]
+    fn test_quantity_div_offset_with_delta_offset_fails() {
+        let u_offset = Unit::new(vec![UNIT_DEG_C.clone()], vec![]);
+        let u_delta = Unit::new(vec![UNIT_DELTA_DEG_C.clone()], vec![]);
+
+        let q_offset = Quantity::new(1.0, u_offset);
+        let q_delta = Quantity::new(1.0, u_delta);
+
+        assert!((&q_offset / &q_delta).is_err());
+    }
+
+    #[test]
+    fn test_quantity_div_root_offset_succeeds() -> SmootResult<()> {
+        let u_kelvin = Unit::new(vec![UNIT_KELVIN.clone()], vec![]);
+        let q = Quantity::new(2.0, u_kelvin.clone());
+        assert_eq!((&q / &q)?, Quantity::new_dimensionless(1.0));
+        Ok(())
     }
 
     #[test]
@@ -1681,17 +1776,18 @@ mod test_quantity {
 
     #[test]
     /// Can divide array quantity by array quantity
-    fn test_quantity_array_quantity_array_quantity_div() {
+    fn test_quantity_array_quantity_array_quantity_div() -> SmootResult<()> {
         let arr1 = Array::from_shape_vec(vec![2], vec![1.0; 2]).unwrap();
         let arr2 = Array::from_shape_vec(vec![2], vec![2.0; 2]).unwrap();
         let q1 = Quantity::new_dimensionless(arr1);
         let q2 = Quantity::new_dimensionless(arr2);
 
-        let q = q1 / &q2;
+        let q = (q1 / q2)?;
 
         q.magnitude.for_each(|x| {
             assert_is_close!(*x, 0.5);
         });
+        Ok(())
     }
 
     /// Division with a unit results in a quantity
