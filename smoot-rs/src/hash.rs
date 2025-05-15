@@ -16,7 +16,7 @@ impl Hash for f64 {
         const NAN: u64 = f64::NAN.to_bits();
 
         // Branchless replacement of NaN values with a consistent NaN to stabilize hashing.
-        let mask = self.is_nan() as u64;
+        let mask = u64::from(self.is_nan());
         let bits = NAN * mask + self.to_bits() * (1 - mask);
         StdHash::hash(&bits, state);
     }

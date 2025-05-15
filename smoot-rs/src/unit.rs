@@ -47,6 +47,7 @@ pub struct Unit {
 }
 
 impl Unit {
+    #[must_use]
     pub fn new(numerator_units: Vec<BaseUnit>, denominator_units: Vec<BaseUnit>) -> Self {
         let mut unit = Self {
             numerator_units,
@@ -57,15 +58,18 @@ impl Unit {
         unit
     }
 
+    #[must_use]
     pub fn new_dimensionless() -> Self {
         Self::new(vec![], vec![])
     }
 
+    #[must_use]
     pub fn new_constant(multiplier: f64) -> Self {
         Self::new(vec![BaseUnit::new_constant(multiplier)], vec![])
     }
 
     /// Integer power operation that creates a new unit.
+    #[must_use]
     pub fn powi(&self, p: i32) -> Self {
         if self.is_dimensionless() {
             return Self::new_dimensionless();
@@ -102,6 +106,10 @@ impl Unit {
         }
     }
 
+    /// Errors
+    /// ------
+    /// `SmootError::InvalidOperation`
+    ///     If performing this square root would result in a non-integral dimensionality vector.
     pub fn isqrt(&mut self) -> SmootResult<()> {
         for u in self
             .numerator_units
@@ -112,14 +120,14 @@ impl Unit {
         }
         self.dimensionality = sqrt_dimensionality(&self.dimensionality).map_err(|_| {
             SmootError::InvalidOperation(format!(
-                "sqrt would result in a non-integral power for {}",
-                self,
+                "sqrt would result in a non-integral power for {self}"
             ))
         })?;
         Ok(())
     }
 
     /// Scale this unit by a constant multiplier.
+    #[must_use]
     pub fn scale(&self, n: f64) -> Self {
         let mut new = self.clone();
         new.iscale(n);
@@ -132,16 +140,19 @@ impl Unit {
     }
 
     /// Return true if this unit is dimensionless (i.e. has no associated base units).
+    #[must_use]
     pub fn is_dimensionless(&self) -> bool {
         self.dimensionality.is_empty()
     }
 
     /// Return true if this unit is compatible with the target (e.g. meter and kilometer).
+    #[must_use]
     pub fn is_compatible_with(&self, other: &Self) -> bool {
         is_dim_eq(&self.dimensionality, &other.dimensionality)
     }
 
     /// Return true if values of this unit can be converted into the target unit.
+    #[must_use]
     pub fn are_converters_compatible(&self, other: &Self) -> bool {
         self.numerator_units
             .iter()
@@ -154,6 +165,7 @@ impl Unit {
                 .eq(other.denominator_units.iter().map(|u| &u.converter))
     }
 
+    #[must_use]
     pub fn is_offset(&self) -> bool {
         self.numerator_units
             .iter()
@@ -161,17 +173,18 @@ impl Unit {
             .any(|u| u.converter == Converter::Offset && !u.offset.approx_eq(0.0))
     }
 
-    /// Convert all offset BaseUnits into delta units.
+    /// Convert all offset `BaseUnits` into delta units.
+    #[must_use]
     pub fn into_delta(self) -> Self {
         let numerator = self
             .numerator_units
             .into_iter()
-            .map(|u| u.into_delta())
+            .map(BaseUnit::into_delta)
             .collect();
         let denominator = self
             .denominator_units
             .into_iter()
-            .map(|u| u.into_delta())
+            .map(BaseUnit::into_delta)
             .collect();
         Self {
             numerator_units: numerator,
@@ -180,44 +193,54 @@ impl Unit {
         }
     }
 
-    pub fn get_dimensionality(&self, registry: &Registry) -> Option<Dimensionality> {
+    /// Errors
+    /// ------
+    /// `SmootError::NoSuchElement`
+    ///     If there is no registered dimension string for this dimension. This should not happen unless something has gone very wrong when parsing the unit definitions file.
+    pub fn get_dimensionality(&self, registry: &Registry) -> SmootResult<Option<Dimensionality>> {
         if self.is_dimensionless() {
-            return None;
+            return Ok(None);
         }
 
         let mut dims = HashMap::default();
         dims.reserve(self.dimensionality.len());
 
-        self.dimensionality.iter().copied().for_each(|d| {
-            let dim_str = registry.get_dimension_string(d);
+        for &d in &self.dimensionality {
+            let dim_str = registry.get_dimension_string(d)?;
             dims.entry(dim_str.clone())
-                .and_modify(|e| *e += d.signum() as i32)
-                .or_insert(d.signum() as i32);
-        });
+                .and_modify(|e| *e += i32::from(d.signum()))
+                .or_insert(i32::from(d.signum()));
+        }
 
-        Some(Dimensionality(dims))
+        Ok(Some(Dimensionality(dims)))
     }
 
-    pub fn get_dimensionality_str(&self, registry: &Registry) -> Option<String> {
-        self.get_dimensionality(registry).map(|dims| {
+    /// Errors
+    /// ------
+    /// `SmootError::NoSuchElement`
+    ///     If there is no registered dimension string for this dimension. This should not happen unless something has gone very wrong when parsing the unit definitions file.
+    pub fn get_dimensionality_str(&self, registry: &Registry) -> SmootResult<Option<String>> {
+        let dimensionality = self.get_dimensionality(registry)?;
+        Ok(dimensionality.map(|dims| {
             dims.0
                 .iter()
                 .sorted_by_key(|(k, _)| k.as_str())
-                .map(|(k, v)| format!("{}: {}", k, v))
+                .map(|(k, v)| format!("{k}: {v}"))
                 .join(", ")
-        })
+        }))
     }
 
     /// Convert this unit into a displayable string representation.
     ///
     /// Parameters
     /// ----------
-    /// with_scaling_factor
+    /// `with_scaling_factor`
     ///     If true, returns a string like `1 / meter` instead of `/ meter`.
+    #[must_use]
     pub fn get_units_string(
         &self,
         registry: Option<&Registry>,
-        format: UnitFormat,
+        format: &UnitFormat,
     ) -> Option<String> {
         if self.numerator_units.is_empty() && self.denominator_units.is_empty() {
             return None;
@@ -225,7 +248,7 @@ impl Unit {
 
         // Return the name of this unit, respecting formatting options.
         let f_get_name = |name: &String| -> String {
-            if format == UnitFormat::Default {
+            if *format == UnitFormat::Default {
                 return name.clone();
             }
             if format.intersects(UnitFormat::Compact) {
@@ -239,7 +262,7 @@ impl Unit {
         };
         let f_fmt_result = |result: String| -> String {
             if format.intersects(UnitFormat::WithoutSpaces) {
-                result.replace(" ", "")
+                result.replace(' ', "")
             } else {
                 result
             }
@@ -283,20 +306,20 @@ impl Unit {
             .join(" * ");
 
         if nums.len() > 1 && !denoms.is_empty() {
-            numerator = format!("({})", numerator);
+            numerator = format!("({numerator})");
         }
         if denoms.len() > 1 {
-            denominator = format!("({})", denominator);
+            denominator = format!("({denominator})");
         }
 
         let result = if numerator.is_empty() {
             if format.intersects(UnitFormat::WithScalingFactor) {
-                Some(format!("1 / {}", denominator))
+                Some(format!("1 / {denominator}"))
             } else {
-                Some(format!("/ {}", denominator))
+                Some(format!("/ {denominator}"))
             }
         } else {
-            Some(format!("{} / {}", numerator, denominator))
+            Some(format!("{numerator} / {denominator}"))
         };
 
         result.map(f_fmt_result)
@@ -395,12 +418,14 @@ impl Unit {
         self.numerator_units.sort_by(|u1, u2| {
             (u1.get_dimension_type(), u1.power)
                 .partial_cmp(&(u2.get_dimension_type(), u2.power))
-                .unwrap()
+                // Default to less to avoid a panic case for the compiler. This should never actually happen.
+                .unwrap_or(Ordering::Less)
         });
         self.denominator_units.sort_by(|u1, u2| {
             (u1.get_dimension_type(), u1.power)
                 .partial_cmp(&(u2.get_dimension_type(), u2.power))
-                .unwrap()
+                // Default to less to avoid a panic case for the compiler. This should never actually happen.
+                .unwrap_or(Ordering::Less)
         });
 
         // Markers for numerator and denominator units indicating whether a cancellation occurred.
@@ -426,7 +451,7 @@ impl Unit {
                     iden += 1;
                     continue;
                 }
-                _ => (),
+                Ordering::Equal => (),
             }
             if u1.is_multidimensional() || u2.is_multidimensional() {
                 // If the base units are composites (i.e. contain multiple dimensions), we cannot simplify
@@ -500,52 +525,63 @@ impl Unit {
     /// `newton.ito_root_units()`
     ///
     /// => `1000 * (gram * meter / second ** 2)`
-    pub fn ito_root_units(&mut self, registry: &Registry) -> f64 {
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::NoSuchElement`
+    ///     If there is no registered root unit for the dimension. This should not happen unless something has gone very wrong when parsing the unit definitions file.
+    pub fn ito_root_units(&mut self, registry: &Registry) -> SmootResult<f64> {
         let mut factor = 1.0;
 
         let mut numerator = Vec::with_capacity(self.numerator_units.len());
         let mut denominator = Vec::with_capacity(self.denominator_units.len());
 
-        for u in self.numerator_units.iter() {
+        for u in &self.numerator_units {
             factor *= u.get_multiplier();
-            Self::update_with_root_units(&mut numerator, &mut denominator, u, registry);
+            Self::update_with_root_units(&mut numerator, &mut denominator, u, registry)?;
         }
-        for u in self.denominator_units.iter() {
+        for u in &self.denominator_units {
             factor /= u.get_multiplier();
             // Swap numerator and denominator because this is a division.
-            Self::update_with_root_units(&mut denominator, &mut numerator, u, registry);
+            Self::update_with_root_units(&mut denominator, &mut numerator, u, registry)?;
         }
         self.numerator_units = numerator;
         self.denominator_units = denominator;
 
         factor *= self.simplify(true);
-        factor
+        Ok(factor)
     }
 
-    /// Append numerator and denominator with the root units of the given BaseUnit.
+    /// Append numerator and denominator with the root units of the given `BaseUnit`.
     ///
     /// Examples
     /// --------
     /// `newton = kilogram * meter / second ** 2`
     ///
     /// => `numerator = [gram, meter]; denominator = [second ** 2]`
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::NoSuchElement`
+    ///     If there is no registered root unit for the dimension. This should not happen unless something has gone very wrong when parsing the unit definitions file.
     fn update_with_root_units(
         numerator: &mut Vec<BaseUnit>,
         denominator: &mut Vec<BaseUnit>,
         base: &BaseUnit,
         registry: &Registry,
-    ) {
+    ) -> SmootResult<()> {
         if base.dimensionality.is_empty() {
-            return;
+            return Ok(());
         }
 
         let mut f_update = |dim: Dimension, power: i32| {
-            let root = registry.get_root_unit(dim).powi(power);
+            let root = registry.get_root_unit(dim)?.powi(power);
             if dim.is_negative() {
                 denominator.push(root);
             } else {
                 numerator.push(root);
             }
+            Ok(())
         };
 
         let mut last = base.dimensionality[0];
@@ -556,12 +592,12 @@ impl Unit {
                 power += 1;
                 continue;
             }
-            f_update(last, power);
+            f_update(last, power)?;
             power = 1;
             last = dim;
         }
         // Handle the final segment
-        f_update(last, power);
+        f_update(last, power)
     }
 }
 
@@ -572,6 +608,11 @@ impl Unit {
     /// ------
     /// (f64, Unit) A tuple whose first element is the multiplicative factor computed during parsing.
     ///             e.g. `2 * meter` returns a multiplicative factor of `2`.
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::ExpressionError`
+    ///     If the unit expression cannot be parsed into known unit definitions.
     pub fn parse(registry: &Registry, s: &str) -> SmootResult<(f64, Self)> {
         if s == "dimensionless" {
             // Make sure to return an empty unit container.
@@ -582,7 +623,7 @@ impl Unit {
                 let factor = u.reduce();
                 (factor, u)
             })
-            .map_err(|_| SmootError::ExpressionError(format!("Invalid unit expression {}", s)))
+            .map_err(|_| SmootError::ExpressionError(format!("Invalid unit expression {s}")))
     }
 }
 
@@ -592,7 +633,7 @@ impl fmt::Display for Unit {
             f,
             "{}",
             // Default to displaying unitless units as `dimensionless`.
-            self.get_units_string(None, UnitFormat::Default | UnitFormat::WithScalingFactor)
+            self.get_units_string(None, &(UnitFormat::Default | UnitFormat::WithScalingFactor))
                 .unwrap_or("dimensionless".to_string())
         )
     }
@@ -649,8 +690,7 @@ impl Add for Unit {
     fn add(self, rhs: Self) -> Self::Output {
         if !self.is_compatible_with(&rhs) {
             return Err(SmootError::InvalidOperation(format!(
-                "Invalid Unit operation '{}' + '{}'",
-                self, rhs,
+                "Invalid Unit operation '{self}' + '{rhs}'"
             )));
         }
         Ok(self)
@@ -663,8 +703,7 @@ impl Sub for Unit {
     fn sub(self, rhs: Self) -> Self::Output {
         if !self.is_compatible_with(&rhs) {
             return Err(SmootError::InvalidOperation(format!(
-                "Invalid Unit operation '{}' - '{}'",
-                self, rhs,
+                "Invalid Unit operation '{self}' - '{rhs}'"
             )));
         }
         Ok(self)
@@ -783,7 +822,7 @@ mod test_unit {
     )]
     fn test_get_units_string(u: Unit, expected: Option<&str>) {
         assert_eq!(
-            u.get_units_string(None, UnitFormat::Default | UnitFormat::WithScalingFactor),
+            u.get_units_string(None, &(UnitFormat::Default | UnitFormat::WithScalingFactor)),
             expected.map(String::from)
         );
     }
@@ -814,7 +853,7 @@ mod test_unit {
     )]
     fn test_get_compact_units_string(u: Unit, expected: Option<&str>, format: UnitFormat) {
         assert_eq!(
-            u.get_units_string(Some(&TEST_REGISTRY), format),
+            u.get_units_string(Some(&TEST_REGISTRY), &format),
             expected.map(String::from)
         )
     }
@@ -856,11 +895,12 @@ mod test_unit {
         Some("[length]: 1, [mass]: 1, [time]: -2")
         ; "Multidimensional base unit"
     )]
-    fn test_get_dimensionality_string(u: Unit, expected: Option<&str>) {
+    fn test_get_dimensionality_string(u: Unit, expected: Option<&str>) -> SmootResult<()> {
         assert_eq!(
-            u.get_dimensionality_str(&TEST_REGISTRY),
+            u.get_dimensionality_str(&TEST_REGISTRY)?,
             expected.map(String::from)
         );
+        Ok(())
     }
 
     #[case(
@@ -1265,9 +1305,10 @@ mod test_unit {
         1.0
         ; "Simplified"
     )]
-    fn test_ito_root_unit(mut unit: Unit, expected: Unit, expected_factor: f64) {
-        assert_is_close!(unit.ito_root_units(&TEST_REGISTRY), expected_factor);
+    fn test_ito_root_unit(mut unit: Unit, expected: Unit, expected_factor: f64) -> SmootResult<()> {
+        assert_is_close!(unit.ito_root_units(&TEST_REGISTRY)?, expected_factor);
         assert_eq!(unit, expected, "{:#?} != {:#?}", unit, expected);
+        Ok(())
     }
 
     #[test]

@@ -41,7 +41,7 @@ pub struct BaseUnit {
     pub dimensionality: Vec<Dimension>,
 
     /// Holds user-applied exponents to a unit. Also useful for disply purposes e.g. creating a string `meter ** 2`.
-    /// A BaseUnit will never be parsed from unit definitions with a non-unit power.
+    /// A `BaseUnit` will never be parsed from unit definitions with a non-unit power.
     pub power: i32,
 
     /// Specifies the conversion implementation to use when converting to/from this unit.
@@ -144,15 +144,15 @@ impl BaseUnit {
     }
 
     pub fn into_delta(self) -> Self {
-        if !self.is_offset() {
-            self
-        } else {
+        if self.is_offset() {
             // TODO: get delta unit from registry?
             Self::new(
                 Registry::DELTA_PREFIX.to_string() + self.name.as_str(),
                 self.multiplier,
                 self.dimensionality.clone(),
             )
+        } else {
+            self
         }
     }
 
@@ -266,11 +266,12 @@ pub(crate) fn sqrt_dimensionality(dimensionality: &[Dimension]) -> SmootResult<V
 /// Return true if two dimensionality vectors are equivalent.
 /// Uses SIMD where possible to parallelize comparisons.
 pub(crate) fn is_dim_eq(dim1: &[Dimension], dim2: &[Dimension]) -> bool {
+    const CHUNK_SIZE: usize = size_of::<i8x16>();
+
     if dim1.len() != dim2.len() {
         return false;
     }
 
-    const CHUNK_SIZE: usize = size_of::<i8x16>();
     let mut chunks1 = dim1.chunks_exact(CHUNK_SIZE);
     let mut chunks2 = dim2.chunks_exact(CHUNK_SIZE);
 
@@ -299,7 +300,7 @@ pub(crate) fn simplify_dimensionality(dimensionality: &mut Vec<Dimension>) {
     let mut left = 0;
     let mut right = len - 1;
     while left < right {
-        let sum = dimensionality[left] as i16 + dimensionality[right] as i16;
+        let sum = i16::from(dimensionality[left]) + i16::from(dimensionality[right]);
         match sum.cmp(&0) {
             Ordering::Equal => {
                 should_keep[left] = false;

@@ -1,3 +1,5 @@
+#![warn(clippy::pedantic)]
+
 use mimalloc::MiMalloc;
 
 #[global_allocator]
@@ -44,12 +46,22 @@ use std::{
 create_exception!("smoot.smoot", SmootError, PyException);
 create_exception!("smoot.smoot", SmootParseError, PyException);
 create_exception!("smoot.smoot", SmootInvalidOperation, PyException);
+create_exception!("smoot.smoot", SmootNoSuchElement, PyException);
+create_exception!("smoot.smoot", SmootInternalError, PyException);
+create_exception!("smoot.smoot", SmootIncompatibleUnitTypes, PyException);
+create_exception!("smoot.smoot", SmootInvalidArrayDimensionality, PyException);
 
 /// Cannot `impl From<error::SmootError> for PyErr` because of the Rust orphan rule.
 fn handle_err<T>(result: Result<T, error::SmootError>) -> PyResult<T> {
     result.map_err(|e| match e {
         error::SmootError::ParseTreeError(msg) => SmootParseError::new_err(msg),
         error::SmootError::InvalidOperation(msg) => SmootInvalidOperation::new_err(msg),
+        error::SmootError::NoSuchElement(msg) => SmootNoSuchElement::new_err(msg),
+        error::SmootError::InternalError(msg) => SmootInternalError::new_err(msg),
+        error::SmootError::IncompatibleUnitTypes(msg) => SmootIncompatibleUnitTypes::new_err(msg),
+        error::SmootError::InvalidArrayDimensionality(msg) => {
+            SmootInvalidArrayDimensionality::new_err(msg)
+        }
         _ => SmootError::new_err(e.to_string()),
     })
 }
@@ -126,7 +138,7 @@ impl UnitRegistry {
 
     fn __getstate__(&self) -> PyResult<Vec<u8>> {
         let registry = self.get()?;
-        Ok(bitcode::encode(registry.deref()))
+        Ok(bitcode::encode(&*registry))
     }
 }
 
@@ -180,7 +192,8 @@ macro_rules! create_unit_type {
                 registry: &UnitRegistry,
             ) -> PyResult<Option<HashMap<String, i32, FxBuildHasher>>> {
                 let registry = registry.get()?;
-                Ok(self.inner.get_dimensionality(&registry).map(|dims| dims.0))
+                let dimensionality = handle_err(self.inner.get_dimensionality(&registry))?;
+                Ok(dimensionality.map(|dims| dims.0))
             }
 
             fn to_root_units(&self, registry: &UnitRegistry) -> PyResult<Self> {
@@ -192,7 +205,7 @@ macro_rules! create_unit_type {
 
             fn ito_root_units(&mut self, registry: &UnitRegistry) -> PyResult<()> {
                 let registry = registry.get()?;
-                self.inner.ito_root_units(&registry);
+                handle_err(self.inner.ito_root_units(&registry))?;
                 Ok(())
             }
 
@@ -215,7 +228,7 @@ macro_rules! create_unit_type {
                 ))?;
                 registry.get().map(|r| {
                     self.inner
-                        .get_units_string(Some(&r), format)
+                        .get_units_string(Some(&r), &format)
                         .unwrap_or_else(|| "dimensionless".to_string())
                 })
             }
@@ -272,6 +285,7 @@ macro_rules! create_unit_type {
                 }
 
                 let mut new = self.clone();
+                #[allow(clippy::cast_possible_truncation)]
                 new.inner.ipowi(p as i32);
                 let _ = new.inner.reduce();
                 Ok(new)
@@ -332,7 +346,8 @@ macro_rules! create_quantity_type {
                 registry: &UnitRegistry,
             ) -> PyResult<Option<HashMap<String, i32, FxBuildHasher>>> {
                 let registry = registry.get()?;
-                Ok(self.inner.get_dimensionality(&registry).map(|dims| dims.0))
+                let dimensionality = handle_err(self.inner.get_dimensionality(&registry))?;
+                Ok(dimensionality.map(|dims| dims.0))
             }
 
             #[getter(m)]
@@ -378,13 +393,13 @@ macro_rules! create_quantity_type {
             fn to_root_units(&self, registry: &UnitRegistry) -> PyResult<Self> {
                 let registry = registry.get()?;
                 let mut new = self.clone();
-                new.inner.ito_root_units(&registry);
+                handle_err(new.inner.ito_root_units(&registry))?;
                 Ok(new)
             }
 
             fn ito_root_units(&mut self, registry: &UnitRegistry) -> PyResult<()> {
                 let registry = registry.get()?;
-                self.inner.ito_root_units(&registry);
+                handle_err(self.inner.ito_root_units(&registry))?;
                 Ok(())
             }
 
@@ -410,7 +425,7 @@ macro_rules! create_quantity_type {
                     .map(|r| {
                         self.inner
                             .unit
-                            .get_units_string(Some(&r), format)
+                            .get_units_string(Some(&r), &format)
                             .unwrap_or_else(|| "dimensionless".to_string())
                     })
                     .map(|unit_string| format!("{} {}", self.inner.magnitude, unit_string))
@@ -484,7 +499,7 @@ macro_rules! create_quantity_type {
                     self.inner.magnitude,
                     self.inner
                         .unit
-                        .get_units_string(None, unit::UnitFormat::Default)
+                        .get_units_string(None, &unit::UnitFormat::Default)
                         .unwrap_or("dimensionless".into())
                 )
             }
@@ -577,6 +592,7 @@ macro_rules! create_quantity_type {
                         other
                     ))));
                 }
+                #[allow(clippy::cast_possible_truncation)]
                 handle_err(self.inner.clone().powi(p as i32)).map(|inner| Self { inner })
             }
 
@@ -594,7 +610,9 @@ macro_rules! create_quantity_type {
             }
 
             fn __trunc__(&self) -> i64 {
-                self.inner.magnitude.trunc() as i64
+                #[allow(clippy::cast_possible_truncation)]
+                let res = self.inner.magnitude.trunc() as i64;
+                res
             }
 
             fn __floor__(&self) -> Self {
@@ -620,7 +638,9 @@ macro_rules! create_quantity_type {
             }
 
             fn __int__(&self) -> i64 {
-                self.inner.magnitude as i64
+                #[allow(clippy::cast_possible_truncation)]
+                let res = self.inner.magnitude as i64;
+                res
             }
 
             //==================================================
@@ -652,7 +672,7 @@ struct ArrayQuantityStorage<N> {
 }
 
 /// Create a numpy array version of a unitary quantity type.
-/// Expects a Unit type generated by create_quantity_type.
+/// Expects a Unit type generated by `create_quantity_type`.
 macro_rules! create_array_quantity_type {
     ($name: ident, $unit_type: ident, $base_type: ident) => {
         #[pyclass]
@@ -744,7 +764,8 @@ macro_rules! create_array_quantity_type {
                 registry: &UnitRegistry,
             ) -> PyResult<Option<HashMap<String, i32, FxBuildHasher>>> {
                 let registry = registry.get()?;
-                Ok(self.inner.get_dimensionality(&registry).map(|dims| dims.0))
+                let dimensionality = handle_err(self.inner.get_dimensionality(&registry))?;
+                Ok(dimensionality.map(|dims| dims.0))
             }
 
             #[getter(m)]
@@ -798,13 +819,13 @@ macro_rules! create_array_quantity_type {
             fn to_root_units(&self, registry: &UnitRegistry) -> PyResult<Self> {
                 let registry = registry.get()?;
                 let mut new = self.clone();
-                new.inner.ito_root_units(&registry);
+                handle_err(new.inner.ito_root_units(&registry))?;
                 Ok(new)
             }
 
             fn ito_root_units(&mut self, registry: &UnitRegistry) -> PyResult<()> {
                 let registry = registry.get()?;
-                self.inner.ito_root_units(&registry);
+                handle_err(self.inner.ito_root_units(&registry))?;
                 Ok(())
             }
 
@@ -873,7 +894,7 @@ macro_rules! create_array_quantity_type {
                 self.inner
                     .magnitude
                     .iter()
-                    .fold(0, |acc, e| acc + !e.approx_eq(0.0) as usize)
+                    .fold(0, |acc, e| acc + usize::from(!e.approx_eq(0.0)))
             }
 
             fn get_formatted_string(
@@ -892,7 +913,7 @@ macro_rules! create_array_quantity_type {
                     .map(|r| {
                         self.inner
                             .unit
-                            .get_units_string(Some(&r), format)
+                            .get_units_string(Some(&r), &format)
                             .unwrap_or_else(|| "dimensionless".to_string())
                     })
                     .map(|unit_string| format!("{} {}", self.inner.magnitude, unit_string))
@@ -970,7 +991,7 @@ macro_rules! create_array_quantity_type {
                     self.inner.magnitude,
                     self.inner
                         .unit
-                        .get_units_string(None, unit::UnitFormat::Default)
+                        .get_units_string(None, &unit::UnitFormat::Default)
                         .unwrap_or("dimensionless".into())
                 )
             }
@@ -1059,6 +1080,7 @@ macro_rules! create_array_quantity_type {
                         other
                     ))));
                 }
+                #[allow(clippy::cast_possible_truncation)]
                 handle_err(self.inner.clone().powi(other.round() as i32))
                     .map(|inner| Self { inner })
             }
@@ -1131,7 +1153,7 @@ fn mul_unit(num: f64, unit: &Unit) -> F64Quantity {
 }
 
 #[pyfunction]
-fn arr_mul_unit(arr: Bound<'_, PyArrayDyn<f64>>, unit: &Unit) -> ArrayF64Quantity {
+fn arr_mul_unit(arr: &Bound<'_, PyArrayDyn<f64>>, unit: &Unit) -> ArrayF64Quantity {
     let arr = arr.to_owned_array();
     ArrayF64Quantity {
         inner: quantity::Quantity::new(arr, unit.inner.clone()),
@@ -1146,7 +1168,7 @@ fn div_unit(unit: &Unit, num: f64) -> F64Quantity {
 }
 
 #[pyfunction]
-fn arr_div_unit(unit: &Unit, arr: Bound<'_, PyArrayDyn<f64>>) -> ArrayF64Quantity {
+fn arr_div_unit(unit: &Unit, arr: &Bound<'_, PyArrayDyn<f64>>) -> ArrayF64Quantity {
     let arr = arr.to_owned_array();
     ArrayF64Quantity {
         inner: quantity::Quantity::new(1.0 / arr, unit.inner.clone()),
@@ -1161,7 +1183,7 @@ fn rdiv_unit(num: f64, unit: &Unit) -> F64Quantity {
 }
 
 #[pyfunction]
-fn arr_rdiv_unit(arr: Bound<'_, PyArrayDyn<f64>>, unit: &Unit) -> ArrayF64Quantity {
+fn arr_rdiv_unit(arr: &Bound<'_, PyArrayDyn<f64>>, unit: &Unit) -> ArrayF64Quantity {
     let arr = arr.to_owned_array();
     ArrayF64Quantity {
         inner: quantity::Quantity::new(arr, unit.inner.powi(-1)),
@@ -1192,6 +1214,22 @@ fn smoot(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "SmootInvalidOperation",
         m.py().get_type::<SmootInvalidOperation>(),
+    )?;
+    m.add(
+        "SmootNoSuchElement",
+        m.py().get_type::<SmootNoSuchElement>(),
+    )?;
+    m.add(
+        "SmootInternalError",
+        m.py().get_type::<SmootInternalError>(),
+    )?;
+    m.add(
+        "SmootIncompatibleUnitTypes",
+        m.py().get_type::<SmootIncompatibleUnitTypes>(),
+    )?;
+    m.add(
+        "SmootInvalidArrayDimensionality",
+        m.py().get_type::<SmootInvalidArrayDimensionality>(),
     )?;
 
     // Unit registry

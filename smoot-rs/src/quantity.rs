@@ -42,7 +42,7 @@ pub struct Quantity<N: Number, S: Storage<N>> {
     /// e.g. `meter` in `1 meter`.
     pub unit: Unit,
 
-    _marker: PhantomData<N>,
+    marker_: PhantomData<N>,
 }
 
 impl<N: Number, S: Storage<N>> Quantity<N, S>
@@ -53,7 +53,7 @@ where
         Self {
             magnitude,
             unit,
-            _marker: PhantomData, // Only needed to support the `N` generic.
+            marker_: PhantomData, // Only needed to support the `N` generic.
         }
     }
 
@@ -67,11 +67,20 @@ where
         self.unit.is_dimensionless()
     }
 
-    pub fn get_dimensionality(&self, registry: &Registry) -> Option<Dimensionality> {
+    /// Errors
+    /// ------
+    /// `SmootError::NoSuchElement`
+    ///     If there is no registered dimension string for this dimension. This should not happen unless something has gone very wrong when parsing the unit definitions file.
+    pub fn get_dimensionality(&self, registry: &Registry) -> SmootResult<Option<Dimensionality>> {
         self.unit.get_dimensionality(registry)
     }
 
     /// Return the underlying value of this quantity, converted to target units.
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::IncompatibleUnitTypes`
+    ///     If the units cannot be converted e.g. have incompatible dimensionality.
     pub fn m_as(&self, unit: &Unit, factor: Option<f64>) -> SmootResult<S> {
         let mut factor = factor.unwrap_or(1.0);
         if self.unit.eq(unit) {
@@ -92,6 +101,11 @@ where
     }
 
     /// Return a new quantity whose value is converted to the target units.
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::IncompatibleUnitTypes`
+    ///     If the units cannot be converted e.g. have incompatible dimensionality.
     pub fn to(&self, unit: &Unit, factor: Option<f64>) -> SmootResult<Quantity<N, S>> {
         let mut q = self.clone();
         q.ito(unit, factor)?;
@@ -104,6 +118,11 @@ where
     /// ----------
     /// unit : The target unit to convert to.
     /// factor : Optional additional multiplicative factor to apply.
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::IncompatibleUnitTypes`
+    ///     If the units cannot be converted e.g. have incompatible dimensionality.
     pub fn ito(&mut self, unit: &Unit, factor: Option<f64>) -> SmootResult<()> {
         if self.unit.eq(unit) {
             return Ok(());
@@ -123,11 +142,21 @@ where
     /// Examples
     /// --------
     /// 1 kilometer / hour -> 3.6 meter / second
-    pub fn ito_root_units(&mut self, registry: &Registry) {
-        let factor = self.unit.ito_root_units(registry);
-        self.magnitude.iconvert(factor);
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::NoSuchElement`
+    ///     If there is no registered root unit for the dimension. This should not happen unless something has gone very wrong when parsing the unit definitions file.
+    pub fn ito_root_units(&mut self, registry: &Registry) -> SmootResult<()> {
+        self.unit
+            .ito_root_units(registry)
+            .map(|factor| self.magnitude.iconvert(factor))
     }
 
+    /// Errors
+    /// ------
+    /// `SmootError::InvalidOperation`
+    ///     If performing this square root would result in a non-integral dimensionality vector.
     pub fn isqrt(&mut self) -> SmootResult<()> {
         self.magnitude = self.magnitude.sqrt();
         self.unit.isqrt()
@@ -147,8 +176,7 @@ where
     fn convert_value(value: &mut S, from: &Unit, to: &Unit) -> SmootResult<()> {
         if !from.is_compatible_with(to) {
             return Err(SmootError::IncompatibleUnitTypes(format!(
-                "Cannot convert {} to {}",
-                from, to
+                "Cannot convert {from} to {to}",
             )));
         }
 
@@ -156,8 +184,7 @@ where
         for (u_from, u_to) in from.numerator_units.iter().zip(to.numerator_units.iter()) {
             if u_from.converter != u_to.converter {
                 return Err(SmootError::IncompatibleUnitTypes(format!(
-                    "Cannot convert {} to {}",
-                    from, to
+                    "Cannot convert {from} to {to}",
                 )));
             }
             u_from.convert_from(value);
@@ -172,8 +199,7 @@ where
         {
             if u_from.converter != u_to.converter {
                 return Err(SmootError::IncompatibleUnitTypes(format!(
-                    "Cannot convert {} to {}",
-                    from, to
+                    "Cannot convert {from} to {to}",
                 )));
             }
             // Reverse from/to order to get the reciprocal
@@ -192,8 +218,7 @@ where
     ) -> SmootResult<()> {
         if !from.is_compatible_with(to) {
             return Err(SmootError::IncompatibleUnitTypes(format!(
-                "Cannot convert {} to {}",
-                from, to
+                "Cannot convert {from} to {to}"
             )));
         }
 
@@ -221,13 +246,18 @@ where
 /// Parsing
 impl Quantity<f64, f64> {
     /// Parse an expression into a quantity (e.g. "1 meter / second").
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::ExpressionError`
+    ///     If the quantity expression cannot be parsed.
     pub fn parse(registry: &Registry, s: &str) -> SmootResult<Self> {
         expression_parser::expression(s, registry)
             .map(|mut q| {
                 q.ito_reduced_units();
                 q
             })
-            .map_err(|_| SmootError::ExpressionError(format!("Invalid quantity expression {}", s)))
+            .map_err(|_| SmootError::ExpressionError(format!("Invalid quantity expression {s}")))
     }
 }
 
@@ -346,11 +376,12 @@ where
 }
 
 /// Scalar operators
-impl<N: Number> Quantity<N, N>
+impl<T: Number> Quantity<T, T>
 where
-    N: ConvertMagnitude,
+    T: ConvertMagnitude,
 {
     /// Approximate equality between quantities, accounting for floating point imprecision.
+    #[allow(clippy::missing_panics_doc)]
     pub fn approx_eq(&self, other: &Self) -> bool {
         // Early outs to avoid copies for speed
         if !self.unit.is_compatible_with(&other.unit) {
@@ -366,6 +397,7 @@ where
         let mut u1 = self.unit.clone();
         let factor = u1.reduce();
 
+        // There should never be a panic here since by this point, the units must be compatible.
         let other_magnitude = other.m_as(&u1, None).unwrap();
         self.magnitude.convert(factor).approx_eq(other_magnitude)
     }
@@ -378,13 +410,18 @@ where
     ArrayD<N>: ConvertMagnitude,
 {
     /// Approximate equality between quantities, accounting for floating point imprecision.
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::InvalidArrayDimensionality`
+    ///     If an array of boolean values cannot be built in the shape of the given magnitude.
     pub fn approx_eq(&self, other: &Self) -> SmootResult<ArrayD<bool>> {
         if !self.unit.is_compatible_with(&other.unit) {
             return Array::from_shape_vec(
                 self.magnitude.shape(),
                 vec![false; self.magnitude.len()],
             )
-            .map_err(|e| SmootError::InternalError(e.to_string()));
+            .map_err(|e| SmootError::InvalidArrayDimensionality(e.to_string()));
         }
 
         self.require_same_shape(other)?;
@@ -399,6 +436,11 @@ where
     }
 
     /// Matrix multiplication. Works like numpy.dot, but only supports 1D and 2D arrays.
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::InvalidArrayDimensionality`
+    ///     If this array has incompatible dimensions with the given one. This includes any array being > 2D.
     pub fn dot(self, other: &Self) -> SmootResult<Self> {
         // Because we work with dynamically dimensioned arrays, we need to explicitly handle each combination of dimensions
         // explicitly. This is because numpy arrays passed from numpy are fully dynamic, whereas ndarray encodes dimensionality
@@ -408,36 +450,45 @@ where
         let mut magnitude = if shape1.len() == 1 && shape2.len() == 1 {
             // For vector-vector multiplication, we compute a scalar result. We have to wrap it in a dynamic array
             // for consistency.
-            let m1 = self.magnitude.into_dimensionality::<Ix1>().unwrap();
+            let m1 = self
+                .magnitude
+                .into_dimensionality::<Ix1>()
+                .map_err(|e| SmootError::InvalidArrayDimensionality(e.to_string()))?;
             let m2 = other
                 .magnitude
                 .clone()
                 .into_dimensionality::<Ix1>()
-                .unwrap();
+                .map_err(|e| SmootError::InvalidArrayDimensionality(e.to_string()))?;
             let magnitude = m1.dot(&m2);
-            Array::from_shape_vec(vec![1], vec![magnitude]).unwrap()
+            Array::from_shape_vec(vec![1], vec![magnitude])
+                .map_err(|e| SmootError::InvalidArrayDimensionality(e.to_string()))?
         } else if shape1.len() == 2 && shape2.len() == 1 {
-            let m1 = self.magnitude.into_dimensionality::<Ix2>().unwrap();
+            let m1 = self
+                .magnitude
+                .into_dimensionality::<Ix2>()
+                .map_err(|e| SmootError::InvalidArrayDimensionality(e.to_string()))?;
             let m2 = other
                 .magnitude
                 .clone()
                 .into_dimensionality::<Ix1>()
-                .unwrap();
+                .map_err(|e| SmootError::InvalidArrayDimensionality(e.to_string()))?;
             let magnitude = m1.dot(&m2);
             magnitude.into_dyn()
         } else if shape1.len() == 2 && shape2.len() == 2 {
-            let m1 = self.magnitude.into_dimensionality::<Ix2>().unwrap();
+            let m1 = self
+                .magnitude
+                .into_dimensionality::<Ix2>()
+                .map_err(|e| SmootError::InvalidArrayDimensionality(e.to_string()))?;
             let m2 = other
                 .magnitude
                 .clone()
                 .into_dimensionality::<Ix2>()
-                .unwrap();
+                .map_err(|e| SmootError::InvalidArrayDimensionality(e.to_string()))?;
             let magnitude = m1.dot(&m2);
             magnitude.into_dyn()
         } else {
             return Err(SmootError::InvalidArrayDimensionality(format!(
-                "Matrix multiplication not supported between dimensions {:?} and {:?}",
-                shape1, shape2
+                "Matrix multiplication not supported between dimensions {shape1:?} and {shape2:?}"
             )));
         };
 
@@ -450,14 +501,14 @@ where
     }
 
     fn require_same_shape(&self, other: &Self) -> SmootResult<()> {
-        if self.magnitude.dim() != other.magnitude.dim() {
+        if self.magnitude.dim() == other.magnitude.dim() {
+            Ok(())
+        } else {
             Err(SmootError::MismatchedArrayShape(format!(
                 "{:?} != {:?}",
                 self.magnitude.dim(),
                 other.magnitude.dim()
             )))
-        } else {
-            Ok(())
         }
     }
 }
@@ -471,8 +522,8 @@ where
     fn powi(self, p: i32) -> Self::Output {
         if self.unit.is_offset() {
             return Err(SmootError::IncompatibleUnitTypes(format!(
-                "Ambiguous operation with offset unit: {} ** {}",
-                self.unit, p
+                "Ambiguous operation with offset unit: {} ** {p}",
+                self.unit
             )));
         }
         Ok(Quantity::new(self.magnitude.powi(p), self.unit.powi(p)))
@@ -1800,14 +1851,15 @@ mod test_quantity {
     }
 
     #[test]
-    fn test_ito_root_unit() {
+    fn test_ito_root_unit() -> SmootResult<()> {
         let mut q = Quantity::new(
             1.0,
             Unit::new(vec![UNIT_JOULE.clone()], vec![UNIT_NEWTON.clone()]),
         );
         let expected = Quantity::new(1.0, Unit::new(vec![UNIT_METER.clone()], vec![]));
-        q.ito_root_units(&TEST_REGISTRY);
+        q.ito_root_units(&TEST_REGISTRY)?;
         assert_eq!(q, expected);
+        Ok(())
     }
 
     #[test]

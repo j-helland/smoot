@@ -52,8 +52,8 @@ impl Powi for i64 {
     fn powi(self, p: i32) -> Self::Output {
         // Any negative power is an integer reciprocal, which must be zero.
         // Mask these cases out.
-        let neg_mask = !(p as i64).signed_shr(63);
-        neg_mask & self.pow(p as u32)
+        let neg_mask = !i64::from(p).signed_shr(63);
+        neg_mask & self.pow(p.unsigned_abs())
     }
 }
 impl Powi for ArrayD<f64> {
@@ -72,6 +72,7 @@ impl Powi for ArrayD<i64> {
 }
 
 pub trait Sqrt {
+    #[must_use]
     fn sqrt(&self) -> Self;
 }
 impl Sqrt for f64 {
@@ -202,6 +203,7 @@ impl<N: Trigonometry<Output = N> + Copy> Trigonometry for ArrayD<N> {
 }
 
 pub trait Floor {
+    #[must_use]
     fn floor(self) -> Self;
 }
 impl Floor for f64 {
@@ -226,7 +228,7 @@ impl Floor for ArrayD<i64> {
 }
 
 pub trait Ceil {
-    #[allow(dead_code)]
+    #[must_use]
     fn ceil(self) -> Self;
 }
 impl Ceil for f64 {
@@ -251,6 +253,7 @@ impl Ceil for ArrayD<i64> {
 }
 
 pub trait RoundDigits {
+    #[must_use]
     fn round_digits(self, ndigits: i32) -> Self;
 }
 impl RoundDigits for f64 {
@@ -278,7 +281,7 @@ impl RoundDigits for ArrayD<i64> {
 }
 
 pub trait Truncate {
-    #[allow(dead_code)]
+    #[must_use]
     fn trunc(self) -> Self;
 }
 impl Truncate for f64 {
@@ -304,27 +307,11 @@ impl Truncate for ArrayD<i64> {
 
 /// Convert a magnitude to another scale, handling idiosyncrasies of integer scaling.
 pub trait ConvertMagnitude {
+    #[must_use]
     fn convert(&self, factor: f64) -> Self;
 
     fn iconvert(&mut self, factor: f64);
 }
-// impl ConvertMagnitude for i64 {
-//     fn convert(&self, factor: f64) -> i64 {
-//         if factor < 1.0 {
-//             self / (1.0 / factor) as i64
-//         } else {
-//             self * factor as i64
-//         }
-//     }
-
-//     fn iconvert(&mut self, factor: f64) {
-//         if factor < 1.0 {
-//             *self /= (1.0 / factor) as i64;
-//         } else {
-//             *self *= factor as i64;
-//         }
-//     }
-// }
 impl ConvertMagnitude for f64 {
     fn convert(&self, factor: f64) -> f64 {
         self * factor
@@ -334,23 +321,6 @@ impl ConvertMagnitude for f64 {
         *self *= factor;
     }
 }
-// impl ConvertMagnitude for ArrayD<i64> {
-//     fn convert(&self, factor: f64) -> ArrayD<i64> {
-//         if factor < 1.0 {
-//             self.clone() / (1.0 / factor) as i64
-//         } else {
-//             self.clone() * factor as i64
-//         }
-//     }
-
-//     fn iconvert(&mut self, factor: f64) {
-//         if factor < 1.0 {
-//             *self /= (1.0 / factor) as i64;
-//         } else {
-//             *self *= factor as i64;
-//         }
-//     }
-// }
 impl ConvertMagnitude for ArrayD<f64> {
     fn convert(&self, factor: f64) -> ArrayD<f64> {
         self.clone() * factor

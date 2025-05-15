@@ -13,7 +13,7 @@ pub enum Converter {
 }
 
 impl Converter {
-    pub fn convert_from<N, S>(&self, value: &mut S, from: &BaseUnit)
+    pub fn convert_from<N, S>(self, value: &mut S, from: &BaseUnit)
     where
         N: FromPrimitive,
         S: MulAssign<N> + AddAssign<N>,
@@ -29,7 +29,7 @@ impl Converter {
         }
     }
 
-    pub fn convert_to<N, S>(&self, value: &mut S, to: &BaseUnit)
+    pub fn convert_to<N, S>(self, value: &mut S, to: &BaseUnit)
     where
         N: FromPrimitive,
         S: DivAssign<N> + SubAssign<N>,
@@ -48,6 +48,6 @@ impl Converter {
 
 impl Hash for Converter {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        std::hash::Hash::hash(&core::mem::discriminant(self), state)
+        std::hash::Hash::hash(&core::mem::discriminant(self), state);
     }
 }

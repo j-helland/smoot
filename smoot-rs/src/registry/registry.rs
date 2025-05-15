@@ -43,7 +43,7 @@ macro_rules! insert_ignore_conflict {
     };
 }
 
-/// Registry holds all BaseUnit definitions.
+/// Registry holds all `BaseUnit` definitions.
 ///
 /// The registry is intended to be cached to disk in a format that is faster to load than
 /// re-parsing the unit definitions file.
@@ -66,6 +66,7 @@ impl Registry {
     const OFFSET_IDENTIFIER: &'static str = "offset";
 
     #[allow(clippy::new_without_default)]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             units: HashMap::default(),
@@ -78,60 +79,93 @@ impl Registry {
     }
 
     /// Load a registry from a string containing definitions.
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::ExpressionError`
+    ///     If an error is encountered while parsing the given unit definitions.
     pub fn new_from_str(data: &str) -> SmootResult<Self> {
         let mut new = Self::new();
         new.parse_definitions(data)?;
         Ok(new)
     }
 
+    /// Errors
+    /// ------
+    /// `SmootError::FileError`
+    ///     If an error was encountered while loading the unit definitions file. This includes file system errors returned from the OS.
     pub fn new_from_file(path: &Path) -> SmootResult<Self> {
         let mut new = Self::new();
         new.load_from_file(path)?;
         Ok(new)
     }
 
+    /// Errors
+    /// ------
+    /// `SmootError::CacheError`
+    ///     If an error was encountered while loading or saving the registry cache file.
+    /// `SmootError::FileError`
+    ///     If an error was encountered while loading the unit definitions file during fallback if no cache file exists.
     pub fn new_from_cache_or_file(cache_path: &Path, file_path: &Path) -> SmootResult<Self> {
         Self::load_cache_or(cache_path, file_path)
     }
 
     /// Extend this registry with additional definitions.
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::ExpressionError`
+    ///     If an error is encountered while parsing the given unit definitions.
     pub fn extend(&mut self, data: &str) -> SmootResult<()> {
         self.parse_definitions(data)
     }
 
     /// Forcibly delete the local cache file if it exists.
     pub fn clear_cache(path: &Path) {
-        std::fs::remove_file(path).unwrap_or(())
+        std::fs::remove_file(path).unwrap_or(());
     }
 
+    #[must_use]
     pub fn get_unit(&self, key: &str) -> Option<&BaseUnit> {
         self.units.get(key)
     }
 
-    pub fn get_root_unit(&self, dimension: Dimension) -> &BaseUnit {
-        self.root_units
-            .get(&dimension.abs())
-            .expect("Missing root unit")
+    /// Errors
+    /// ------
+    /// `SmootError::NoSuchElement`
+    ///     If there is no registered root unit for the dimension. This should not happen unless something has gone very wrong when parsing the unit definitions file.
+    pub fn get_root_unit(&self, dimension: Dimension) -> SmootResult<&BaseUnit> {
+        self.root_units.get(&dimension.abs()).ok_or_else(|| {
+            SmootError::NoSuchElement(format!("Missing root unit for dimension {dimension}"))
+        })
     }
 
-    pub fn get_dimension_string(&self, dimension: Dimension) -> &String {
+    /// Errors
+    /// ------
+    /// `SmootError::NoSuchElement`
+    ///     If there is no registered dimension string for this dimension. This should not happen unless something has gone very wrong when parsing the unit definitions file.
+    pub fn get_dimension_string(&self, dimension: Dimension) -> SmootResult<&String> {
         self.dimensions
             .get(&dimension.abs())
-            .expect("Missing dimension")
+            .ok_or_else(|| SmootError::NoSuchElement(format!("{dimension}")))
     }
 
+    #[must_use]
     pub fn get_unit_symbol(&self, name: &String) -> Option<&String> {
         self.symbols.get(name)
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.units.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.units.is_empty()
     }
 
+    #[must_use]
     pub fn all_keys(&self) -> Vec<String> {
         self.units.keys().cloned().collect()
     }
@@ -151,9 +185,8 @@ impl Registry {
             .and_then(|mut f| f.write(&bitcode::encode(&new)))
             .map_err(|e| {
                 SmootError::CacheError(format!(
-                    "Failed to write cache file {}: {}",
-                    cache_path.display(),
-                    e
+                    "Failed to write cache file {}: {e}",
+                    cache_path.display()
                 ))
             })
             .map(|_| new)
@@ -165,14 +198,13 @@ impl Registry {
         let registry = std::fs::read(cache_path)
             .map_err(|e| {
                 SmootError::CacheError(format!(
-                    "Failed to read cache file {}: {}",
-                    cache_path.display(),
-                    e
+                    "Failed to read cache file {}: {e}",
+                    cache_path.display()
                 ))
             })
             .and_then(|data| {
                 bitcode::decode::<Registry>(&data)
-                    .map_err(|e| SmootError::CacheError(format!("Failed to decode cache: {}", e)))
+                    .map_err(|e| SmootError::CacheError(format!("Failed to decode cache: {e}")))
             });
         if registry.is_err() {
             // No cache, create a new one.
@@ -182,25 +214,24 @@ impl Registry {
         let checksum = std::fs::read(path)
             .map_err(|e| {
                 SmootError::FileError(format!(
-                    "Failed to load unit definitions file {}: {}",
-                    path.display(),
-                    e
+                    "Failed to load unit definitions file {}: {e}",
+                    path.display()
                 ))
             })
             .map(|data| Self::compute_checksum(&data))?;
 
         // If the checksum doesn't match, there was a change to the units. Load from scratch and create a new cache.
-        if checksum != registry.as_ref().unwrap().checksum {
-            Self::load_and_cache(path, cache_path)
-        } else {
+        if checksum == registry.as_ref().unwrap().checksum {
             registry
+        } else {
+            Self::load_and_cache(path, cache_path)
         }
     }
 
     /// Parse a unit definitions file, populating this registry.
     fn load_from_file(&mut self, path: &Path) -> SmootResult<()> {
         let data = std::fs::read_to_string(path)
-            .map_err(|e| SmootError::FileError(format!("{}: {}", path.display(), e)))?;
+            .map_err(|e| SmootError::FileError(format!("{}: {e}", path.display())))?;
         self.parse_definitions(&data)?;
         self.checksum = Self::compute_checksum(data.as_bytes());
         Ok(())
@@ -218,7 +249,7 @@ impl Registry {
         // may reference other lines implicitly.
         let lines = data
             .lines()
-            .map(|line| line.trim())
+            .map(str::trim)
             .enumerate()
             .map(|(lineno, line)| (lineno + 1, line))
             .filter(|(_, line)| !line.is_empty() && !Self::is_comment(line));
@@ -238,7 +269,7 @@ impl Registry {
         // Prefixes are combinatorial. Every prefix (and prefix alias) must be attached to every unit (and unit alias).
         // Add all prefix combos as regular units so that the unit definition stage instantiates everything seamlessly.
         let initial_unit_defs = unit_defs.keys().cloned().collect::<Vec<_>>();
-        for name in initial_unit_defs.iter() {
+        for name in &initial_unit_defs {
             let def = unit_defs.get(name).unwrap().clone();
 
             // Plural form of base unit e.g. 'seconds'
@@ -261,7 +292,7 @@ impl Registry {
                     symbol.to_string(),
                     new_alias
                 )?;
-            };
+            }
         }
 
         // Handle prefixes afterwards to give precedence to regular definitions (and their aliases).
@@ -274,13 +305,13 @@ impl Registry {
                 continue;
             }
             let data: UnitAliasData = def.into();
-            self.create_unit_defs_from_prefixes(&mut unit_defs, name, data);
+            self.create_unit_defs_from_prefixes(&mut unit_defs, &name, &data);
         }
 
         // Add prefixes and suffixes for dimension definitions
         // Dimension definitions like `meter = [length] = m = metre`
         for data in dim_defs.iter().cloned().map(UnitAliasData::from) {
-            self.create_unit_defs_from_prefixes(&mut unit_defs, data.name.clone(), data);
+            self.create_unit_defs_from_prefixes(&mut unit_defs, &data.name, &data);
         }
 
         // Avoid excessive re-hashing of tables from resizing.
@@ -309,7 +340,7 @@ impl Registry {
         unit.simplify();
         unit.dimensionality.shrink_to_fit();
 
-        for alias in aliases.iter() {
+        for alias in aliases {
             let _ = self.units.entry(alias.into()).or_insert(unit.clone());
         }
 
@@ -320,14 +351,13 @@ impl Registry {
                 .cloned()
                 .map(|mut u| {
                     // Ignore the name in equality -- this could be different because of an alias unit.
-                    u.name = unit.name.clone();
+                    u.name.clone_from(&unit.name);
                     u
                 })
                 .unwrap_or(unit.clone())
                 == unit,
-            "{:?}\n!=\n{:?}",
+            "{:?}\n!=\n{unit:?}",
             self.units.get(&name).unwrap(),
-            unit,
         );
 
         self.units.entry(name).or_insert(unit)
@@ -335,7 +365,7 @@ impl Registry {
 
     /// Insert only if the entry doesn't exist
     fn insert_root_unit(&mut self, unit: BaseUnit) {
-        debug_assert!(unit.dimensionality.len() == 1, "{:#?}", unit);
+        debug_assert!(unit.dimensionality.len() == 1, "{unit:#?}");
         self.root_units
             .entry(unit.dimensionality[0].abs())
             .or_insert(unit);
@@ -346,7 +376,7 @@ impl Registry {
         &mut self,
         unit_defs: &LinkedHashMap<String, UnitDefinition>,
     ) -> Result<(), SmootError> {
-        for (name, def) in unit_defs.iter() {
+        for (name, def) in unit_defs {
             if self.units.contains_key(name) {
                 continue;
             }
@@ -358,7 +388,7 @@ impl Registry {
                 // Regular unit definitions like `byte = 8 * bit` should assign the lhs name `byte`.
                 NodeData::Op(Operator::Assign) => {
                     // Make sure the official name is correct
-                    unit.name = def.name.clone();
+                    unit.name.clone_from(&def.name);
                 }
                 // Generated alias expressions like `@alias km = kilometer` should use the rhs name `kilometer` for consistency.
                 NodeData::Op(Operator::AssignAlias) => (),
@@ -368,10 +398,10 @@ impl Registry {
                         def.lineno, def.expression,
                     )));
                 }
-            };
+            }
 
             // Assign modifiers.
-            for &(mod_name, mod_val) in def.modifiers.iter() {
+            for &(mod_name, mod_val) in &def.modifiers {
                 match mod_name {
                     Registry::OFFSET_IDENTIFIER => {
                         unit.offset = mod_val;
@@ -379,8 +409,8 @@ impl Registry {
                     }
                     _ => {
                         return Err(SmootError::ExpressionError(format!(
-                            "line:{} Invalid unit modifier '{}'",
-                            def.lineno, mod_name,
+                            "line:{} Invalid unit modifier '{mod_name}'",
+                            def.lineno
                         )));
                     }
                 }
@@ -419,18 +449,17 @@ impl Registry {
         }
 
         let def = unit_defs.get(symbol).ok_or_else(|| {
-            SmootError::ExpressionError(format!("line:{} Unknown unit {}", lineno, symbol))
+            SmootError::ExpressionError(format!("line:{lineno} Unknown unit {symbol}"))
         })?;
         let rtree = def.expression.right.as_ref().ok_or_else(|| {
             SmootError::ExpressionError(format!(
-                "line:{} Unit expression missing right expression tree",
-                lineno
+                "line:{lineno} Unit expression missing right expression tree"
             ))
         })?;
 
         // Make sure the official name is correct
         let mut unit = self.eval_expression_tree(def.lineno, rtree, unit_defs)?;
-        unit.name = def.name.clone();
+        unit.name.clone_from(&def.name);
 
         // Insert name and aliases
         Ok(self
@@ -453,14 +482,12 @@ impl Registry {
                 NodeData::Symbol(symbol) => self.get_or_create_unit(lineno, symbol, unit_defs)?,
                 NodeData::Op(op) => {
                     return Err(SmootError::ParseTreeError(format!(
-                        "line:{} Invalid operator {:?}",
-                        lineno, op
+                        "line:{lineno} Invalid operator {op:?}"
                     )));
                 }
                 NodeData::Dimension(dim) => {
                     return Err(SmootError::ParseTreeError(format!(
-                        "line:{} Unexpected dimension {:?}",
-                        lineno,
+                        "line:{lineno} Unexpected dimension {:?}",
                         dim.to_owned()
                     )));
                 }
@@ -469,8 +496,8 @@ impl Registry {
         }
         if tree.left.is_none() {
             return Err(SmootError::ParseTreeError(format!(
-                "line:{} Intermediate node {:?} has None left child",
-                lineno, tree.val
+                "line:{lineno} Intermediate node {:?} has None left child",
+                tree.val
             )));
         }
 
@@ -528,6 +555,7 @@ impl Registry {
                             )));
                         }
 
+                        #[allow(clippy::cast_possible_truncation)]
                         let power = right_unit.multiplier.round() as i32;
                         left_unit.ipowi(power);
                         left_unit.multiplier = left_unit.multiplier.powi(power);
@@ -542,20 +570,17 @@ impl Registry {
                     }
                 }
                 _ => Err(SmootError::ParseTreeError(format!(
-                    "line:{} Invalid operator {:?}",
-                    lineno, op
+                    "line:{lineno} Invalid operator {op:?}"
                 ))),
             };
         }
         unreachable!();
     }
 
-    #[inline(always)]
     fn is_comment(line: &str) -> bool {
         line.is_empty() || registry_parser::comment(line).is_ok()
     }
 
-    #[inline(always)]
     fn add_prefix(prefix: String, name: &str) -> String {
         prefix + name
     }
@@ -564,7 +589,7 @@ impl Registry {
         let new_name = Registry::add_prefix(Registry::DELTA_PREFIX.to_string(), &def.name);
 
         let mut aliases = Vec::with_capacity(def.aliases.len() * 2); // delta_ and Δ
-        for alias in def.aliases.iter() {
+        for alias in &def.aliases {
             aliases.push(Registry::add_prefix(
                 Registry::DELTA_PREFIX.to_string(),
                 alias,
@@ -644,8 +669,7 @@ impl Registry {
                 )?;
             } else {
                 return Err(SmootError::ParseTreeError(format!(
-                    "line:{} Unhandled line '{}'",
-                    lineno, line
+                    "line:{lineno} Unhandled line '{line}'"
                 )));
             }
         }
@@ -656,7 +680,7 @@ impl Registry {
     /// Take a unit definition and add all prefixes and suffixes as new unit definitions.
     ///
     /// If we have an alias like `kilo- = 1000`, then the newly generated prefixed unit
-    /// definitions contain ParseTrees for expressions like `kilometer = 1000 * meter`.
+    /// definitions contain `ParseTree`s for expressions like `kilometer = 1000 * meter`.
     ///
     /// Examples
     /// --------
@@ -665,15 +689,15 @@ impl Registry {
     fn create_unit_defs_from_prefixes<'a>(
         &self,
         unit_defs: &mut LinkedHashMap<String, UnitDefinition<'a>>,
-        name: String,
-        data: UnitAliasData<'a>,
+        name: &str,
+        data: &UnitAliasData<'a>,
     ) {
         // For now, hard-code plural suffix 's'.
         // TODO(jwh): This should probably be defined somewhere else, although it's unlikely that
         //            we'll have any more suffixes.
-        for &suffix in ["", "s"].iter() {
+        for &suffix in &["", "s"] {
             // Add aliases e.g. 'sec' and 'secs' for 'second'
-            for alias in data.aliases.iter() {
+            for alias in &data.aliases {
                 let new_alias = data.to_alias(alias.to_string(), data.name.clone());
                 insert_ignore_conflict!(
                     linked_hash_map,
@@ -694,7 +718,7 @@ impl Registry {
                         ParseTree::new(
                             Operator::Mul.into(),
                             prefix_def.multiplier.into(),
-                            name.clone().into(),
+                            name.to_owned().into(),
                         ),
                     ),
                     modifiers: data.modifiers.clone(),
@@ -703,12 +727,12 @@ impl Registry {
                     lineno: data.lineno,
                 };
 
-                let prefix_name = Self::add_prefix(prefix_def.name.clone(), &name);
+                let prefix_name = Self::add_prefix(prefix_def.name.clone(), name);
 
                 // Add prefixed symbol e.g. 'millis' and 'ms' for 'second'.
                 // No plural forms for symbols e.g. 'ms' [length] would conflict with 'ms' [time].
                 if let Some(symbol) = &data.symbol {
-                    for prefix_alias in prefix_def.aliases.iter() {
+                    for prefix_alias in &prefix_def.aliases {
                         let alias_name = Self::add_prefix(prefix_alias.clone(), symbol);
                         let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
                         insert_ignore_conflict!(linked_hash_map, unit_defs, alias_name, new_alias);
@@ -717,11 +741,11 @@ impl Registry {
                     let alias_name = Self::add_prefix(prefix_def.name.clone(), symbol);
                     let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
                     insert_ignore_conflict!(linked_hash_map, unit_defs, alias_name, new_alias);
-                };
+                }
 
                 // Add all combinations of prefix aliases and unit aliases e.g. 'msec' and 'msecs'.
-                for alias in data.aliases.iter() {
-                    for prefix_alias in prefix_def.aliases.iter() {
+                for alias in &data.aliases {
+                    for prefix_alias in &prefix_def.aliases {
                         let alias_name = Self::add_prefix(prefix_alias.clone(), alias);
                         let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
                         insert_ignore_conflict!(
@@ -743,7 +767,7 @@ impl Registry {
                 }
 
                 // Add all prefix aliases to the unit name e.g. 'msecond'.
-                for prefix_alias in prefix_def.aliases.iter() {
+                for prefix_alias in &prefix_def.aliases {
                     let alias_name = Self::add_prefix(prefix_alias.clone(), &data.name);
                     let new_alias = data.to_alias(alias_name.clone(), prefix_name.clone());
                     insert_ignore_conflict!(
@@ -764,7 +788,7 @@ impl Registry {
     /// Create root units from dimension definitions like `meter = [length]`.
     fn define_root_units(&mut self, dim_defs: &Vec<DimensionDefinition>) -> SmootResult<()> {
         let mut next_dimension: Dimension = DIMENSIONLESS;
-        for def in dim_defs.iter() {
+        for def in dim_defs {
             let dims = if def.is_dimensionless() {
                 vec![]
             } else {
@@ -776,7 +800,7 @@ impl Registry {
                 BaseUnit::new(def.name.to_string(), 1.0, dims)
             } else {
                 // Verify modifiers
-                for &(mod_name, value) in def.modifiers.iter() {
+                for &(mod_name, value) in &def.modifiers {
                     if mod_name != Registry::OFFSET_IDENTIFIER {
                         return Err(SmootError::ExpressionError(format!(
                             "line:{} Invalid unit modifier '{}'",
