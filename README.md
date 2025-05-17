@@ -8,7 +8,7 @@
 
 Smoot is a [dimensional analysis](https://en.wikipedia.org/wiki/Dimensional_analysis) library written in Rust that allows numeric operations between and conversions to and from physical units.
 
-It is designed as a drop-in replacement for [Pint](https://github.com/hgrecco/pint) with notably better performance. Smoot is 10x faster on average than Pint! See [Performance](#performance) below for more details.
+It is designed as a drop-in replacement for [Pint](https://github.com/hgrecco/pint) with notably better performance. Smoot is 9-10x faster on average than Pint! See [Performance](#performance) below for more details.
 
 
 ## Basic Usage
@@ -215,7 +215,7 @@ It is also possible to create a unit registry from scratch containing only your 
 ```
 
 
-## Performance
+<!-- ## Performance
 
 > [!NOTE]
 > All benchmark results were obtained on a MacBook Pro M4 Max using `Python 3.8.20`, `Pint 0.21.1`, `Astropy 5.2.2`, and `Unyt 2.9.5`. 
@@ -350,6 +350,24 @@ Smoot generally imports slower than astropy and unyt because both of these libra
 | load units     | from file    | 163.379  | 28.342485  | **5.764** |
 | load units     | from cache   | 7.769  |  4.968 | **1.563** |
 
+### Memory Usage
+
+Smoot uses about 1.45x more memory than Pint for its UnitRegistry.
+This is because Smoot stores all prefix variants of units to keep unit parsing fast, whereas Pint constructs such units lazily.
+
+|      | Smoot      | Pint       |
+| ---  | ---        | ---        |
+| Peak | 55.0667 Mb | 38.0928 Mb |
+
+```python
+# Smoot script
+import smoot
+units = smoot.UnitRegistry()
+
+# Pint script
+import pint
+units = pint.UnitRegistry()
+``` -->
 
 ## Project Internals
 
