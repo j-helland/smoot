@@ -119,6 +119,11 @@ impl BaseUnit {
             > 1
     }
 
+    /// Return a mask whose set bits correspond to the dimensions of this unit.
+    ///
+    /// Examples
+    /// --------
+    /// `dimensionality: [1, 1, 3, 4] -> 0b1101`
     pub fn get_dimension_type(&self) -> DimensionType {
         dimensionality_to_type(&self.dimensionality)
     }
@@ -139,13 +144,14 @@ impl BaseUnit {
         self.multiplier.powi(self.power)
     }
 
+    /// Return true if this unit can be used in expressions with another unit.
     pub fn is_compatible_with(&self, other: &Self) -> bool {
         is_dim_eq(&self.dimensionality, &other.dimensionality) && self.converter == other.converter
     }
 
+    /// Convert this unit into its delta variant if thi unit is an offset unit. Otherwise, do nothing.
     pub fn into_delta(self) -> Self {
         if self.is_offset() {
-            // TODO: get delta unit from registry?
             Self::new(
                 Registry::DELTA_PREFIX.to_string() + self.name.as_str(),
                 self.multiplier,
@@ -172,9 +178,10 @@ impl BaseUnit {
         self.converter.convert_to(value, self);
     }
 
+    /// Take the in-place p-th power of this unit.
     pub fn ipowi(&mut self, p: i32) {
-        self.power *= p;
         if p == 0 {
+            self.power = 0;
             self.dimensionality.clear();
             return;
         }
@@ -182,6 +189,7 @@ impl BaseUnit {
             return;
         }
 
+        self.power *= p;
         let ncopies = p.unsigned_abs().saturating_sub(1) as usize;
         let copies = self.dimensionality.repeat(ncopies);
         self.dimensionality.extend(copies);
@@ -191,25 +199,40 @@ impl BaseUnit {
         self.dimensionality.sort_unstable();
     }
 
+    /// Return the p-th power of this unit.
     pub fn powi(&self, p: i32) -> Self {
         let mut new = self.clone();
         new.ipowi(p);
         new
     }
 
-    pub fn isqrt(&mut self) -> SmootResult<()> {
-        self.dimensionality = sqrt_dimensionality(&self.dimensionality)
-            .map_err(|_| SmootError::InvalidOperation(format!(
-                "Invalid operation on BaseUnit: sqrt would result in a non-integral dimensionality for {}",
-                self.name,
-            )))?;
-        self.power /= 2;
+    /// In-place take the p-th root of this unit.
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::InvalidOperation`
+    ///     If the root would result in a non-integral power for this unit.
+    pub fn ipow_root(&mut self, p: i32) -> SmootResult<()> {
+        self.dimensionality = pow_root_dimensionality(p.unsigned_abs(), &self.dimensionality)
+            .map_err(|_| {
+                SmootError::InvalidOperation(format!(
+                    "Power '1 / {p}' would result in a non-integral power for '{} ** {}'",
+                    self.name, self.power
+                ))
+            })?;
+        self.power /= p;
         Ok(())
     }
 
-    pub fn sqrt(&self) -> SmootResult<Self> {
+    /// Return the p-th root of this unit.
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::InvalidOperation`
+    ///     If the root would result in a non-integral power for this unit.
+    pub fn pow_root(&self, p: i32) -> SmootResult<Self> {
         let mut new = self.clone();
-        new.isqrt()?;
+        new.ipow_root(p)?;
         Ok(new)
     }
 
@@ -231,15 +254,20 @@ impl BaseUnit {
     }
 }
 
-pub(crate) fn sqrt_dimensionality(dimensionality: &[Dimension]) -> SmootResult<Vec<Dimension>> {
+pub(crate) fn pow_root_dimensionality(
+    p: u32,
+    dimensionality: &[Dimension],
+) -> SmootResult<Vec<Dimension>> {
     if dimensionality.is_empty() {
         return Ok(vec![]);
     }
-    if dimensionality.len() % 2 != 0 {
+
+    let p = p as usize;
+    if p == 0 || dimensionality.len() % p != 0 {
         return Err(SmootError::SmootError);
     }
 
-    let mut result = Vec::with_capacity(dimensionality.len() / 2);
+    let mut result = Vec::with_capacity(dimensionality.len() / p);
     let mut last = dimensionality[0];
     let mut count = 1;
 
@@ -249,15 +277,14 @@ pub(crate) fn sqrt_dimensionality(dimensionality: &[Dimension]) -> SmootResult<V
             continue;
         }
 
-        let new_count = count / 2;
+        let new_count = count / p;
         result.extend(std::iter::repeat_n(last, new_count));
 
         last = num;
         count = 1;
     }
 
-    // Handle the last group.
-    let new_count = count / 2;
+    let new_count = count / p;
     result.extend(std::iter::repeat_n(last, new_count));
 
     Ok(result)
@@ -394,6 +421,33 @@ mod test_base_unit {
     use test_case::case;
 
     use super::*;
+
+    #[case(vec![], 0, Some(vec![]))]
+    #[case(vec![], 1, Some(vec![]))]
+    #[case(vec![], 2, Some(vec![]))]
+    #[case(vec![1], 1, Some(vec![1]))]
+    #[case(vec![1], 2, None)]
+    #[case(vec![1, 1], 2, Some(vec![1]))]
+    #[case(vec![1, 1, 2, 2, 2, 2], 2, Some(vec![1, 2, 2]))]
+    #[case(vec![1, 1, 2, 2, 2], 2, None)]
+    #[case(vec![1, 1, 1], 3, Some(vec![1]))]
+    #[case(vec![1, 1, 1, 2, 2, 2], 3, Some(vec![1, 2]))]
+    #[case(vec![1, 1, 1, 2, 2], 3, None)]
+    #[case(vec![-1, -1], 2, Some(vec![-1]); "Negative dimensions")]
+    fn test_pow_root_dimensionality(
+        dims: Vec<Dimension>,
+        p: u32,
+        expected: Option<Vec<Dimension>>,
+    ) -> SmootResult<()> {
+        let actual = pow_root_dimensionality(p, &dims);
+        if let Some(expected) = expected {
+            let actual = actual?;
+            assert_eq!(actual, expected, "{:?} != {:?}", actual, expected);
+        } else {
+            assert!(actual.is_err());
+        }
+        Ok(())
+    }
 
     #[case(vec![], vec![], true; "Dimensionless")]
     #[case(vec![1], vec![], false; "Dimensionless mismatch")]

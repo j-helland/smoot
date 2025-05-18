@@ -37,37 +37,52 @@ impl<T: ApproxEq + Copy> ApproxEq for &Vec<T> {
 pub trait Powi {
     type Output;
 
-    fn powi(self, p: i32) -> Self::Output;
+    fn powi(&self, p: i32) -> Self::Output;
 }
 impl Powi for f64 {
     type Output = f64;
 
-    fn powi(self, p: i32) -> Self::Output {
-        self.powi(p)
+    fn powi(&self, p: i32) -> Self::Output {
+        f64::powi(*self, p)
     }
 }
 impl Powi for i64 {
     type Output = i64;
 
-    fn powi(self, p: i32) -> Self::Output {
+    fn powi(&self, p: i32) -> Self::Output {
         // Any negative power is an integer reciprocal, which must be zero.
         // Mask these cases out.
         let neg_mask = !i64::from(p).signed_shr(63);
-        neg_mask & self.pow(p.unsigned_abs())
+        neg_mask & i64::pow(*self, p.unsigned_abs())
     }
 }
 impl Powi for ArrayD<f64> {
     type Output = ArrayD<f64>;
 
-    fn powi(self, p: i32) -> Self::Output {
+    fn powi(&self, p: i32) -> Self::Output {
         self.mapv(|f| f.powi(p))
     }
 }
 impl Powi for ArrayD<i64> {
     type Output = ArrayD<i64>;
 
-    fn powi(self, p: i32) -> Self::Output {
+    fn powi(&self, p: i32) -> Self::Output {
         self.mapv(|i| i.powi(p))
+    }
+}
+
+pub trait Powf {
+    #[must_use]
+    fn powf(&self, p: f64) -> Self;
+}
+impl Powf for f64 {
+    fn powf(&self, p: f64) -> Self {
+        f64::powf(*self, p)
+    }
+}
+impl<N: Powf + Copy> Powf for ArrayD<N> {
+    fn powf(&self, p: f64) -> Self {
+        self.mapv(|f| f.powf(p))
     }
 }
 

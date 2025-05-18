@@ -185,6 +185,16 @@ def test_unit_sqrt(units: UnitRegistry) -> None:
         _ = u**0.5
 
 
+def test_unit_cube_root(units: UnitRegistry) -> None:
+    u = units.meter**3
+    u = u ** (1 / 3)
+    assert u == units.meter
+
+    # Non-integral dimensions not allowed
+    with pytest.raises(SmootInvalidOperation):
+        _ = u ** (1 / 3)
+
+
 def test_unit_formatting(units: UnitRegistry) -> None:
     u = units.meter**2 / units.second
     assert f"{u}" == "meter ** 2 / second"

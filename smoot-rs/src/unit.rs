@@ -13,7 +13,7 @@ use itertools::Itertools;
 use rustc_hash::FxBuildHasher;
 
 use crate::{
-    base_unit::{BaseUnit, Dimension, is_dim_eq, simplify_dimensionality, sqrt_dimensionality},
+    base_unit::{BaseUnit, Dimension, is_dim_eq, pow_root_dimensionality, simplify_dimensionality},
     converter::Converter,
     error::{SmootError, SmootResult},
     hash::Hash,
@@ -106,24 +106,58 @@ impl Unit {
         }
     }
 
+    /// In-place take the p-th root of this unit.
+    ///
     /// Errors
     /// ------
     /// `SmootError::InvalidOperation`
-    ///     If performing this square root would result in a non-integral dimensionality vector.
-    pub fn isqrt(&mut self) -> SmootResult<()> {
-        for u in self
-            .numerator_units
-            .iter_mut()
-            .chain(self.denominator_units.iter_mut())
-        {
-            u.isqrt()?;
+    ///     If taking this root would result in a non-integral dimensionality.
+    pub fn ipow_root(&mut self, p: i32) -> SmootResult<()> {
+        if self.is_dimensionless() {
+            return Ok(());
         }
-        self.dimensionality = sqrt_dimensionality(&self.dimensionality).map_err(|_| {
-            SmootError::InvalidOperation(format!(
-                "sqrt would result in a non-integral power for {self}"
-            ))
-        })?;
+        match p {
+            1 => {}
+            -1 => {
+                swap(&mut self.numerator_units, &mut self.denominator_units);
+                self.dimensionality.iter_mut().for_each(|d| *d = d.neg());
+            }
+            _ => {
+                let p_abs = p.abs();
+                for u in &mut self.numerator_units {
+                    u.ipow_root(p_abs)?;
+                }
+                for u in &mut self.denominator_units {
+                    u.ipow_root(p_abs)?;
+                }
+                if p < 0 {
+                    swap(&mut self.numerator_units, &mut self.denominator_units);
+                    self.dimensionality.iter_mut().for_each(|d| *d = d.neg());
+                    self.dimensionality.reverse(); // Dimensionality is already sorted
+                }
+                self.dimensionality =
+                    pow_root_dimensionality(p.unsigned_abs(), &self.dimensionality).map_err(
+                        |_| {
+                            SmootError::InvalidOperation(format!(
+                                "Power '1 / {p}' would result in a non-integral power for '{self}'"
+                            ))
+                        },
+                    )?;
+            }
+        }
         Ok(())
+    }
+
+    /// Return the p-th root of this unit.
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::InvalidOperation`
+    ///     If taking this root would result in a non-integral dimensionality.
+    pub fn pow_root(&self, p: i32) -> SmootResult<Self> {
+        let mut new = self.clone();
+        new.ipow_root(p)?;
+        Ok(new)
     }
 
     /// Scale this unit by a constant multiplier.
@@ -1308,6 +1342,53 @@ mod test_unit {
     fn test_ito_root_unit(mut unit: Unit, expected: Unit, expected_factor: f64) -> SmootResult<()> {
         assert_is_close!(unit.ito_root_units(&TEST_REGISTRY)?, expected_factor);
         assert_eq!(unit, expected, "{:#?} != {:#?}", unit, expected);
+        Ok(())
+    }
+
+    #[case(
+        Unit::new(vec![UNIT_METER.powi(2)], vec![]),
+        1,
+        Some(Unit::new(vec![UNIT_METER.powi(2)], vec![]))
+        ; "trivial"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.powi(2)], vec![]),
+        2,
+        Some(Unit::new(vec![UNIT_METER.clone()], vec![]))
+        ; "sqrt"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.powi(2)], vec![]),
+        -2,
+        Some(Unit::new(vec![], vec![UNIT_METER.clone()]))
+        ; "negative sqrt creates reciprocal"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.powi(3)], vec![]),
+        3,
+        Some(Unit::new(vec![UNIT_METER.clone()], vec![]))
+        ; "cube root"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.powi(2)], vec![UNIT_SECOND.powi(2)]),
+        2,
+        Some(Unit::new(vec![UNIT_METER.clone()], vec![UNIT_SECOND.clone()]))
+        ; "handles numerator and denominator"
+    )]
+    #[case(
+        Unit::new(vec![UNIT_METER.powi(2), UNIT_GRAM.powi(4)], vec![UNIT_SECOND.powi(2), UNIT_RADIAN.powi(4)]),
+        2,
+        Some(Unit::new(vec![UNIT_METER.clone(), UNIT_GRAM.powi(2)], vec![UNIT_SECOND.clone(), UNIT_RADIAN.powi(2)]))
+        ; "handles multiple units in numerator and denominator"
+    )]
+    fn test_pow_root(unit: Unit, p: i32, expected: Option<Unit>) -> SmootResult<()> {
+        let actual = unit.pow_root(p);
+        if let Some(expected) = expected {
+            let actual = actual?;
+            assert_eq!(actual, expected, "{:#?} != {:#?}", actual, expected);
+        } else {
+            assert!(actual.is_err());
+        }
         Ok(())
     }
 

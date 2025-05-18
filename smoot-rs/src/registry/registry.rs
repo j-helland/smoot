@@ -542,7 +542,7 @@ impl Registry {
                     }
                 }
                 Operator::Sqrt => {
-                    left_unit.isqrt()?;
+                    left_unit.ipow_root(2)?;
                     Ok(left_unit)
                 }
                 Operator::Pow => {

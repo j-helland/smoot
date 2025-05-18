@@ -15,7 +15,7 @@ use crate::{
     registry::Registry,
     types::Number,
     unit::{Dimensionality, Unit},
-    utils::{ConvertMagnitude, LogExp, Powi, Sqrt, Trigonometry},
+    utils::{ConvertMagnitude, LogExp, Powf, Powi, Sqrt, Trigonometry},
 };
 
 pub trait Storage<N: Number>:
@@ -25,6 +25,7 @@ pub trait Storage<N: Number>:
     + AddAssign<N>
     + SubAssign<N>
     + Sqrt
+    + Powf
     + Trigonometry<Output = Self>
     + LogExp<Output = Self>
     + Clone
@@ -153,13 +154,32 @@ where
             .map(|factor| self.magnitude.iconvert(factor))
     }
 
+    /// In-place take the p-th root of this quantity, including its units.
+    ///
     /// Errors
     /// ------
     /// `SmootError::InvalidOperation`
-    ///     If performing this square root would result in a non-integral dimensionality vector.
-    pub fn isqrt(&mut self) -> SmootResult<()> {
-        self.magnitude = self.magnitude.sqrt();
-        self.unit.isqrt()
+    ///     If performing this root would result in a non-integral unit dimensionality.
+    pub fn ipow_root(&mut self, p: i32) -> SmootResult<()> {
+        self.unit.ipow_root(p).inspect(|()| {
+            if p.abs() == 2 {
+                self.magnitude = self.magnitude.sqrt();
+            } else {
+                self.magnitude = self.magnitude.powf(1.0 / f64::from(p));
+            }
+        })
+    }
+
+    /// Return the p-th root of this quantity, including its units.
+    ///
+    /// Errors
+    /// ------
+    /// `SmootError::InvalidOperation`
+    ///     If performing this root would result in a non-integral unit dimensionality.
+    pub fn pow_root(&self, p: i32) -> SmootResult<Self> {
+        let mut new = self.clone();
+        new.ipow_root(p)?;
+        Ok(new)
     }
 
     fn convert_to(&mut self, unit: &Unit, factor: Option<f64>) -> SmootResult<()> {
@@ -519,7 +539,7 @@ where
 {
     type Output = SmootResult<Quantity<N, S>>;
 
-    fn powi(self, p: i32) -> Self::Output {
+    fn powi(&self, p: i32) -> Self::Output {
         if self.unit.is_offset() {
             return Err(SmootError::IncompatibleUnitTypes(format!(
                 "Ambiguous operation with offset unit: {} ** {p}",

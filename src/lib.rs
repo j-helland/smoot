@@ -209,9 +209,9 @@ macro_rules! create_unit_type {
                 Ok(())
             }
 
-            fn sqrt(&self) -> PyResult<Self> {
+            fn pow_root(&self, p: i32) -> PyResult<Self> {
                 let mut new = self.clone();
-                handle_err(new.inner.isqrt())?;
+                handle_err(new.inner.ipow_root(p))?;
                 Ok(new)
             }
 
@@ -222,8 +222,7 @@ macro_rules! create_unit_type {
             ) -> PyResult<String> {
                 let format = handle_err(unit::UnitFormat::from_bits(unit_format).ok_or(
                     error::SmootError::NoSuchElement(format!(
-                        "Unknown format flags {:b}",
-                        unit_format
+                        "Unknown format flags {unit_format:b}"
                     )),
                 ))?;
                 registry.get().map(|r| {
@@ -276,11 +275,26 @@ macro_rules! create_unit_type {
             }
 
             fn __pow__(&self, other: f64, _modulo: Option<i64>) -> PyResult<Self> {
+                // Compute an integral root
+                if other.abs() < 1.0 {
+                    let recip = 1.0 / other;
+                    let recip_rounded = recip.round();
+                    if !recip_rounded.approx_eq(recip) {
+                        return handle_err(Err(error::SmootError::InvalidOperation(format!(
+                            "Expected a rational root but got {recip}"
+                        ))));
+                    }
+
+                    let mut new = self.clone();
+                    #[allow(clippy::cast_possible_truncation)]
+                    handle_err(new.inner.ipow_root(recip_rounded as i32))?;
+                    return Ok(new);
+                }
+
                 let p = other.round();
                 if !p.approx_eq(other) {
                     return handle_err(Err(error::SmootError::InvalidOperation(format!(
-                        "Expected an integral power but got {}",
-                        other
+                        "Expected an integral power but got {other}"
                     ))));
                 }
 
@@ -416,8 +430,7 @@ macro_rules! create_quantity_type {
             ) -> PyResult<String> {
                 let format = handle_err(unit::UnitFormat::from_bits(unit_format).ok_or(
                     error::SmootError::NoSuchElement(format!(
-                        "Unknown format flags {:b}",
-                        unit_format
+                        "Unknown format flags {unit_format:b}"
                     )),
                 ))?;
                 registry
@@ -436,7 +449,13 @@ macro_rules! create_quantity_type {
             //==================================================
             fn sqrt(&self) -> PyResult<Self> {
                 let mut new = self.clone();
-                handle_err(new.inner.isqrt())?;
+                handle_err(new.inner.ipow_root(2))?;
+                Ok(new)
+            }
+
+            fn pow_root(&self, p: i32) -> PyResult<Self> {
+                let mut new = self.clone();
+                handle_err(new.inner.ipow_root(p))?;
                 Ok(new)
             }
 
@@ -585,15 +604,30 @@ macro_rules! create_quantity_type {
             }
 
             fn __pow__(&self, other: f64, _modulo: Option<i64>) -> PyResult<Self> {
+                // Compute an integral root
+                if other.abs() < 1.0 {
+                    let recip = 1.0 / other;
+                    let recip_rounded = recip.round();
+                    if !recip_rounded.approx_eq(recip) {
+                        return handle_err(Err(error::SmootError::InvalidOperation(format!(
+                            "Expected a rational root but got {recip}"
+                        ))));
+                    }
+
+                    let mut new = self.clone();
+                    #[allow(clippy::cast_possible_truncation)]
+                    handle_err(new.inner.ipow_root(recip_rounded as i32))?;
+                    return Ok(new);
+                }
+
                 let p = other.round();
                 if !p.approx_eq(other) {
                     return handle_err(Err(error::SmootError::InvalidOperation(format!(
-                        "Expected an integral power but got {}",
-                        other
+                        "Expected an integral power but got {other}"
                     ))));
                 }
                 #[allow(clippy::cast_possible_truncation)]
-                handle_err(self.inner.clone().powi(p as i32)).map(|inner| Self { inner })
+                handle_err(self.inner.powi(p as i32)).map(|inner| Self { inner })
             }
 
             fn __neg__(&self) -> Self {
@@ -873,9 +907,8 @@ macro_rules! create_array_quantity_type {
                 let arr = &mut self.inner.magnitude;
                 if arr.len() != dim.size() {
                     return Err(PyValueError::new_err(format!(
-                        "Invalid shape {:?} != {:?}",
-                        arr.shape(),
-                        dim
+                        "Invalid shape {:?} != {dim:?}",
+                        arr.shape()
                     )));
                 }
 
@@ -904,8 +937,7 @@ macro_rules! create_array_quantity_type {
             ) -> PyResult<String> {
                 let format = handle_err(unit::UnitFormat::from_bits(unit_format).ok_or(
                     error::SmootError::NoSuchElement(format!(
-                        "Unknown format flags {:b}",
-                        unit_format
+                        "Unknown format flags {unit_format:b}"
                     )),
                 ))?;
                 registry
@@ -924,7 +956,13 @@ macro_rules! create_array_quantity_type {
             //==================================================
             fn sqrt(&self) -> PyResult<Self> {
                 let mut new = self.clone();
-                handle_err(new.inner.isqrt())?;
+                handle_err(new.inner.ipow_root(2))?;
+                Ok(new)
+            }
+
+            fn pow_root(&self, p: i32) -> PyResult<Self> {
+                let mut new = self.clone();
+                handle_err(new.inner.ipow_root(p))?;
                 Ok(new)
             }
 
@@ -1073,11 +1111,26 @@ macro_rules! create_array_quantity_type {
             }
 
             fn __pow__(&self, other: f64, _modulo: Option<i64>) -> PyResult<Self> {
+                // Compute an integral root
+                if other.abs() < 1.0 {
+                    let recip = 1.0 / other;
+                    let recip_rounded = recip.round();
+                    if !recip_rounded.approx_eq(recip) {
+                        return handle_err(Err(error::SmootError::InvalidOperation(format!(
+                            "Expected a rational root but got {recip}"
+                        ))));
+                    }
+
+                    let mut new = self.clone();
+                    #[allow(clippy::cast_possible_truncation)]
+                    handle_err(new.inner.ipow_root(recip_rounded as i32))?;
+                    return Ok(new);
+                }
+
                 let p = other.round();
                 if !p.approx_eq(other) {
                     return handle_err(Err(error::SmootError::InvalidOperation(format!(
-                        "Expected an integral power but got {}",
-                        other
+                        "Expected an integral power but got {other}"
                     ))));
                 }
                 #[allow(clippy::cast_possible_truncation)]

@@ -161,6 +161,8 @@ def test_eq() -> None:
         (Q(2, "meter"), operator.pow, Q(3, "meter"), ValueError),
         (Q(2, "meter"), operator.pow, Q(3), Q(8, "meter ** 3")),
         (Q(2, "meter"), operator.pow, 3, Q(8, "meter ** 3")),
+        (Q(4, "meter ** 2"), operator.pow, 0.5, Q(2, "meter")),
+        (Q(8, "meter ** 3"), operator.pow, 1/3, Q(2, "meter")),
         #### /
         (Q(4), operator.truediv, Q(2), Q(2)),
         (Q(4), operator.truediv, 2, Q(2)),
